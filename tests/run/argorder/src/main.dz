@@ -141,7 +141,7 @@ fn main() {
     // after the drop would print `XXXXX`. It did, on Linux and macOS, until r61's fix.
     println!("views:")
     println!("= {} {}", Poisoned{}.view(), say(1))
-    println!("= {} {}", say(1), Poisoned{}.view().len)
+    println!("= {} {}", say(1), Poisoned{}.view().byte_len)
     // And the temporary is still dropped when its statement ends — before the next one,
     // for a plain statement and for a `let` whose value outlives it.
     let width = measure(Poisoned{}.view(), say(2))
@@ -149,7 +149,7 @@ fn main() {
 }
 
 fn measure(text: &str, extra: i32) -> usize {
-    return text.len + extra as usize
+    return text.byte_len + extra as usize
 }
 
 struct Poisoned {

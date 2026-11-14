@@ -169,7 +169,7 @@ fn tokenize(source: &String) !-> List<Token> {
             while i < bytes.len && (is_letter(bytes[i]) || is_digit(bytes[i])) {
                 i += 1
             }
-            let word = source.slice(start, i) or unreachable
+            let word = source.cut_bytes(start, i)
             let kind = if word == "let" {
                 Kind::Let
             } else {
@@ -261,7 +261,7 @@ view struct Parser {
         let _ = self.expect(.Assign) or return
         let value = self.expr() or return
         let _ = self.expect(.End) or return
-        return (m_source.slice(name.start, name.end) or unreachable, move(value))
+        return (m_source.cut_bytes(name.start, name.end), move(value))
     }
 
     fn expr(&mut self) !-> Expr {
@@ -338,7 +338,7 @@ fn eval(e: &Expr, source: &String, names: &HashMap<String, i64>) !-> i64 {
             return n.value
         }
         case Name(&n) {
-            let text = source.slice(n.start, n.end) or unreachable
+            let text = source.cut_bytes(n.start, n.end)
             let value = names.get_str(text) or return error(Failure::UnknownName, "unknown name")
             return value
         }
@@ -427,6 +427,6 @@ fn main() {
         }
         checksum = checksum * 31 + value as u64
     }
-    println!("{} bytes, {} tokens, {} names, {} unknown-name, {} divide-by-zero, {} syntax", program.len(), all.len, names.len(), failures[2], failures[3], failures[1])
+    println!("{} bytes, {} tokens, {} names, {} unknown-name, {} divide-by-zero, {} syntax", program.byte_len(), all.len, names.len(), failures[2], failures[3], failures[1])
     println!("checksum {}", checksum)
 }

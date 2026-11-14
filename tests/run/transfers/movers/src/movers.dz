@@ -31,18 +31,18 @@ pub struct Shelf {
     pub fn total(&self) -> usize {
         let mut n: usize = 0
         for &s in m_items {
-            n += s.len()
+            n += s.byte_len()
         }
         return n
     }
 }
 
 fn shorter_first(a: &String, b: &String) -> bool {
-    return a.len() < b.len()
+    return a.byte_len() < b.byte_len()
 }
 
 // Sorts and reads a list it is lent, and sends nothing out of it.
 pub fn longest(names: &mut List<String>) -> usize kills names@items {
     names.sort_by(shorter_first)
-    return names[names.len() - 1].len()
+    return names[names.len() - 1].byte_len()
 }

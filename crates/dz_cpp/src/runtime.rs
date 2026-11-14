@@ -222,6 +222,11 @@ struct Opt {
     constexpr Opt() : value(), has(false) {}
     // Not explicit: `return v` from a `?T` function is the success case (spec §9.1).
     Opt(T v) : value(static_cast<T&&>(v)), has(true) {}
+    // A slice of writable elements where a `^[]T` of read-only ones is wanted: `return
+    // m_data[a..b]` from a function returning `^[]T`. C++ will not chain `Slice<T>` to
+    // `Slice<const T>` into `Opt(T)`, a second user-defined conversion (spec §5.3).
+    template <class U>
+    Opt(const Slice<U>& v) : value(v), has(true) {}
     static Opt some(T v) { return Opt(static_cast<T&&>(v)); }
     static Opt none() { return Opt(); }
 };
@@ -281,6 +286,11 @@ template <class T> DZ_INLINE T& obj(T& x) { return x; }
 template <class T> DZ_INLINE const T& obj(const T& x) { return x; }
 template <class T> DZ_INLINE T& obj(T* x) { return *x; }
 template <class T> DZ_INLINE const T& obj(const T* x) { return *x; }
+// A slice made in the call, `m[..].get_mut(i)`, for a method taking `&mut self`: the view is
+// the call's own, and lives until the call's statement ends, so writing it is harmless and
+// what it views is the place written to (spec §5.3).
+template <class T> DZ_INLINE Slice<T>& view_arg(Slice<T>&& x) { return x; }
+template <class T> DZ_INLINE Slice<T>& view_arg(Slice<T>& x) { return x; }
 
 /// The result of `&x` / `&mut x`.
 ///

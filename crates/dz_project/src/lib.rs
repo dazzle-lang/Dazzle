@@ -1116,6 +1116,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/core/iterate.dz", include_str!("std/core/iterate.dz")),
     ("<std>/core/implicit_as.dz", include_str!("std/core/implicit_as.dz")),
     ("<std>/core/ops.dz", include_str!("std/core/ops.dz")),
+    ("<std>/core/elements.dz", include_str!("std/core/elements.dz")),
     ("<std>/core/ordering.dz", include_str!("std/core/ordering.dz")),
     ("<std>/core/ownership.dz", include_str!("std/core/ownership.dz")),
     ("<std>/core/reverse.dz", include_str!("std/core/reverse.dz")),

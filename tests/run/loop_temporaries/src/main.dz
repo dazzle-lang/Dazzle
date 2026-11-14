@@ -36,7 +36,7 @@ struct Holder {
 
 impl Drop for Holder {
     fn drop(&mut self) {
-        if name.len() != 0 {
+        if name.byte_len() != 0 {
             println!("  drop {}", name)
         }
     }
@@ -79,7 +79,7 @@ fn main() {
     let mut out = List<u8>()
     for c in format!("P6\n{} {}\n255\n", 1280, 720).chars() {
         let noise = format!("{}{}{}", c, c, c)
-        out.push(c as u8 + noise.len() as u8 - 3)
+        out.push(c as u8 + noise.byte_len() as u8 - 3)
     }
     print!("format:")
     for b in out.as_slice() {

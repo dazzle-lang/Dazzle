@@ -63,7 +63,7 @@ fn main() {
     s.push('\u{e9}')
     let copy = s
     let same = copy == s
-    println!("{} {} {} {} {}", s.as_str(), s.len(), same, String::from("x").len(), s.as_cstr())
+    println!("{} {} {} {} {}", s.as_str(), s.byte_len(), same, String::from("x").byte_len(), s.as_cstr())
     // `push`'s ASCII path writes where the closing zero was: from empty, between other
     // characters and after `push_str`, the zero must still end the text for `as_cstr`.
     let mut built = String()
@@ -71,7 +71,7 @@ fn main() {
     built.push('\u{e9}')
     built.push_str("bc")
     built.push('d')
-    println!("{} {} {}", built.as_str(), built.len(), built.as_cstr())
+    println!("{} {} {}", built.as_str(), built.byte_len(), built.as_cstr())
     let mut names = List<String>()
     names.push(String("ada"))
     names.push(String("grace"))
@@ -87,5 +87,5 @@ fn main() {
     // Bytes to text, checked.
     let text = str::from_utf8(s.as_str() as &[]u8) or "invalid"
     let cut = str::from_utf8((s.as_str() as &[]u8)[0..14]) or "invalid"
-    println!("{} {}", text.len, cut)
+    println!("{} {}", text.byte_len, cut)
 }

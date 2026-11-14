@@ -217,7 +217,7 @@ reference or pointer — may be passed to a call in that same statement, but kee
 
 ```dz
 fn text_len(c: &cstr) -> usize {
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 fn main() {
@@ -229,7 +229,7 @@ fn main() {
 
 ```dz
 fn text_len(c: &cstr) -> usize {
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 fn main() {

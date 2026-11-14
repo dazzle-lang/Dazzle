@@ -763,7 +763,7 @@ fn cstr_from_literals() -> usize {
     let c = takes_cstr("argument")
     let _ = a
     let _ = b
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 // --- r18: `^T` and `^mut T` (spec §5.2, §18.37) ----------------------------------------
@@ -1268,11 +1268,11 @@ fn slices_and_text(name: &str) -> usize {
     let writable: &mut []i32 = arr[..2]
     writable[0] = middle[1]
     let bytes = name as &[]u8
-    let text = str::from_utf8(bytes[0..name.len]) or ""
+    let text = str::from_utf8(bytes[0..name.byte_len]) or ""
     let mut b = List<i32>(4)
     b.push(arr[0])
     b[0] += 1
-    return text.len + b.len() + b[0] as usize
+    return text.byte_len + b.len() + b[0] as usize
 }
 
 // §9.8, §12.7: a final `SourceLocation` is where `panic` says it happened — how a helper
@@ -1400,7 +1400,7 @@ fn weighted(xs: ..i32, scale: i32 = 1, offset: i32 = 0, label: &str) -> i32 {
     for x in xs {
         t += x
     }
-    return t * scale + offset + label.len as i32
+    return t * scale + offset + label.byte_len as i32
 }
 
 fn named_calls(xs: &[]i32) -> i32 {
@@ -1423,7 +1423,7 @@ fn formatted(h: Heading) -> usize {
     let a = format!("{} at {:.1} {:x} {}", h, 1.5, 255, true)
     let b = format!("{{}}")
     let c = format!("{} and {}", a, h)
-    return a.len() + b.len() + c.len()
+    return a.byte_len() + b.byte_len() + c.byte_len()
 }
 
 // §12.9: the printing macros take anything with `Format` — a type's own, a reference, a
@@ -1441,10 +1441,10 @@ fn printed<T: Format>(h: Heading, r: &Heading, s: String, t: T) {
 fn pointed(h: ^Heading, m: ^mut Heading, n: ^i32) !-> usize {
     println!("{} {} {:x} [{:6}] {:p} {:18p}", h, m, n, n, h, m)
     let s = format!("{:p}", n)
-    if s.len() == 0 {
+    if s.byte_len() == 0 {
         return error("nothing at {:p} [{:12p}]", n, h)
     }
-    return s.len()
+    return s.byte_len()
 }
 
 // §8.1: generic methods — inferred and written, with and without a receiver, on a generic
@@ -1485,7 +1485,7 @@ fn reading_text(line: &String, raw: &str) -> i64 {
     }
     let loud = "quiet".to_ascii_uppercase()
     let scale = "1.5".parse_f64() or 1.0
-    return total + loud.replace("Q", "").len() as i64 + scale as i64
+    return total + loud.replace("Q", "").byte_len() as i64 + scale as i64
 }
 
 // §14.4: a `List` of anything `Ord` sorts; any `List` sorts by a comparison.
@@ -1511,8 +1511,8 @@ fn text_by_character(name: &String) -> usize {
     for c in name {
         let _ = c
     }
-    let head = name.slice(0, 1) or ""
-    return wide + name.char_count() + head.len
+    let head = name.slice_bytes(0, 1) or ""
+    return wide + name.len() + head.byte_len
 }
 
 // §2.5: a suffix types the literal, with no context or in a matching one.
@@ -1554,7 +1554,7 @@ fn file_system(dir: &Path) !-> usize {
     let mut buf: [8]u8
     let n = f.read(buf[..]) or return
     let entries = Directory::list(dir) or return
-    return text.len() + n + entries.len() + config.extension().len
+    return text.byte_len() + n + entries.len() + config.extension().byte_len
 }
 
 // §10.4, 18.51: a container is looped over through `Iterable` and `IterableMut`.
@@ -1591,7 +1591,7 @@ fn hashing(name: &str) -> bool {
     let counts = HashMap<u8, bool>()
     let at = Tile{ x: 1, y: 2 }
     assert(three == 3)
-    assert(name.len > 0, "a name")
+    assert(name.byte_len > 0, "a name")
     let found = by_tile.contains(&at) && three == 3 && counts.get(&7) == null
     return found && 'c'.hash() != true.hash() && name.eq(&name)
 }
@@ -1674,7 +1674,7 @@ fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> u
     s.insert(0, 'x')
     let removed = s.remove(0)
     let comma = tail.rfind(",") or 0
-    return at + k.len + comma + (if fresh && removed == 'x' && first == 1 { 1 } else { 0 })
+    return at + k.byte_len + comma + (if fresh && removed == 'x' && first == 1 { 1 } else { 0 })
 }
 
 // §7.2, T-0036: several constructors, each reached by the arguments that fit it — by count,
@@ -1894,7 +1894,7 @@ fn conversions(name: &String, owned: String, x: f32) -> f32 {
     let _ = c_text(name)
     let _ = c_text(owned)
     let _ = c_text(String::from("x"))
-    return weigh(x) + weigh(owned.len() as f32)
+    return weigh(x) + weigh(owned.byte_len() as f32)
 }
 
 // Ties and `kills` clauses (spec §6.7): every form a signature may use. Nothing checks yet
@@ -1944,7 +1944,7 @@ fn member_text(roster: &Roster, i: usize) -> &str in roster.members[*] {
 // is a `const str`. A raw pointer from nothing may own what it points at, and a `T` may not
 // be a view at all (spec §6.7).
 fn first_or(a: &str, b: &str) -> &str in (a, b) {
-    return if a.len > 0 { a } else { b }
+    return if a.byte_len > 0 { a } else { b }
 }
 
 fn after(s: &str, prefix: &str) -> ^str in s {
@@ -2065,6 +2065,29 @@ impl Index<usize> for Bookshelf {
     }
 }
 
+// `xs[a..b]` on a type of the program's own is its `Slice`, as `xs[i]` is its `Index`; on
+// text and a `List` it is `std`'s, and `slice` and `get` give `null` where it would panic
+// (spec §5.3, D-0100).
+impl Slice for Bookshelf {
+    type Output = &[]String
+
+    fn cut(&self, from: usize, to: usize?, loc: SourceLocation = #location) -> &[]String in self@items {
+        return m_books.cut(from, to, loc)
+    }
+}
+
+fn shelved(shelf: &Bookshelf, line: &str, counts: &mut List<i32>) -> usize {
+    let some = shelf[1..]
+    let word = line.cut_bytes(0, 4)
+    let rest = line.slice_chars(5, line.len()) or return 0
+    let first = counts.get(0) or return 0
+    let window = counts[0..2]
+    let numbers = [1, 2, 3]
+    let two = numbers.get(1) or return 0
+    let pair = numbers.slice(0, 2) or return 0
+    return some.len + word.byte_len + rest.byte_len + first as usize + window.len + two as usize + pair.len
+}
+
 pub struct Rack {
     m_data: own ^mut i32 = null
     tie @items = m_data
@@ -2100,7 +2123,7 @@ fn signs() -> usize {
     let shown: &str = s.text
     let mut label = "none"
     label = sign_text(&s)
-    return all.len() + shown.len + label.len
+    return all.len() + shown.byte_len + label.byte_len
 }
 
 // A view struct's reference field (spec 6.7): bound by a constructor's opening statements
@@ -2169,7 +2192,7 @@ pub struct Caption {
 }
 
 fn initial_of(s: &str) -> ^str in s {
-    if s.len == 0 {
+    if s.byte_len == 0 {
         return null
     }
     return s.strip_prefix("")
@@ -2181,7 +2204,7 @@ fn text_kinds(owner: &String) -> usize {
     let l = Caption{ text: names[0] }
     let first = initial_of(owner) or return 0
     let none_here = initial_of("") == null
-    return first.len + l.text.len + (if none_here { 1 } else { 0 })
+    return first.byte_len + l.text.byte_len + (if none_here { 1 } else { 0 })
 }
 
 // A slice is borrowed (spec 5.3, D-0093, T-0110): `&[]T` and `&mut []T` in signatures,
@@ -2232,7 +2255,7 @@ fn c_kinds(s: &String) -> bool {
     let back = unsafe { raw or return false }
     let nothing: ^cstr = null
     let measured = unsafe { raw as &str }
-    return nothing == null && measured.len > 0 && (back as &str).len > 0 && (b.text as &str).len > 0
+    return nothing == null && measured.byte_len > 0 && (back as &str).byte_len > 0 && (b.text as &str).byte_len > 0
 }
 
 // Division is defined (spec 5.1, 11): a divisor that is not a constant zero is accepted, by
@@ -2306,7 +2329,7 @@ pub struct Blank {
 
 impl Tray for Blank {
     fn lay(&mut self, letter: String) {
-        count += letter.len() as i32
+        count += letter.byte_len() as i32
     }
 
     fn lift(&mut self) -> String? {

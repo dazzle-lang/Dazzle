@@ -356,7 +356,9 @@ fn main() {
 
 ## DZ0515
 
-`[i]` indexes an array, a slice, a `List`, or a type that implements `Index`.
+`[i]` indexes an array, a slice, a `List`, or a type that implements `Index`. `[a..b]` cuts
+an array, a slice, a `List`, or a type that implements `Slice`. Text has neither: it says its
+unit, `s.byte(i)` or `s.char(i)`, `s.cut_bytes(a, b)` or `s.cut_chars(a, b)` (spec §5.3).
 
 ```dz
 fn main() {
@@ -1021,7 +1023,7 @@ such as an iterator. The fix offered names every input; narrow it to what the bo
 
 ```dz
 fn longer(a: &str, b: &str) -> &str {
-    if a.len >= b.len {
+    if a.byte_len >= b.byte_len {
         return a
     }
     return b
@@ -1034,7 +1036,7 @@ fn main() {
 
 ```dz
 fn longer(a: &str, b: &str) -> &str in (a, b) {
-    if a.len >= b.len {
+    if a.byte_len >= b.byte_len {
         return a
     }
     return b
@@ -1089,7 +1091,7 @@ result is in its one view input, as a declaration's is.
 
 ```dz
 fn longer(a: &str, b: &str) -> &str in (a, b) {
-    if a.len >= b.len {
+    if a.byte_len >= b.byte_len {
         return a
     }
     return b
@@ -1111,7 +1113,7 @@ fn main() {
 
 ```dz
 fn longer(a: &str, b: &str) -> &str in (a, b) {
-    if a.len >= b.len {
+    if a.byte_len >= b.byte_len {
         return a
     }
     return b
@@ -1255,7 +1257,7 @@ text is changed through the `String` that owns it. `dz fix` respells each of the
 
 ```dz
 fn greet(name: str) -> ^str in name {
-    if name.len == 0 {
+    if name.byte_len == 0 {
         return null
     }
     return name
@@ -1269,7 +1271,7 @@ fn main() {
 
 ```dz
 fn greet(name: &str) -> ^str in name {
-    if name.len == 0 {
+    if name.byte_len == 0 {
         return null
     }
     return name
@@ -1626,5 +1628,27 @@ struct Holder {
 fn main() {
     let h = Holder{}
     println!("{}", h.shape())
+}
+```
+
+## DZ0586
+
+Text says its unit when it is measured (spec §5.3). In UTF-8 a character takes one to four
+bytes, so a length in bytes and a length in characters differ for any text outside ASCII,
+and `s.len` did not say which it was. `s.byte_len` is the length in bytes, which is what
+`s.len` was and what `find` and `split` count in; `s.len()` counts the characters, reading
+the text to do it. `dz fix` writes `byte_len`, which keeps what the program meant.
+
+```dz
+fn main() {
+    let s = "café"
+    println!("{}", s.len)
+}
+```
+
+```dz
+fn main() {
+    let s = "café"
+    println!("{} bytes, {} characters", s.byte_len, s.len())
 }
 ```

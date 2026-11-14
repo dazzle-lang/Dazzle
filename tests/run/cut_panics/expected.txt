@@ -1,0 +1,5 @@
+panic!
+panic: bytes 0..2 are past the end of 6 bytes, or inside a character
+main.dz:9:20
+ok: hé
+true

@@ -75,7 +75,7 @@ fn main() {
     }
     let mut keys: usize = 0
     for k in ages.keys() {
-        keys += k.len
+        keys += k.byte_len
     }
     let mut after = 0
     for v in ages.values() {

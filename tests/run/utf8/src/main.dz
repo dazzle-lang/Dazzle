@@ -5,7 +5,7 @@
 fn main() {
     let mut s = String("héllo ✓ ")
     s.push('🎮')
-    println!("{} bytes, {} chars", s.len(), s.char_count())
+    println!("{} bytes, {} chars", s.byte_len(), s.len())
 
     // Iterating: by `chars()` and by `for c in s`.
     let mut codes = String()
@@ -36,10 +36,10 @@ fn main() {
 
     // Cutting only on character boundaries.
     println!("boundary 1 {} 2 {} 3 {}", s.is_char_boundary(1), s.is_char_boundary(2), s.is_char_boundary(3))
-    println!("slice {}", s.slice(0, 3) or "none")
-    println!("slice inside é {}", s.slice(0, 2) or "none")
+    println!("slice {}", s.slice_bytes(0, 3) or "none")
+    println!("slice inside é {}", s.slice_bytes(0, 2) or "none")
     println!("pop {} {}", s.pop() or ' ', s.pop() or ' ')
-    println!("after pop '{}' {}", s.as_str(), s.char_count())
+    println!("after pop '{}' {}", s.as_str(), s.len())
     s.truncate(3)
     println!("truncate '{}'", s.as_str())
     let mut empty = String()
@@ -55,5 +55,5 @@ fn main() {
     for c in Chars(broken) {
         replaced.push(c)
     }
-    println!("replacement {} {}", replaced.as_str(), replaced.char_count())
+    println!("replacement {} {}", replaced.as_str(), replaced.len())
 }

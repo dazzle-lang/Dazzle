@@ -160,7 +160,7 @@ fn only_another_changes(a: &List<i32>, b: &List<i32>, c: &mut List<i32>) kills c
 fn popped_text_survives(names: &mut List<const &str>) kills names@items {
     let s = names.pop() or return
     names.push("x")
-    let _ = s.len
+    let _ = s.byte_len
 }
 
 // A view struct given to a function stands for what it views (spec §6.7, D-0093): an item

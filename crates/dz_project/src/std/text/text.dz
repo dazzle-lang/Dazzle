@@ -12,12 +12,12 @@ pub trait Text {
 
     fn starts_with(&self, prefix: &str) -> bool {
         let t = self.text()
-        return t.len >= prefix.len && sub(t, 0, prefix.len) == prefix
+        return t.byte_len >= prefix.byte_len && sub(t, 0, prefix.byte_len) == prefix
     }
 
     fn ends_with(&self, suffix: &str) -> bool {
         let t = self.text()
-        return t.len >= suffix.len && sub(t, t.len - suffix.len, t.len) == suffix
+        return t.byte_len >= suffix.byte_len && sub(t, t.byte_len - suffix.byte_len, t.byte_len) == suffix
     }
 
     /// Where `needle` first occurs, in bytes; `none` when it does not. An empty `needle` is
@@ -36,6 +36,103 @@ pub trait Text {
         return rfind_bytes(self.text(), needle)
     }
 
+    // Every way in by position says its unit, `byte` or `char`, since text has two (spec
+    // §5.3, D-0100). Each panics, at the caller's line, where its `get_` or `slice_` twin
+    // gives `none` or `null`. By bytes it is a step; by characters the text is read from the
+    // start, so it takes time in proportion to the position.
+
+    /// The length in characters. It reads the text, so it takes time in proportion to its
+    /// length; `byte_len` is the length in bytes, without reading it.
+    fn len(&self) -> usize {
+        let mut n: usize = 0
+        for b in self.text() as &[]u8 {
+            if ((b as u32) & 0xC0) != 0x80 {
+                n += 1
+            }
+        }
+        return n
+    }
+
+    /// Byte `i` of the UTF-8, which may be part of a character; a panic past the end.
+    fn byte(&self, i: usize, loc: SourceLocation = #location) -> u8 {
+        let bytes = self.text() as &[]u8
+        if i >= bytes.len {
+            panic!("byte {} is past the end of {} bytes", i, bytes.len, loc)
+        }
+        return bytes[i]
+    }
+
+    /// Byte `i`, or `none` past the end.
+    fn get_byte(&self, i: usize) -> u8? {
+        let bytes = self.text() as &[]u8
+        if i >= bytes.len {
+            return none
+        }
+        return bytes[i]
+    }
+
+    /// Bytes `from..to`, as text: a panic when an end is past the end or inside a character,
+    /// so the piece is always text. For positions `find` and `split` hand out.
+    fn cut_bytes(&self, from: usize, to: usize, loc: SourceLocation = #location) -> &str in self {
+        let t = self.text()
+        return t.slice_bytes(from, to) or panic!(
+            "bytes {}..{} are past the end of {} bytes, or inside a character",
+            from,
+            to,
+            t.byte_len,
+            loc
+        )
+    }
+
+    /// Bytes `from..to`, or `null` where `cut_bytes` would panic.
+    fn slice_bytes(&self, from: usize, to: usize) -> ^str in self {
+        let bytes = self.text() as &[]u8
+        if from > to || to > bytes.len || !is_utf8_boundary(bytes, from) || !is_utf8_boundary(bytes, to) {
+            return null
+        }
+        return unsafe { bytes[from..to] as &str }
+    }
+
+    /// Character `n`, counting from the start: a panic past the end.
+    fn char(&self, n: usize, loc: SourceLocation = #location) -> char {
+        return self.get_char(n) or panic!("character {} is past the end of {} characters", n, self.len(), loc)
+    }
+
+    /// Character `n`, or `none` past the end.
+    fn get_char(&self, n: usize) -> char? {
+        let bytes = self.text() as &[]u8
+        let at = char_offset(bytes, n) or return none
+        if at == bytes.len {
+            return none
+        }
+        let (c, _) = decode_utf8(bytes, at)
+        return c
+    }
+
+    /// Characters `from..to`, counting from the start: a panic when an end is past the end.
+    fn cut_chars(&self, from: usize, to: usize, loc: SourceLocation = #location) -> &str in self {
+        let t = self.text()
+        return t.slice_chars(from, to) or panic!(
+            "characters {}..{} are past the end of {} characters",
+            from,
+            to,
+            t.len(),
+            loc
+        )
+    }
+
+    /// Characters `from..to`, or `null` where `cut_chars` would panic.
+    fn slice_chars(&self, from: usize, to: usize) -> ^str in self {
+        if from > to {
+            return null
+        }
+        let bytes = self.text() as &[]u8
+        let start = char_offset(bytes, from) or return null
+        let rest = bytes[start..]
+        let end = start + (char_offset(rest, to - from) or return null)
+        return unsafe { bytes[start..end] as &str }
+    }
+
     /// The text after `prefix`, or `none` when it does not start with it:
     /// `line.strip_prefix("name=") or continue`.
     fn strip_prefix(&self, prefix: &str) -> ^str in self {
@@ -43,7 +140,7 @@ pub trait Text {
         if !t.starts_with(prefix) {
             return null
         }
-        return sub(t, prefix.len, t.len)
+        return sub(t, prefix.byte_len, t.byte_len)
     }
 
     /// The text before `suffix`, or `none` when it does not end with it.
@@ -52,7 +149,7 @@ pub trait Text {
         if !t.ends_with(suffix) {
             return null
         }
-        return sub(t, 0, t.len - suffix.len)
+        return sub(t, 0, t.byte_len - suffix.byte_len)
     }
 
     /// The text before and after the first `separator`, or `none` when there is none:
@@ -60,7 +157,7 @@ pub trait Text {
     fn split_once(&self, separator: &str) -> (&str, &str)? in self {
         let t = self.text()
         let at = find_bytes(t, separator, 0) or return none
-        return (sub(t, 0, at), sub(t, at + separator.len, t.len))
+        return (sub(t, 0, at), sub(t, at + separator.byte_len, t.byte_len))
     }
 
     /// The words: the pieces between runs of spaces, tabs and line breaks, never empty.
@@ -87,7 +184,7 @@ pub trait Text {
     fn repeat(&self, n: usize) -> String {
         let t = self.text()
         let mut out = String()
-        out.reserve(t.len * n)
+        out.reserve(t.byte_len * n)
         for _ in 0..n {
             out.push_str(t)
         }
@@ -107,7 +204,7 @@ pub trait Text {
 
     fn trim_start(&self) -> &str {
         let t = self.text()
-        return sub(t, trim_start_at(t), t.len)
+        return sub(t, trim_start_at(t), t.byte_len)
     }
 
     fn trim_end(&self) -> &str {
@@ -131,19 +228,19 @@ pub trait Text {
     fn replace(&self, from: &str, to: &str) -> String {
         let t = self.text()
         let mut out = String()
-        if from.len == 0 {
+        if from.byte_len == 0 {
             out.push_str(t)
             return out
         }
         let mut at: usize = 0
         while true {
             let found = find_bytes(t, from, at) or {
-                out.push_str(sub(t, at, t.len))
+                out.push_str(sub(t, at, t.byte_len))
                 return out
             }
             out.push_str(sub(t, at, found))
             out.push_str(to)
-            at = found + from.len
+            at = found + from.byte_len
         }
         return out
     }
@@ -235,6 +332,25 @@ impl Text for String {
     }
 }
 
+/// Where character `n` of `bytes` starts: `bytes.len` for the end, `none` past it.
+fn char_offset(bytes: &[]u8, n: usize) -> usize? {
+    let mut seen: usize = 0
+    let mut i: usize = 0
+    while i < bytes.len {
+        if ((bytes[i] as u32) & 0xC0) != 0x80 {
+            if seen == n {
+                return i
+            }
+            seen += 1
+        }
+        i += 1
+    }
+    if seen == n {
+        return bytes.len
+    }
+    return none
+}
+
 /// The pieces of a text between each occurrence of a separator: `for field in
 /// line.split(",")`.
 pub view struct Split {
@@ -254,14 +370,14 @@ pub view struct Split {
     }
 
     fn find_end(&mut self) {
-        if m_separator.len == 0 {
-            m_end = m_text.len
+        if m_separator.byte_len == 0 {
+            m_end = m_text.byte_len
             return
         }
         if let at = find_bytes(m_text, m_separator, m_start) {
             m_end = at
         } else {
-            m_end = m_text.len
+            m_end = m_text.byte_len
         }
     }
 }
@@ -281,11 +397,11 @@ impl Iterate for Split {
 
     #[inline]
     fn advance(&mut self) {
-        if m_end >= m_text.len || m_separator.len == 0 {
+        if m_end >= m_text.byte_len || m_separator.byte_len == 0 {
             m_done = true
             return
         }
-        m_start = m_end + m_separator.len
+        m_start = m_end + m_separator.byte_len
         self.find_end()
     }
 }
@@ -308,7 +424,7 @@ pub view struct Lines {
         if let at = find_bytes(m_text, "\n", m_start) {
             m_end = at
         } else {
-            m_end = m_text.len
+            m_end = m_text.byte_len
         }
     }
 }
@@ -318,7 +434,7 @@ impl Iterate for Lines {
 
     #[inline]
     fn valid(&self) -> bool {
-        return m_start < m_text.len
+        return m_start < m_text.byte_len
     }
 
     #[inline]
@@ -373,7 +489,7 @@ impl Iterate for SplitWhitespace {
 
     #[inline]
     fn valid(&self) -> bool {
-        return m_start < m_text.len
+        return m_start < m_text.byte_len
     }
 
     #[inline]
@@ -465,7 +581,7 @@ fn trim_end_at(t: &str) -> usize {
 
 fn ascii_case(t: &str, lower: bool) -> String {
     let mut out = String()
-    out.reserve(t.len)
+    out.reserve(t.byte_len)
     for c in Chars(t) {
         let code = c as u32
         if lower && code >= 'A' as u32 && code <= 'Z' as u32 {

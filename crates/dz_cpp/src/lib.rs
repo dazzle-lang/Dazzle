@@ -5874,10 +5874,18 @@ impl<'a> Emitter<'a> {
                         | Ty::Bool
                         | Ty::Char
                 );
+                // A writable slice made for the call, `m[..].get_mut(i)` or an array's own
+                // `m.get_mut(i)`, cannot bind the `&mut self` its implementation takes, as
+                // `obj` gives it; it is the call's own view, so it is passed as one.
+                let view = matches!(self.cur().ty(*recv), Ty::Slice { mutable: true, .. });
                 let r = recv_text();
                 match target {
                     Some(f) if primitive => {
                         recv_arg = Some(r);
+                        f
+                    }
+                    Some(f) if view => {
+                        recv_arg = Some(format!("::dz::rt::view_arg({r})"));
                         f
                     }
                     Some(f) => {

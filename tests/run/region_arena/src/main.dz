@@ -86,7 +86,7 @@ fn grown_containers() {
         s.push_str("region ")
     }
     println!("list {} sum {}", xs.len(), sum)
-    println!("string {} ends {}", s.len(), s.as_str().ends_with("region "))
+    println!("string {} ends {}", s.byte_len(), s.as_str().ends_with("region "))
 
     // Elements that are not moved as bytes: short names, kept in place, so nothing else is
     // allocated between the pushes and the list grows where it is, then shrinks there.

@@ -2092,7 +2092,7 @@ error[DZ0517]: a struct field cannot hold `&cstr`, which is a view
 error[DZ0528]: reading C's `^cstr` as text is unsafe
      ┌─ typeerrors/src/errors.dz:1666:12
      │
-1666 │     return (c as &str).len
+1666 │     return (c as &str).byte_len
      │            ^^^^^^^^^^^ outside an `unsafe` block
      │
      = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
@@ -2136,3 +2136,27 @@ error[DZ0585]: method `shape` has the name of a field of the same type
      │            ^^^^^ a second `shape` in one type
      │
      = help: a field and a method may not share a name: inside a method a bare `shape` would name either; rename one, a getter `shape()` say to `get_shape()` or the field to `m_shape` (spec §7.3)
+
+error[DZ0515]: `Shelf` cannot be sliced
+     ┌─ typeerrors/src/errors.dz:1708:16
+     │
+1708 │     let some = shelf[0..1]
+     │                ^^^^^ not a sequence
+     │
+     = help: `[a..b]` works on arrays, slices, `List`, and a type that implements `Slice` (and `SliceMut` to write through it): implement it for `Shelf` (spec §5.3)
+
+error[DZ0515]: text is not indexed with brackets
+     ┌─ typeerrors/src/errors.dz:1715:17
+     │
+1715 │     let first = name[0]
+     │                 ^^^^ bytes or characters?
+     │
+     = help: say the unit: `s.byte(i)` counts bytes, as `find` and `byte_len` do, and `s.char(i)` characters; each panics where its `get_` or `slice_` twin gives `none` (spec §5.3)
+
+error[DZ0586]: text's length says its unit: `byte_len` or `len()`
+     ┌─ typeerrors/src/errors.dz:1716:17
+     │
+1716 │     return name.len
+     │                 ^^^ bytes or characters?
+     │
+     = help: `s.byte_len` is the length in bytes, what `s.len` was; `s.len()` counts the characters (spec §5.3)

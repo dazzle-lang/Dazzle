@@ -118,9 +118,11 @@ nothing; `List<T>(capacity)` has room for `capacity` elements. It doubles when i
 `truncate`, `resize` (new elements at their defaults), `reserve`, `shrink_to_fit`, `len`,
 `capacity`, `is_empty`; `retain(keep)` keeps the elements a `fn(&T) -> bool` says yes to,
 in order, and drops the rest; `append(&mut other)` moves `other`'s elements onto the end;
-`reverse`; `b[i]` reads and writes, checked against the length; `as_slice()` and
-`as_mut_slice()` view the elements; `first()`, `last()`, `first_mut()` and `last_mut()`
-are a `^T`, `null` when the list is empty, as a map's lookup is (§9.1). It is move-only
+`reverse`; `b[i]` reads and writes, checked against the length, and `get(i)` and
+`get_mut(i)` are a `^T`, `null` past the end; `b[a..b]` views a part, checked, and
+`slice(a, b)` and `slice_mut(a, b)` are a `^[]T`, `null` where it would panic (§5.3);
+`as_slice()` and `as_mut_slice()` view the elements; `first()`, `last()`, `first_mut()` and
+`last_mut()` are a `^T`, `null` when the list is empty, as a map's lookup is (§9.1). It is move-only
 unless `T` is copyable, and then a copy copies into a new allocation, wherever the copy is
 placed (§14.6).
 Every call that may allocate takes `loc = #location`, so tracking names the line that
@@ -137,7 +139,7 @@ elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
 **`String`** is owned UTF-8 text, in `std`: `String("x")` or `String::from("x")` copy a
 `&str`. `push_str`, `push` (a `char`, encoded),
 `insert(at, c)`, `insert_str(at, s)`, `remove(at)` (the character there), `clear`,
-`reserve`, `len` (bytes), `capacity`, `is_empty`; `as_str()` borrows the text and
+`reserve`, `byte_len` and `len()` (bytes and characters, §5.3), `capacity`, `is_empty`; `as_str()` borrows the text and
 `as_cstr()` borrows it as a C string, since the bytes are always followed by a zero. `==`
 compares text, and a copy copies it. `format!("…", args)` builds one from a format string
 (§12.9). **Text of up to 15 bytes is kept inside the `String`**, allocating nothing, as
@@ -442,22 +444,27 @@ bytes, which for UTF-8 is code-point order, not a language's alphabetical one. `
 runs differ; `Random::seed(n)` makes this thread's numbers repeat exactly. The generator is
 SplitMix64: fast and well distributed, and not for cryptography. `[DECIDED — §18.67]`
 
-**Text is UTF-8.** A `&str` views UTF-8 bytes and a `String` owns them; `len` counts bytes,
-and a character outside ASCII takes two to four. Characters are decoded as they are read:
+**Text is UTF-8.** A `&str` views UTF-8 bytes and a `String` owns them; a character outside
+ASCII takes two to four bytes, so every length and position says its unit (§5.3):
+`byte_len` and `len()`, `byte(i)` and `char(n)`, `cut_bytes(a, b)` and `cut_chars(a, b)`,
+each with a `get_` or `slice_` twin that gives `none` or `null` where it would panic.
+Characters are decoded as they are read:
 
 - `s.chars()` — or `for c in s` on a `String`, or `Chars(text)` on any `&str` — steps
   through the characters as `char`s. A byte that is not valid UTF-8, which only the
   unchecked `bytes as &str` can produce, reads as U+FFFD.
-- `char_count()`, `pop()` (the last character, a `char?`), `is_char_boundary(i)`,
-  `slice(from, to)` (a `^str`: `null` when an end falls inside a character) and
-  `truncate(len)` (a panic inside one), so text is never cut into invalid bytes.
+- `pop()` (the last character, a `char?`), `is_char_boundary(i)`, the cuts by bytes (a
+  panic, or `null`, when an end falls inside a character) and `truncate(len)` (a panic
+  inside one), so text is never cut into invalid bytes.
 - `insert(at, c)`, `insert_str(at, s)` and `remove(at)` (the character starting there)
   change a `String` in place, and panic when `at` is not where a character starts.
 - `String::from_utf8(bytes)` copies bytes that are valid UTF-8, `none` otherwise.
 - A `char` formatted with `{}` is written as UTF-8, as a `&str` is.
 
-A character's position is in bytes throughout; there is no indexing by character, which
-would take time in proportion to the text's length on every use. `[DECIDED — §18.69]`
+Positions that `find`, `split` and the rest hand back are bytes, which is a step to reach.
+Reaching a character by its number, `len()` and the `_chars` methods read the text from the
+start, so they take time in proportion to the position: they are methods that say so, never
+`s[i]`. `[DECIDED — §18.69, D-0100]`
 
 **A C string from text.** A `&str` has no zero after it, so it is not a `&cstr`; a literal
 is, as a `const &cstr` (§5.3). A `String` keeps a zero after its bytes, and `as_cstr()`

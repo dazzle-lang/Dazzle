@@ -269,10 +269,10 @@ gives four `f32`s rather than four `i32`s converted (there are no implicit conve
 says. `[DECIDED — §18.24]`
 
 ```dz
-&str            UTF-8 text borrowed from what owns it: { ptr: ^u8, len: usize }. Never
+&str            UTF-8 text borrowed from what owns it: { ptr: ^u8, byte_len: usize }. Never
                 owns. Not null-terminated. Immutable.
 const &str      text whose bytes are in static storage: a literal's, a constant's.
-^str            text that may be absent: the same { ptr, len }, which may be null.
+^str            text that may be absent: the same { ptr, byte_len }, which may be null.
 String          stdlib: owning, growable. Written in Dazzle, not builtin.
 &cstr           a null-terminated C string borrowed from what owns it, for C interop.
 const &cstr     a literal's C string, in static storage.
@@ -288,14 +288,40 @@ inside a `view struct` (§6.7). A bare `str`, `str?` for `^str`, `const str` for
 back. A `String` passed where a `&str` is wanted is its text, borrowed for the call (§7.2).
 An implementation for text is written for `&str`: `impl Format for &str`.
 
-**A slice of part of a sequence** is written with a range: `xs[a..b]`, `xs[a..]`, `xs[..b]`.
-On an array or a slice both ends are checked when it runs, as an index is; on a pointer it is
-`unsafe` and unchecked, and the end must be written, since a pointer carries no length. The
-slice is as writable as what it views — a `[]mut T`, a `^mut T`, or an array that may be
-written gives a `[]mut T`. `[DECIDED — §18.50]`
+**A slice of part of a sequence** is written with a range: `xs[a..b]`, `xs[a..]`, `xs[..b]`,
+on an array, a slice, or a type that implements `Slice` (§11.2), which `List` does. Both
+ends are checked when it runs, as an index is: an end past the length, or `a > b`, panics at
+the line that cut. On a pointer it is `unsafe` and unchecked, and the end must be written,
+since a pointer carries no length. The slice is as writable as what it views — a `[]mut T`, a
+`^mut T`, or an array or `List` that may be written gives a `[]mut T`.
+`[DECIDED — §18.50, D-0100]`
 
-**A `&str` is `{ ptr, len }`**, and `s.len` and `s.ptr` read them. Its bytes are `s as
-[]u8`. The way back is `str::from_utf8(bytes)`, a `^str` that is `null` when the bytes are
+**Each has a way that does not panic.** `xs.get(i)` is a `^T` and `xs.slice(a, b)` a `^[]T`,
+`null` exactly where `xs[i]` and `xs[a..b]` would panic; `get_mut` and `slice_mut` give
+writable ones. `xs[a..b]` is for a range the program computed and knows is valid; `slice` is
+for one that comes from input, where failure is a case to handle: `let part = xs.slice(a, b)
+or return`. An array has its slice's, a writable slice a read-only one's too.
+`[DECIDED — D-0100]`
+
+**Text says its unit.** UTF-8 text is reached by byte or by character, and a position means
+nothing without saying which, so text has no brackets (`DZ0515`) and every way in names its
+unit, panicking where its `get_` or `slice_` twin gives `none` or `null`:
+
+| | panics | `none` / `null` instead |
+|---|---|---|
+| one byte, `u8` | `s.byte(i)` | `s.get_byte(i)` |
+| bytes `a..b`, as text | `s.cut_bytes(a, b)` | `s.slice_bytes(a, b)` |
+| character `n`, `char` | `s.char(n)` | `s.get_char(n)` |
+| characters `a..b`, as text | `s.cut_chars(a, b)` | `s.slice_chars(a, b)` |
+
+`s.byte_len` is the length in bytes, and `s.len()` in characters (`s.len` is `DZ0586`). By
+bytes is a step: positions from `find` and `split` are bytes, and a cut by bytes also panics,
+or gives `null`, when an end falls inside a character, so a piece is always text. By
+characters the text is read from the start, so it costs time in proportion to the position,
+which is why it is a method and never `s[i]`. `[DECIDED — D-0100]`
+
+**A `&str` is `{ ptr, byte_len }`**, and `s.byte_len` and `s.ptr` read them. Its bytes are
+`s as []u8`. The way back is `str::from_utf8(bytes)`, a `^str` that is `null` when the bytes are
 not well-formed UTF-8; `bytes as &str` skips the check and is `unsafe`, as is `p as &cstr`
 for a `^u8`. `[DECIDED — §18.50]`
 
@@ -321,8 +347,8 @@ owning C string is a `String`, which keeps a zero after its bytes and frees them
 
 **A `const &str` is text that never dies**: its bytes are in static storage, a literal's or
 a constant's. The constness is the reference's, since what it points at never dies. It is
-the same `{ ptr, len }` as a `&str` and the same C++ type, and reads as a `&str` wherever a
-`const &str` is not wanted — a call, a comparison, `{}`, `.len` — so every implementation
+the same `{ ptr, byte_len }` as a `&str` and the same C++ type, and reads as a `&str` wherever
+a `const &str` is not wanted — a call, a comparison, `{}`, `.byte_len` — so every implementation
 for `&str` is one for `const &str`. A `&str` never becomes a `const &str`, since it may view
 a `String`. **A string literal is a `const &str` wherever one is wanted**, as it is a
 `const &cstr`; elsewhere it is a `&str`, so `let mut label = "none"` can later take any text, while

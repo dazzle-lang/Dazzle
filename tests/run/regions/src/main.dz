@@ -243,7 +243,7 @@ fn heading(n: i32) -> i32 {
     let mut total = 0
     for i in 0..n {
         let line = format!("== {} ==", i)
-        total += line.len() as i32
+        total += line.byte_len() as i32
     }
     return total
 }
@@ -432,7 +432,7 @@ fn appended() -> usize {
     names.append(&mut other)
     churn()
     let last = names.last() or return 0
-    return last.len()
+    return last.byte_len()
 }
 
 // Read, grown and sorted through its elements, everything still in the region: it skips its
@@ -450,7 +450,7 @@ fn indexed() -> usize {
         s.push_str("?")
     }
     churn()
-    return names[0].len() + names[1].len() + names.len()
+    return names[0].byte_len() + names[1].byte_len() + names.len()
 }
 
 // Each pass builds a list over several statements and then pushes it: it goes into the
@@ -489,7 +489,7 @@ fn tallied(text: &str) -> usize {
     }
     let mut total: usize = 0
     for k, &n in counts {
-        total += k.len() * 10 + n as usize
+        total += k.byte_len() * 10 + n as usize
     }
     return total + churn() as usize
 }
@@ -500,7 +500,7 @@ fn labelled(n: i32) -> usize {
     for i in 0..n {
         names.push(format!("label {}", i))
     }
-    return names[names.len() - 1].len() + names.len()
+    return names[names.len() - 1].byte_len() + names.len()
 }
 
 // A copy into a list the caller lent keeps the heap: the list outlives this region.
@@ -537,7 +537,7 @@ fn named_copy() -> usize {
     a.tags.push(String::from("tag"))
     let b = a
     a.tags.push(String::from("more"))
-    return b.name.len() + b.tags.len() * 10 + a.tags.len() * 100
+    return b.name.byte_len() + b.tags.len() * 10 + a.tags.len() * 100
 }
 
 // Stored into a container: built where the container lives (T-0145). The pushed strings
@@ -553,7 +553,7 @@ fn filled(n: i32) -> usize {
     }
     let mut total: usize = 0
     for &s in names {
-        total += s.len()
+        total += s.byte_len()
     }
     return total + churn() as usize
 }
@@ -576,7 +576,7 @@ fn drained(n: i32) -> usize {
     for _ in 0..n {
         names.push(String::from("pass"))
         let s = names.pop() or return 0
-        count += s.len()
+        count += s.byte_len()
     }
     return count
 }
@@ -588,7 +588,7 @@ fn counted(n: i32) -> usize {
     m.insert(n, String::from("five"))
     let mut total: usize = 0
     if let &v = m.get(&n) {
-        total += v.len()
+        total += v.byte_len()
     }
     return total
 }

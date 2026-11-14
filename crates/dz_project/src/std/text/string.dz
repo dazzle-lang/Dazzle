@@ -34,15 +34,15 @@ pub struct String {
     }
 
     /// The length in bytes, not counting the zero after them. A character outside ASCII
-    /// takes two to four; `char_count` counts characters.
+    /// takes two to four; `len()` counts characters (spec §5.3).
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn byte_len(&self) -> usize {
         return m_len & (STRING_ON_HEAP - 1)
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        return self.len() == 0
+        return self.byte_len() == 0
     }
 
     /// How many bytes it can hold before it next grows, not counting the zero.
@@ -58,7 +58,7 @@ pub struct String {
     #[inline]
     pub fn as_str(&self) -> &str in self@text {
         let p = self.start()
-        return unsafe { p[0..self.len()] as &str }
+        return unsafe { p[0..self.byte_len()] as &str }
     }
 
     /// The text as a C string, borrowed, for C and C++ functions that want one. Valid until
@@ -71,16 +71,16 @@ pub struct String {
     /// Append `s`.
     #[inline]
     pub fn push_str(&mut self, s: &str, loc: SourceLocation = #location) kills self@text {
-        if s.len == 0 {
+        if s.byte_len == 0 {
             return
         }
-        let len = self.len()
-        if len + s.len > self.capacity() {
-            self.make_room(len + s.len, loc)
+        let len = self.byte_len()
+        if len + s.byte_len > self.capacity() {
+            self.make_room(len + s.byte_len, loc)
         }
         let p = self.start()
-        unsafe { memcpy(&mut p[len], (s as &[]u8).ptr, s.len) }
-        self.set_len(len + s.len)
+        unsafe { memcpy(&mut p[len], (s as &[]u8).ptr, s.byte_len) }
+        self.set_len(len + s.byte_len)
     }
 
     /// Append one character, encoded as UTF-8.
@@ -89,7 +89,7 @@ pub struct String {
         let cp = c as u32
         if cp < 0x80 {
             // ASCII, the common case: one byte where the zero was, and a new zero after it.
-            let len = self.len()
+            let len = self.byte_len()
             if len == self.capacity() {
                 self.make_room(len + 1, loc)
             }
@@ -115,17 +115,17 @@ pub struct String {
         if !self.is_char_boundary(at) {
             panic!("insert at byte {}, inside a character or past the end", at, loc)
         }
-        if s.len == 0 {
+        if s.byte_len == 0 {
             return
         }
-        let len = self.len()
-        if len + s.len > self.capacity() {
-            self.make_room(len + s.len, loc)
+        let len = self.byte_len()
+        if len + s.byte_len > self.capacity() {
+            self.make_room(len + s.byte_len, loc)
         }
         let p = self.start()
-        unsafe { memmove(&mut p[at + s.len], &p[at], len - at) }
-        unsafe { memcpy(&mut p[at], (s as &[]u8).ptr, s.len) }
-        self.set_len(len + s.len)
+        unsafe { memmove(&mut p[at + s.byte_len], &p[at], len - at) }
+        unsafe { memcpy(&mut p[at], (s as &[]u8).ptr, s.byte_len) }
+        self.set_len(len + s.byte_len)
     }
 
     /// Put one character in at byte `at`, encoded as UTF-8.
@@ -138,7 +138,7 @@ pub struct String {
     /// Take out the character starting at byte `at` and hand it back. Panics when `at` is
     /// not where a character starts.
     pub fn remove(&mut self, at: usize, loc: SourceLocation = #location) -> char kills self@text {
-        let len = self.len()
+        let len = self.byte_len()
         if at >= len || !self.is_char_boundary(at) {
             panic!("remove at byte {}, not the start of a character", at, loc)
         }
@@ -160,22 +160,9 @@ pub struct String {
         return Chars(self.as_str())
     }
 
-    /// How many characters the text holds. It walks the text, so it takes time in
-    /// proportion to its length.
-    pub fn char_count(&self) -> usize {
-        let bytes = self.as_str() as &[]u8
-        let mut n: usize = 0
-        for b in bytes {
-            if ((b as u32) & 0xC0) != 0x80 {
-                n += 1
-            }
-        }
-        return n
-    }
-
     /// Remove the last character and hand it back, or `none` when the text is empty.
     pub fn pop(&mut self) -> char? kills self@text {
-        let len = self.len()
+        let len = self.byte_len()
         if len == 0 {
             return none
         }
@@ -195,20 +182,10 @@ pub struct String {
         return is_utf8_boundary(self.as_str() as &[]u8, index)
     }
 
-    /// Bytes `from..to` of the text, borrowed, or `none` when either end falls inside a
-    /// character or past the end — so the piece is always text.
-    pub fn slice(&self, from: usize, to: usize) -> ^str {
-        let bytes = self.as_str() as &[]u8
-        if from > to || to > bytes.len || !is_utf8_boundary(bytes, from) || !is_utf8_boundary(bytes, to) {
-            return null
-        }
-        return unsafe { bytes[from..to] as &str }
-    }
-
     /// Keep the first `len` bytes. Panics when `len` falls inside a character, which would
     /// leave the text invalid; a `len` past the end changes nothing.
     pub fn truncate(&mut self, len: usize, loc: SourceLocation = #location) kills self@text {
-        if len >= self.len() {
+        if len >= self.byte_len() {
             return
         }
         if !self.is_char_boundary(len) {
@@ -219,7 +196,7 @@ pub struct String {
 
     /// Room for at least `additional` more bytes without growing again.
     pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@text {
-        let wanted = self.len() + additional
+        let wanted = self.byte_len() + additional
         if wanted > self.capacity() {
             self.make_room(wanted, loc)
         }
@@ -257,7 +234,7 @@ pub struct String {
         // The text moves, and on the heap its old memory is freed: see `set_len`.
         unsafe { destroy(m_store[1]) }
         let a = unsafe { m_allocator or panic!("a String with no allocator cannot grow") }
-        let len = self.len()
+        let len = self.byte_len()
         let doubled = if m_len >= STRING_ON_HEAP {
             m_store[1] * 2
         } else {

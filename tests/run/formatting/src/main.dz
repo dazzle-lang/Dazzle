@@ -144,7 +144,7 @@ fn main() {
     println!("{} {} {} {:x} [{:5}]", at, at_mut, nowhere, counted, counted)
     let address = format!("{:p}", at)
     let same = address == format!("{:p}", at_mut)
-    println!("{} {} {}", same, address.as_str().starts_with("0x"), format!("[{:20p}]", at).len())
+    println!("{} {} {}", same, address.as_str().starts_with("0x"), format!("[{:20p}]", at).byte_len())
     println!("{:p} [{:5p}]", nowhere, nowhere)
     let _ = missing(nowhere) or { e ->
         println!("{}", e.message)

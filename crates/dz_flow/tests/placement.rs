@@ -66,7 +66,7 @@ fn printed() -> i32 {
     let word = String::from("w")
     counts.insert(word, 1)
     let copy = word
-    return counts.len() as i32 + copy.len() as i32
+    return counts.len() as i32 + copy.byte_len() as i32
 }
 
 // Placed: in the region of an `if`, and of a nested block.
@@ -74,7 +74,7 @@ fn nested(flag: bool) -> usize {
     let mut n: usize = 0
     if flag {
         let path = Path("a/b")
-        n = path.as_str().len
+        n = path.as_str().byte_len
     }
     {
         let set = HashSet<i32>()
@@ -139,7 +139,7 @@ fn looped() -> usize {
     for _ in 0..3 {
         s = String::from("x")
     }
-    return s.len()
+    return s.byte_len()
 }
 
 // Heap: the program's own allocator-taking function, whose use of it is out of sight.
@@ -836,13 +836,13 @@ struct Store {
 }
 fn kept(n: i32) -> usize {
     let s = format!("n = {}", n)
-    return s.len()
+    return s.byte_len()
 }
 fn per_pass(n: i32) -> usize {
     let mut total: usize = 0
     for i in 0..n {
         let s = format!("{}", i)
-        total += s.len()
+        total += s.byte_len()
     }
     return total
 }
@@ -861,10 +861,10 @@ fn reassigned(n: i32) -> usize {
     for i in 0..n {
         s = format!("{}", i)
     }
-    return s.len()
+    return s.byte_len()
 }
 fn lent(n: i32) -> usize {
-    return format!("{}", n).len()
+    return format!("{}", n).byte_len()
 }
 fn main() {
     let mut names = List<String>()
@@ -1187,7 +1187,7 @@ fn drained(n: i32) -> usize {
     for _ in 0..n {
         names.push(String::from("pass"))
         let s = names.pop() or return 0
-        count += s.len()
+        count += s.byte_len()
     }
     return count
 }
@@ -1715,7 +1715,7 @@ fn skipped() -> usize {
     let mut n: usize = 0
     for _ in 0..3 {
         let t = String::from("each pass")
-        n += t.len()
+        n += t.byte_len()
     }
     // Everything put into it was built in its region (T-0145).
     let mut names = List<String>()
@@ -1724,7 +1724,7 @@ fn skipped() -> usize {
     }
     let one = String::from("one")
     names.push(move(one))
-    return xs.len() + s.len() + m.len() + b.items.len() + f.len() + n + names.len()
+    return xs.len() + s.byte_len() + m.len() + b.items.len() + f.byte_len() + n + names.len()
 }
 
 fn kept() -> usize {
@@ -1744,7 +1744,7 @@ fn kept() -> usize {
     let t = Taken(List<i32>())
     let noisy = Noisy()
     let h = Half{ built: List<i32>() }
-    return names.len() + grown.len() + keyed.len() + a.len() + r.len() + c.len() + t.items.len() +
+    return names.len() + grown.len() + keyed.len() + a.byte_len() + r.byte_len() + c.byte_len() + t.items.len() +
         noisy.items.len() + h.built.len()
 }
 
@@ -1929,7 +1929,7 @@ fn made(n: i32) -> String {
 fn held(n: i32) -> usize {
     let line = format!("line {}", n)
     let m = made(n)
-    return line.len() + m.len()
+    return line.byte_len() + m.byte_len()
 }
 
 // The user's example in T-0147: everything in `strings` is `format!`'s text but one
@@ -1950,7 +1950,7 @@ fn create_strings() -> String {
 fn replaced(n: i32) -> usize {
     let mut line = format!("line {}", n)
     line = String::from("on the heap")
-    return line.len()
+    return line.byte_len()
 }
 
 fn main() {
@@ -1996,7 +1996,7 @@ fn read() -> usize {
     for _ in 0..3 {
         xs.push(String::from("x"))
     }
-    return xs[1].len()
+    return xs[1].byte_len()
 }
 
 fn grown() -> usize {
@@ -2071,7 +2071,7 @@ fn held_in_a_let() -> usize {
     r.push_str("y")
     let m = &mut xs[0]
     println!("{}", m)
-    return xs.len() + r.len()
+    return xs.len() + r.byte_len()
 }
 
 fn walked() -> usize {

@@ -56,7 +56,7 @@ pub struct Path {
     pub fn join(&self, part: &str) -> Path {
         let here = self.as_str()
         let other = Path(part)
-        if here.len == 0 || other.is_absolute() {
+        if here.byte_len == 0 || other.is_absolute() {
             return move(other)
         }
         if other.is_empty() {
@@ -74,9 +74,9 @@ pub struct Path {
     pub fn file_name(&self) -> &str {
         let text = self.as_str()
         if let at = last_separator(text) {
-            return sub(text, at + 1, text.len)
+            return sub(text, at + 1, text.byte_len)
         }
-        if text.len == 2 && (text as &[]u8)[1] == ':' as u8 {
+        if text.byte_len == 2 && (text as &[]u8)[1] == ':' as u8 {
             return ""
         }
         return text
@@ -87,7 +87,7 @@ pub struct Path {
     pub fn extension(&self) -> &str {
         let name = self.file_name()
         if let at = last_dot(name) {
-            return sub(name, at + 1, name.len)
+            return sub(name, at + 1, name.byte_len)
         }
         return ""
     }
@@ -123,10 +123,10 @@ pub struct Path {
         let name = self.file_name()
         let mut base = text
         if let at = last_dot(name) {
-            base = sub(text, 0, text.len - (name.len - at))
+            base = sub(text, 0, text.byte_len - (name.byte_len - at))
         }
         let mut out = String(base)
-        if ext.len > 0 {
+        if ext.byte_len > 0 {
             out.push('.')
             out.push_str(ext)
         }
@@ -203,7 +203,7 @@ fn is_separator(b: u8) -> bool {
 }
 
 fn ends_with_separator(s: &str) -> bool {
-    return s.len > 0 && (s as &[]u8)[s.len - 1] == '/' as u8
+    return s.byte_len > 0 && (s as &[]u8)[s.byte_len - 1] == '/' as u8
 }
 
 /// Bytes `from..to` of `s`. Only ever cut at an ASCII `/` or `.`, which never falls inside a

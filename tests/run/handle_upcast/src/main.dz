@@ -9,7 +9,7 @@ struct Label {
 
 impl Drop for Label {
     fn drop(&mut self) {
-        if text.len > 0 {
+        if text.byte_len > 0 {
             println!("drop label {}", text)
         }
     }

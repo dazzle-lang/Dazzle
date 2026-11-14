@@ -63,11 +63,11 @@ fn small_enough(_k: &i32, v: &mut i32) -> bool {
 }
 
 fn short_word(w: &String) -> bool {
-    return w.len() <= 4
+    return w.byte_len() <= 4
 }
 
 fn text_len(c: &cstr) -> usize {
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 fn lists() {
@@ -242,10 +242,10 @@ fn sets() {
 fn strings() {
     let mut s = String("héllo")
     s.insert(0, '¡')
-    s.insert_str(s.len(), " world")
+    s.insert_str(s.byte_len(), " world")
     s.insert(s.find(" ") or 0, ',')
     let e = s.remove(3)
-    println!("{} | removed {} | {} bytes", s, e, s.len())
+    println!("{} | removed {} | {} bytes", s, e, s.byte_len())
 
     let parts: [3]&str = ["a", "b", "c"]
     let mut names = List<String>()

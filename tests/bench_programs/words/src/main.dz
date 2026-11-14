@@ -135,7 +135,7 @@ fn main() {
         }
         checksum = (checksum ^^ e.count as u64) * 1099511628211
     }
-    println!("{} bytes, {} words, {} distinct", text.len(), total, entries.len())
+    println!("{} bytes, {} words, {} distinct", text.byte_len(), total, entries.len())
     for i in 0..3 {
         println!("  {} {}", entries[i as usize].word, entries[i as usize].count)
     }

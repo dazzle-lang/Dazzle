@@ -25,7 +25,7 @@ void main() {}`
 fn raw_strings() {
     let s = `C:\no\escapes`
     let c: &cstr = `as cstr`
-    println!("raw {} {} [{}] [{}]", s, s.len, c as &str, SHADER as &str)
+    println!("raw {} {} [{}] [{}]", s, s.byte_len, c as &str, SHADER as &str)
 }
 
 fn main() {
@@ -56,7 +56,7 @@ fn main() {
     let mut count = 0
     for p in "a,,b,".split(",") {
         count += 1
-        if p.len == 0 {
+        if p.byte_len == 0 {
             empties += 1
         }
     }

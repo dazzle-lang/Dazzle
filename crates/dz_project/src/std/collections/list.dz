@@ -49,6 +49,38 @@ pub struct List<T> {
         return unsafe { m_data[0..m_len] }
     }
 
+    /// Element `i`, or `null` past the end, where `b[i]` would panic: `let e = list.get(i)
+    /// or return` (spec §5.3).
+    pub fn get(&self, i: usize) -> ^T in self@items {
+        if i >= m_len {
+            return null
+        }
+        return unsafe { &m_data[i] }
+    }
+
+    pub fn get_mut(&mut self, i: usize) -> ^mut T in self@items {
+        if i >= m_len {
+            return null
+        }
+        return unsafe { &mut m_data[i] }
+    }
+
+    /// Elements `from..to`, or `null` when the range does not fit, where `list[from..to]`
+    /// would panic: `let part = list.slice(a, b) or return` (spec §5.3).
+    pub fn slice(&self, from: usize, to: usize) -> ^[]T in self@items {
+        if from > to || to > m_len {
+            return null
+        }
+        return unsafe { m_data[from..to] }
+    }
+
+    pub fn slice_mut(&mut self, from: usize, to: usize) -> ^mut []T in self@items {
+        if from > to || to > m_len {
+            return null
+        }
+        return unsafe { m_data[from..to] }
+    }
+
     /// The first element, or `null` when the list is empty: `let top = stack.first() or
     /// return`.
     pub fn first(&self) -> ^T in self@items {
@@ -568,6 +600,34 @@ impl<T> Index<usize> for List<T> {
             list_index_out_of_bounds(i, m_len)
         }
         return unsafe { &m_data[i] }
+    }
+}
+
+/// `list[a..b]` (spec §5.3).
+impl<T> Slice for List<T> {
+    type Output = &[]T
+
+    #[inline]
+    fn cut(&self, from: usize, to: usize?, loc: SourceLocation = #location) -> &[]T in self@items {
+        let end = to or m_len
+        if from > end || end > m_len {
+            slice_out_of_range(from, end, m_len, loc)
+        }
+        return unsafe { m_data[from..end] }
+    }
+}
+
+/// `list[a..b]` on a list that may be written.
+impl<T> SliceMut for List<T> {
+    type Output = &mut []T
+
+    #[inline]
+    fn cut_mut(&mut self, from: usize, to: usize?, loc: SourceLocation = #location) -> &mut []T in self@items {
+        let end = to or m_len
+        if from > end || end > m_len {
+            slice_out_of_range(from, end, m_len, loc)
+        }
+        return unsafe { m_data[from..end] }
     }
 }
 

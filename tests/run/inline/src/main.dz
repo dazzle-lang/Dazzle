@@ -54,5 +54,5 @@ fn main() {
     let mut s = String("ab")
     s.push('c')
     println!("{} {} {} {}", twice(c.get()), largest(3, 9), c.volume(), c.hash() == hash_combine(7, 2))
-    println!("{} {}", s.as_str(), s.len())
+    println!("{} {}", s.as_str(), s.byte_len())
 }

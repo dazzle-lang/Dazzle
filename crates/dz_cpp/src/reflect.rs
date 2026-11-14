@@ -323,7 +323,7 @@ fn describe(e: &mut Emitter<'_>, ty: &Ty) -> TypeRow {
             let n = e.reflect_id(&usize_ty);
             row.fields = vec![
                 field("ptr", p, "offsetof(::dz::rt::str, ptr)".to_owned()),
-                field("len", n, "offsetof(::dz::rt::str, len)".to_owned()),
+                field("byte_len", n, "offsetof(::dz::rt::str, len)".to_owned()),
             ];
             "Str"
         }

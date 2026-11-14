@@ -23,7 +23,7 @@ impl Iterate for Chars {
 
     #[inline]
     fn valid(&self) -> bool {
-        return m_at < m_text.len
+        return m_at < m_text.byte_len
     }
 
     #[inline]

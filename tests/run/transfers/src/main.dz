@@ -46,7 +46,7 @@ fn inner_to_outer() -> usize {
     }
     churn()
     println!("{}", outer[0])
-    return outer[0].len()
+    return outer[0].byte_len()
 }
 
 // P3: through a function that hands back what it is given.
@@ -195,7 +195,7 @@ fn queue() -> usize {
     let mut total: usize = 0
     while true {
         let s = q.pop() or break
-        total += s.len()
+        total += s.byte_len()
     }
     return total
 }
@@ -212,7 +212,7 @@ fn reboxed() -> usize {
     let b = Box(String::from("k3 reboxed"))
     let c = move(b)
     if let &s = c {
-        return s.len()
+        return s.byte_len()
     }
     return 0
 }
@@ -223,7 +223,7 @@ fn swapped_out() -> usize {
     names.push(String::from("k4 a"))
     names.push(String::from("k4 bb"))
     let s = names.swap_remove(0)
-    return s.len() + names.len()
+    return s.byte_len() + names.len()
 }
 
 fn show(store: &Store) {
@@ -258,7 +258,7 @@ fn lent_kept() -> usize {
     names.push(String::from("k6 alpha, quite a bit longer, long enough to need memory"))
     let n = longest(&mut names)
     churn()
-    return n + names[0].len()
+    return n + names[0].byte_len()
 }
 
 fn main() {

@@ -112,10 +112,10 @@ pub struct Formatter {
             self.keep(s)
             return
         }
-        if m_used + s.len > 512 {
+        if m_used + s.byte_len > 512 {
             self.flush()
         }
-        if s.len > 512 {
+        if s.byte_len > 512 {
             stream_write(m_stream, s)
             return
         }
@@ -207,7 +207,7 @@ pub struct Formatter {
     /// with zeros after the sign under `{:0N}`; one inside a larger value, such as a field
     /// of a type's own `Format`, is written as it is, and the value as a whole is padded.
     pub(module) fn write_number(&mut self, text: &str) {
-        if m_counting && m_written == 0 && m_held_len == 0 && text.len <= 64 {
+        if m_counting && m_written == 0 && m_held_len == 0 && text.byte_len <= 64 {
             let bytes = text as &[]u8
             for i in 0..bytes.len {
                 m_held[i] = bytes[i]
@@ -342,12 +342,12 @@ pub struct Formatter {
                 m_width = n as u32
             }
         }
-        let rest = sub(spec, at, spec.len)
+        let rest = sub(spec, at, spec.byte_len)
         m_hex = rest == "x" || rest == "X"
         m_upper = rest == "X"
         m_precision = none
-        if rest.len > 1 && rest.starts_with(".") {
-            if let n = sub(rest, 1, rest.len).parse_u64() {
+        if rest.byte_len > 1 && rest.starts_with(".") {
+            if let n = sub(rest, 1, rest.byte_len).parse_u64() {
                 m_precision = n as u32
             }
         }

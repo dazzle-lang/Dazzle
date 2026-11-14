@@ -26,7 +26,7 @@ fn returned(fallback: &str) -> &str {
 }
 
 fn takes(c: &cstr) -> usize {
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 fn main() {
@@ -40,7 +40,7 @@ fn main() {
     let n = takes(String::from("hero").as_cstr())
     let owned = String::from("hero")
     let kept = owned.as_cstr()
-    let len = make().len()
+    let len = make().byte_len()
     let joined = Path("a") / "b"
     println!("{} {} {} {} {} {} {} {}", takes(c), w, f, later, n, takes(kept), len, joined.as_str())
 }

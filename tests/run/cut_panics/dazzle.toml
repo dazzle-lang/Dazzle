@@ -1,0 +1,9 @@
+[module]
+name    = "cut_panics"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

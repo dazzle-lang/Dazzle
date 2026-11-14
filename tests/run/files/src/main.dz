@@ -28,7 +28,7 @@ fn disk(root: &Path) !-> void {
     let text_path = nested / "héllo ✓.txt"
     File::write_text(&text_path, "first line\nsecond ✓\n") or return
     let text = File::read_text(&text_path) or return
-    println!("text {} bytes, exists {} is_file {} is_dir {}", text.len(), text_path.exists(), text_path.is_file(), text_path.is_dir())
+    println!("text {} bytes, exists {} is_file {} is_dir {}", text.byte_len(), text_path.exists(), text_path.is_file(), text_path.is_dir())
 
     let bin_path = root / "data.bin"
     let bytes: [5]u8 = [0, 1, 2, 250, 255]
@@ -81,7 +81,7 @@ fn disk(root: &Path) !-> void {
     File::write_text(&log_path, "changed") or return
     let after = log_path.modified() or return
     println!("modified is recent {} and not earlier {}", before.as_secs() > 1_700_000_000, after >= before)
-    println!("as_cstr length {}", (log_path.as_cstr() as &str).len == log_path.as_str().len)
+    println!("as_cstr length {}", (log_path.as_cstr() as &str).byte_len == log_path.as_str().byte_len)
 
     File::remove(&text_path) or return
     File::remove(&bin_path) or return

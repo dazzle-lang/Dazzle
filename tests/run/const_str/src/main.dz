@@ -58,7 +58,7 @@ fn main() {
     seen.push(e.kind)
     seen.push(was)
     for &name in seen {
-        println!("seen {} ({} bytes)", name, name.len)
+        println!("seen {} ({} bytes)", name, name.byte_len)
     }
 
     println!("heaviest: {}", heaviest(Crate{ weight: 3 }, Crate{ weight: 7 }))

@@ -95,7 +95,7 @@ pub struct {p} {{
         for t in tags {{
             s = (s * 31 + t) % {MOD}
         }}
-        return (s + label.len() as i64) % {MOD}
+        return (s + label.byte_len() as i64) % {MOD}
     }}
 
     /// Heavier by `by`, with one more tag.

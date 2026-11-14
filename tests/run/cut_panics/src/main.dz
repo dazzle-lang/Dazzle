@@ -1,0 +1,11 @@
+// Cutting text by bytes with an end inside a character panics, naming the line that cut
+// (spec §5.3): `é` is two bytes, and `cut_bytes(0, 2)` ends between them, where
+// `slice_bytes(0, 2)` is `null`.
+fn main() {
+    let word = "héllo"
+    println!("ok: {}", word.cut_bytes(0, 3))
+    println!("{}", word.slice_bytes(0, 2) == null)
+    let i: usize = 2
+    println!("{}", word.cut_bytes(0, i))
+    println!("unreachable")
+}

@@ -1,0 +1,55 @@
+/// `xs.get(i)` and `xs.slice(a, b)` on a slice: element `i`, or elements `a..b`, and `null`
+/// where `xs[i]` or `xs[a..b]` would panic: `let e = xs.get(i) or return` (spec §5.3). An
+/// array has them through its slice, `arr[..].get(i)`, and a `List` has its own.
+pub trait Elements {
+    type Item
+    fn get(&self, i: usize) -> ^Item in self
+    fn slice(&self, from: usize, to: usize) -> ^[]Item in self
+}
+
+/// `xs.get_mut(i)` and `xs.slice_mut(a, b)` on a slice that may be written.
+pub trait ElementsMut {
+    type Item
+    fn get_mut(&mut self, i: usize) -> ^mut Item in self
+    fn slice_mut(&mut self, from: usize, to: usize) -> ^mut []Item in self
+}
+
+impl<T> Elements for &[]T {
+    type Item = T
+
+    #[inline]
+    fn get(&self, i: usize) -> ^T in self {
+        if i >= self.len {
+            return null
+        }
+        return &self[i]
+    }
+
+    #[inline]
+    fn slice(&self, from: usize, to: usize) -> ^[]T in self {
+        if from > to || to > self.len {
+            return null
+        }
+        return self[from..to]
+    }
+}
+
+impl<T> ElementsMut for &mut []T {
+    type Item = T
+
+    #[inline]
+    fn get_mut(&mut self, i: usize) -> ^mut T in self {
+        if i >= self.len {
+            return null
+        }
+        return &mut self[i]
+    }
+
+    #[inline]
+    fn slice_mut(&mut self, from: usize, to: usize) -> ^mut []T in self {
+        if from > to || to > self.len {
+            return null
+        }
+        return self[from..to]
+    }
+}

@@ -213,6 +213,7 @@ fn every_rule_has_a_failing_case() {
         SENDS_NEEDS_MUT,
         // r122 — a field and a method may not share a name (spec §7.3).
         FIELD_METHOD_SAME_NAME,
+        TEXT_LEN_FIELD,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

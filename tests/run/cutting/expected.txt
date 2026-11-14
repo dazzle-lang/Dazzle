@@ -1,0 +1,24 @@
+2 10 20
+2 2
+11
+false true
+20 true
+55
+13 12
+[café] [café] [au lait]
+195 true é
+t true
+6 5
+true hé
+él true
+cut
+a
+str
+into
+words
+2 true
+2 3
+9
+false 4
+two
+three

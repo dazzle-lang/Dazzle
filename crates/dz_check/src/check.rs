@@ -3474,6 +3474,10 @@ impl<'a, 'c> Body<'a, 'c> {
                         "not an integer",
                     );
                 }
+                if self.is_text(&b.ty) {
+                    self.text_has_no_brackets(base.span, false);
+                    return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                }
                 // `b[i]` on a user type is its `Index` — or, where the value may be written,
                 // its `IndexMut` — which hands back a reference to the element (spec §11.2).
                 if let Ty::Named { sym, .. } = b.ty.peeled_refs() {
@@ -3574,7 +3578,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     // `.len` is the one successful member with no field index: the
                     // container knows its own length (spec §5.3). Every other `None` is a
                     // mistake `field_type` has already reported.
-                    None if name.name == "len" && !ty.is_error() => {
+                    None if (name.name == "len" || name.name == "byte_len") && !ty.is_error() => {
                         self.mk(e, ty, hir::ExprKind::Len(b.id))
                     }
                     // `.ptr` is as writable as the view it comes from: a `[]mut T` or a
@@ -4203,9 +4207,27 @@ impl<'a, 'c> Body<'a, 'c> {
                 return (Ty::ptr(false, (**elem).clone()), None);
             }
         }
-        // A `str` is `{ ptr, len }` (spec §5.3): its length in bytes, and its first byte.
+        // A `str` is `{ ptr, byte_len }` (spec §5.3): its length in bytes, and its first byte.
+        // Its length in characters is `len()`, a method, since it reads the text.
         if matches!(peeled, Ty::Str) {
+            if name.name == "byte_len" {
+                return (Ty::Int(IntTy::Usize), None);
+            }
             if name.name == "len" {
+                let d = dz_diag::Diagnostic::error(
+                    codes::TEXT_LEN_FIELD,
+                    "text's length says its unit: `byte_len` or `len()`",
+                )
+                .at(self.cx.file, name.span, "bytes or characters?")
+                .with_help(
+                    "`s.byte_len` is the length in bytes, what `s.len` was; `s.len()` counts \
+                     the characters (spec §5.3)",
+                );
+                let d = match self.cx.written_fix(name.span, "len", "byte_len") {
+                    Some(edit) => d.with_fix("write `byte_len`", vec![edit]),
+                    None => d,
+                };
+                self.cx.diags.push(d);
                 return (Ty::Int(IntTy::Usize), None);
             }
             if name.name == "ptr" {
@@ -5815,6 +5837,46 @@ impl<'a, 'c> Body<'a, 'c> {
                 // implementation for it (spec §7.6).
                 self.no_method_type_args(generics, name);
                 return c;
+            } else if let Ty::Array { elem, .. } = &peeled {
+                // An array has its slice's methods: `arr.get(i)` is `arr[..].get(i)`, a
+                // writable slice's first where the array may be written (spec §5.3).
+                let writable = match &base_ty {
+                    Ty::Ref { mutable, .. } => *mutable,
+                    _ => self.place_mutability(base) == Some(true),
+                };
+                for mutable in [true, false] {
+                    if mutable && !writable {
+                        continue;
+                    }
+                    let mark = self.hir.mark();
+                    let ty = Ty::Slice { mutable, elem: elem.clone() };
+                    let whole = self.hir.expr(
+                        base.span,
+                        ty.clone(),
+                        hir::ExprKind::SliceRange { base: recv.id, start: None, end: None },
+                    );
+                    if let Some(c) = self.trait_method_call(&whole, base, &ty, name, args, e) {
+                        self.no_method_type_args(generics, name);
+                        return c;
+                    }
+                    self.hir.rollback(mark);
+                }
+            } else if let Ty::Slice { mutable: true, elem } = &peeled {
+                // A writable slice reads as a read-only one, so it has that one's methods:
+                // `get` and `slice` beside its own `get_mut` and `slice_mut` (spec §5.3).
+                // Read as `xs[..]`, so the implementation is the read-only slice's.
+                let mark = self.hir.mark();
+                let read = Ty::Slice { mutable: false, elem: elem.clone() };
+                let whole = self.hir.expr(
+                    base.span,
+                    read.clone(),
+                    hir::ExprKind::SliceRange { base: recv.id, start: None, end: None },
+                );
+                if let Some(c) = self.trait_method_call(&whole, base, &read, name, args, e) {
+                    self.no_method_type_args(generics, name);
+                    return c;
+                }
+                self.hir.rollback(mark);
             }
         }
 
@@ -8693,6 +8755,15 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         let start_id = start.map(|_| ends[0]);
         let end_id = end.map(|_| ends[ends.len() - 1]);
+        if self.is_text(&b.ty) {
+            self.text_has_no_brackets(base.span, true);
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        if matches!(b.ty.peeled_refs(), Ty::Named { .. }) {
+            if let Some(call) = self.slice_call(e, base, &b, start_id, end_id) {
+                return call;
+            }
+        }
         let (elem, mutable) = match b.ty.peeled_refs().clone() {
             Ty::Ptr { inner, mutable } | Ty::OwnPtr { inner, mutable }
                 if !matches!(*inner, Ty::Array { .. } | Ty::Slice { .. }) =>
@@ -8722,12 +8793,17 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             other => {
                 if !other.is_wildcard() {
-                    let n = self.cx.name_of(&b.ty);
-                    self.cx.error(
+                    let n = self.cx.name_of(b.ty.peeled_refs());
+                    self.cx.error_help(
                         codes::NOT_INDEXABLE,
                         base.span,
                         format!("`{n}` cannot be sliced"),
-                        "not an array, a slice or a pointer",
+                        "not a sequence",
+                        format!(
+                            "`[a..b]` works on arrays, slices, `List`, and a type that \
+                             implements `Slice` (and `SliceMut` to write through it): \
+                             implement it for `{n}` (spec §5.3)"
+                        ),
                     );
                 }
                 return self.mk(e, Ty::Error, hir::ExprKind::Error);
@@ -8735,6 +8811,87 @@ impl<'a, 'c> Body<'a, 'c> {
         };
         let ty = Ty::Slice { mutable, elem: Rc::new(elem) };
         self.mk(e, ty, hir::ExprKind::SliceRange { base: b.id, start: start_id, end: end_id })
+    }
+
+    /// Whether `t` is text, a `&str` or a `String`, however referenced.
+    fn is_text(&self, t: &Ty) -> bool {
+        match t.peeled_refs() {
+            Ty::Str | Ty::ConstStr => true,
+            Ty::Named { sym, .. } => {
+                Some(*sym) == self.cx.prelude_decl("String", SymbolKind::Struct)
+            }
+            _ => false,
+        }
+    }
+
+    /// `s[i]` or `s[a..b]` on text, which has no operator: a position in UTF-8 is a byte or
+    /// a character, and a bracket does not say which (spec §5.3, D-0100). The help names the
+    /// methods that do.
+    fn text_has_no_brackets(&mut self, span: Span, range: bool) {
+        let (what, bytes, chars) = if range {
+            ("cut", "s.cut_bytes(a, b)", "s.cut_chars(a, b)")
+        } else {
+            ("indexed", "s.byte(i)", "s.char(i)")
+        };
+        self.cx.error_help(
+            codes::NOT_INDEXABLE,
+            span,
+            format!("text is not {what} with brackets"),
+            "bytes or characters?",
+            format!(
+                "say the unit: `{bytes}` counts bytes, as `find` and `byte_len` do, and \
+                 `{chars}` characters; each panics where its `get_` or `slice_` twin gives \
+                 `none` (spec §5.3)"
+            ),
+        );
+    }
+
+    /// `xs[a..b]` on a type of `std`'s or the program's own: its `SliceMut`'s
+    /// `cut_mut` where `xs` may be written, and its `Slice`'s `cut` otherwise, as `xs[i]` is
+    /// `IndexMut` or `Index` (spec §5.3, §11.2). A missing start is `0`, and a missing end
+    /// `none`, which the implementation reads as its length, so `xs` is evaluated once.
+    /// `None` when the type implements neither.
+    fn slice_call(
+        &mut self,
+        e: &Expr,
+        base: &Expr,
+        b: &Checked,
+        start: Option<hir::ExprId>,
+        end: Option<hir::ExprId>,
+    ) -> Option<Checked> {
+        let writable = match &b.ty {
+            Ty::Ref { mutable, .. } => *mutable,
+            _ => self.place_mutability(base) == Some(true),
+        };
+        let mut found = None;
+        if writable {
+            found = self
+                .select_operator_impl("SliceMut", "cut_mut", &b.ty, None, e.span)
+                .map(|f| (f, "cut_mut"));
+        }
+        if found.is_none() {
+            found =
+                self.select_operator_impl("Slice", "cut", &b.ty, None, e.span).map(|f| (f, "cut"));
+        }
+        let ((r, sig), method) = found?;
+        let usize_ty = Ty::Int(IntTy::Usize);
+        let start = match start {
+            Some(id) => id,
+            None => self.hir.expr(e.span, usize_ty.clone(), hir::ExprKind::Int(0)).id,
+        };
+        let end = match end {
+            Some(id) => id,
+            None => {
+                self.hir.expr(e.span, Ty::Optional(Rc::new(usize_ty)), hir::ExprKind::NoneOpt).id
+            }
+        };
+        let callee = hir::Callee::Method {
+            recv: b.id,
+            owner: r.trait_sym,
+            name: method.to_owned(),
+            method_args: Vec::new(),
+        };
+        Some(self.mk(e, sig.ret.clone(), hir::ExprKind::Call { callee, args: vec![start, end] }))
     }
 
     /// What a constant declared in a type may be: anything a `static` may start as, or the

@@ -48,6 +48,19 @@ pub trait IndexMut<I>      { type Output; fn index_mut(&mut self, i: I) -> &mut 
 `b[i]` on a user type calls `index_mut` when `b` is a writable place that implements
 `IndexMut` — so `b[i] = v` and `b[i] += 1` write through it — and `index` otherwise.
 
+`b[x..y]` on a user type is its `Slice`, and its `SliceMut` where `b` is a writable place,
+in the same way (§5.3):
+
+```dz
+pub trait Slice    { view type Output; fn cut(&self, from: usize, to: usize?, loc: SourceLocation = #location) -> Output in self }
+pub trait SliceMut { view type Output; fn cut_mut(&mut self, from: usize, to: usize?, loc: SourceLocation = #location) -> Output in self }
+```
+
+`b[x..]` passes `none` for `to`, which the implementation reads as its length, and `b[..y]`
+passes `0` for `from`, so `b` is evaluated once. A range that does not fit panics in `cut`,
+at `loc`, the line that cut. `Output` is a view, `&[]T` say. `List` implements them in
+`std`; text does not, since a position in text says its unit (§5.3). `[DECIDED — D-0100]`
+
 A game language without `v1 + v2 * scalar` for vectors and matrices is not usable, so this
 is not optional. `[DECIDED]`
 

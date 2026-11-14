@@ -26,7 +26,7 @@ struct Names {
 
     pub fn first_len(&self) -> usize {
         return unsafe {
-            m_data[0].len()
+            m_data[0].byte_len()
         }
     }
 

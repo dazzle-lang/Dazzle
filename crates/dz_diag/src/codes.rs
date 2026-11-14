@@ -231,7 +231,7 @@ pub const MISSING_FIELD: &str = "DZ0512";
 pub const NON_EXHAUSTIVE_SWITCH: &str = "DZ0513";
 /// An operator applied to operands it does not accept.
 pub const INVALID_OPERANDS: &str = "DZ0514";
-/// Indexing something that is not an array or slice.
+/// Indexing or slicing something that is not a sequence.
 pub const NOT_INDEXABLE: &str = "DZ0515";
 /// An `or return` whose failure has nowhere to go: the enclosing signature cannot carry
 /// it (spec §9.5). Named for `try` in v0.4, which is what this code originally reported.
@@ -452,6 +452,10 @@ pub const FN_SENDS_TOO_MUCH: &str = "DZ0584";
 /// A field and a function member of one type with the same name: inside a method a bare
 /// name would mean either, and C++ allows only one (spec §7.3, T-0205).
 pub const FIELD_METHOD_SAME_NAME: &str = "DZ0585";
+/// `s.len` on text, which no longer says its unit: `s.byte_len` is the length in bytes and
+/// `s.len()` in characters (spec §5.3, D-0100). `dz fix` respells it `byte_len`, which is
+/// what it meant.
+pub const TEXT_LEN_FIELD: &str = "DZ0586";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

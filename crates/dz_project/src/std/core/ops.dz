@@ -50,3 +50,31 @@ pub trait IndexMut<I> {
     type Output
     fn index_mut(&mut self, i: I) -> &mut Output
 }
+
+/// `xs[a..b]`, `xs[a..]` and `xs[..b]`, read: a part of the sequence, as a view (spec §5.3,
+/// §11.2). `to` is `none` for `xs[a..]`, which ends at the end. A range that does not fit
+/// panics, at the line that cut: `loc` is the caller's. The type's own `slice(a, b)` is the
+/// way that gives `null` instead.
+///
+/// `Output` is a view, `&[]T` or `&str`, which is why the trait says `view type`.
+pub trait Slice {
+    view type Output
+    fn cut(&self, from: usize, to: usize?, loc: SourceLocation = #location) -> Output in self
+}
+
+/// `xs[a..b]` where the sequence may be written: the view writes through to it, `&mut []T`.
+/// Chosen over `Slice` whenever `xs` is a writable place, as `IndexMut` is over `Index`.
+pub trait SliceMut {
+    view type Output
+    fn cut_mut(
+        &mut self,
+        from: usize,
+        to: usize?,
+        loc: SourceLocation = #location
+    ) -> Output in self
+}
+
+/// What `cut` panics with.
+fn slice_out_of_range(from: usize, to: usize, len: usize, loc: SourceLocation) {
+    panic!("slice {}..{} out of range for a length of {}", from, to, len, loc)
+}

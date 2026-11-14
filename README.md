@@ -231,7 +231,7 @@ struct Level {
 }
 
 fn load(path: &str) !-> Level {              // `!->`: this can fail
-    if path.len == 0 {
+    if path.byte_len == 0 {
         return error(1, "no path given")
     }
     return Level(path)
@@ -261,11 +261,11 @@ enum ErrorCode : u32 {
 }
 
 fn parse_name(text: &str) !-> &str {        // the name is a view of `text`
-    if text.len == 0 {
+    if text.byte_len == 0 {
         return error(ErrorCode::Empty as u32, "a name cannot be empty")
     }
-    if text.len > 16 {
-        return error(ErrorCode::TooLong as u32, "name too long: {} bytes", text.len)
+    if text.byte_len > 16 {
+        return error(ErrorCode::TooLong as u32, "name too long: {} bytes", text.byte_len)
     }
     return text
 }

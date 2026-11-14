@@ -4,7 +4,7 @@
 // strings that grows and sorts.
 
 fn show(label: &str, s: &String) {
-    println!("{} {} [{}]", label, s.len(), s.as_str())
+    println!("{} {} [{}]", label, s.byte_len(), s.as_str())
 }
 
 fn grow() {
@@ -13,7 +13,7 @@ fn grow() {
     let letters = String("abcdefghijklmnopqrst")
     for c in letters {
         s.push(c)
-        if s.len() == 15 || s.len() == 16 {
+        if s.byte_len() == 15 || s.byte_len() == 16 {
             show("pushed", &s)
         }
     }
@@ -36,7 +36,7 @@ fn edits() {
     show("after remove", &t)
     t.insert(0, 'é')
     show("accented", &t)
-    while t.len() > 3 {
+    while t.byte_len() > 3 {
         let _ = t.pop()
     }
     show("popped", &t)

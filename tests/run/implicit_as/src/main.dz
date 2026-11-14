@@ -4,7 +4,7 @@
 
 /// Takes a C string, as an imported C function does.
 fn c_len(s: &cstr) -> usize {
-    return (s as &str).len
+    return (s as &str).byte_len
 }
 
 pub struct Meters {
@@ -56,7 +56,7 @@ impl ImplicitAs<&cstr> for Label {
 
 impl ImplicitAs<Meters> for Label {
     fn convert(&self) -> Meters {
-        return Meters{ v: text.len() as f32 }
+        return Meters{ v: text.byte_len() as f32 }
     }
 }
 

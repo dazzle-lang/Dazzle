@@ -1003,7 +1003,7 @@ fn bad_format_calls(fmt: &str, h: Unwritten) -> usize {
     let b = format!(fmt, 1)
     let c = format!("{:x}", 1.5)
     let d = format!("{}", h)
-    return a.len() + b.len() + c.len() + d.len()
+    return a.byte_len() + b.byte_len() + c.byte_len() + d.byte_len()
 }
 
 // §12.9: an enum, an optional and a pointer to a pointer have no `Format`; `{:p}` suits
@@ -1304,7 +1304,7 @@ fn takes_cstr(s: &cstr) {}
 // A `let` is not an argument: it takes the type it is given, converted or not.
 fn not_an_argument(s: &String) -> usize {
     let c: &cstr = s
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 // `Pounds` converts to `Ounces`, and `Ounces` to `cstr`, but not one after the other.
@@ -1605,7 +1605,7 @@ fn wants_optional(xs: &List<i32>) {
 // `none` for a `^str`, an optional of a reference written out, and borrowed text stored in
 // a field or a container.
 fn bare_text(s: str) -> usize {
-    return s.len
+    return s.byte_len
 }
 
 const OLD_STATIC: const str = "old"
@@ -1663,7 +1663,7 @@ struct CHolder {
 }
 
 fn measured_raw(c: ^cstr) -> usize {
-    return (c as &str).len
+    return (c as &str).byte_len
 }
 
 // An integer divisor that is a constant zero would panic every time: DZ0580 (spec 5.1).
@@ -1696,4 +1696,22 @@ struct SameName {
     pub fn shape(&self) -> i32 {
         return 1
     }
+}
+
+// `xs[a..b]` on a type that implements neither `Slice` nor `SliceMut`: `[a..b]` on a type of
+// the program's own is its `Slice`, as `[i]` is its `Index` (spec §5.3, D-0100).
+struct Shelf {
+    pub count: i32 = 0
+}
+
+fn part_of(shelf: &Shelf) -> i32 {
+    let some = shelf[0..1]
+    return 0
+}
+
+// Text says its unit (spec §5.3, D-0100): `s.len` is gone, since a length in bytes and one
+// in characters differ, and text has no brackets, for the same reason.
+fn measured(name: &str) -> usize {
+    let first = name[0]
+    return name.len
 }
