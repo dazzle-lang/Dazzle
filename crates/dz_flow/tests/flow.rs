@@ -116,14 +116,16 @@ fn the_typed_workspace_is_ownership_clean() {
     );
 }
 
-/// `std`'s `sends` and `in x@home` are true of its bodies (D-0097, T-0200). A build leaves
-/// `std` out of that check, since it is the same for every program, so this is where a
-/// clause it gets wrong is caught.
+/// `std` passes every ownership check, its `sends` and `in x@home` true of its bodies
+/// (D-0097, T-0200) included. A build leaves `std` out, since it is the same for every
+/// program (T-0025), so this is where a mistake in it is caught. Here with every `#if`
+/// branch in place; `dz_driver`'s `std_is_ownership_clean_with_each_branch` checks each
+/// build's.
 #[test]
-fn std_says_where_it_sends_what_it_is_given() {
+fn std_is_ownership_clean() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/workspace/typed");
-    let got = analyse_with(&dir, |hir, table, res, _| dz_flow::check_std_homes(hir, table, res));
-    assert!(got.codes.is_empty(), "std's clauses differ from its bodies:\n{}", got.rendered);
+    let got = analyse_with(&dir, dz_flow::check_std);
+    assert!(got.codes.is_empty(), "std fails its own ownership checks:\n{}", got.rendered);
 }
 
 /// The codes an `// expect:` header asks for. `(none)` means the file must be clean.

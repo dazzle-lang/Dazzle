@@ -2,11 +2,15 @@
 id: T-0103
 title: A renamed or removed module's generated C++ stays in build/cpp
 milestone: none
-status: open
+status: done
 kind: feature
 area: tooling
-where: `dz/src/build.rs`, `emit_cpp`
+where: `crates/dz/src/build.rs`, `emit_cpp` and `sweep_stale`
 ---
+
+**Done** (2026-11-14, with T-0194): `emit_cpp` ends with `sweep_stale`, which deletes every
+generated `.cpp` and `.h` in `build/cpp` the program is no longer made of, and their objects
+in `build/obj/dz`. A file without the generated header line is left alone. No `dz clean`.
 
 **What is missing.** Since T-0087, a build compiles only the files it emitted, so a module
 that has been renamed or removed no longer breaks the build. But its `.cpp` and `.h` stay in

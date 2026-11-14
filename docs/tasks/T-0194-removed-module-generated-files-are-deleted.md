@@ -2,10 +2,14 @@
 id: T-0194
 title: A removed module's generated files are deleted from build/cpp
 milestone: M15
-status: open
+status: done
 kind: feature
 area: tooling
 ---
+
+**Done** (2026-11-14, closing T-0103 too): `sweep_stale` in `crates/dz/src/build.rs`,
+called at the end of `emit_cpp`; `verify`'s `removed` allowance is gone, and
+`module_removed` fails with the sweep turned off.
 
 When a module leaves a project (its directory and its dependency line deleted), the next
 `dz build` writes every remaining module's files but leaves the removed one's `<module>.h`,

@@ -31,8 +31,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    one-line change does, 0.29–0.35 s in debug (C++: 0.28–0.47 s), and a clean release
    build is 1.1–1.6× C++'s.
    T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
-   (stale generated files and objects) and T-0025 (`std` checked in every analysis, now
-   the largest fixed cost of a build after the C++ compiler). T-0012 (done 2026-11-09)
+   (stale generated files and objects; done 2026-11-14 with T-0194) and T-0025 (`std` checked in every analysis, now
+   the largest fixed cost of a build after the C++ compiler; its ownership half is done,
+   2026-11-14, a small program's analysis 58 ms to 40 ms, and its type check is left). T-0012 (done 2026-11-09)
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).
@@ -208,7 +209,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0176](tasks/T-0176-deque-double-ended-queue-in-std.md)** Deque: a double-ended queue in std · feature, stdlib
 - **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (10 open)
+## M15 — `dz bench`, and the C++ comparison (9 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -219,7 +220,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
-- **[T-0194](tasks/T-0194-removed-module-generated-files-are-deleted.md)** A removed module's generated files are deleted from build/cpp · feature, tooling
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -234,7 +234,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (27 open)
+## none — not scheduled (26 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -249,7 +249,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
-- **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0137](tasks/T-0137-kills-clause-must-be-exact-so.md)** A `kills` clause must be exact, so a change in a body ripples up every caller · design, ownership

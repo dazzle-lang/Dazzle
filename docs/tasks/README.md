@@ -42,8 +42,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    one-line change does, 0.29–0.35 s in debug (C++: 0.28–0.47 s), and a clean release
    build is 1.1–1.6× C++'s.
    T-0184 (emitting less) is not needed for them. Left: T-0012 (build time at scale), T-0103
-   (stale generated files and objects) and T-0025 (`std` checked in every analysis, now
-   the largest fixed cost of a build after the C++ compiler). T-0012 (done 2026-11-09)
+   (stale generated files and objects; done 2026-11-14 with T-0194) and T-0025 (`std` checked in every analysis, now
+   the largest fixed cost of a build after the C++ compiler; its ownership half is done,
+   2026-11-14, a small program's analysis 58 ms to 40 ms, and its type check is left). T-0012 (done 2026-11-09)
    measured a generated 100-module project: Dazzle is 11× C++ from clean and far behind
    after an edit, for three reasons, T-0185 (instance bodies in headers, the largest),
    T-0186 (the up-to-date check) and T-0187 (phases that grow faster than the program).

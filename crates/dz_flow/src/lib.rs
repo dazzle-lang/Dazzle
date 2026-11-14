@@ -46,6 +46,11 @@ pub fn check(hir: &Hir, table: &TypeTable, res: &Resolution, map: &SourceMap) ->
 /// [`check`], for the bodies written in `only`'s files, or every body for `None`. A body is
 /// checked against other functions' signatures alone, so the bodies of a module nothing
 /// changed for need no checking again (T-0197).
+///
+/// `std`'s bodies are never checked here. They are the same in every program, and a body is
+/// checked against signatures alone, so nothing a program declares can change what they
+/// say; checking them was about a third of a small program's analysis (T-0025). The test
+/// suite runs [`check_std`] instead, with each of `std`'s `#if` branches.
 pub fn check_files(
     hir: &Hir,
     table: &TypeTable,
@@ -53,40 +58,17 @@ pub fn check_files(
     map: &SourceMap,
     only: Option<&std::collections::HashSet<FileId>>,
 ) -> Diagnostics {
+    let prelude = prelude_files(res);
     let mut diags = Diagnostics::new();
-    // The prelude is the compiler's own code: a warning there is noise in every program.
-    let prelude: std::collections::HashSet<FileId> =
-        res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
     let mut unread = Unread::default();
     for (_, body) in hir.bodies() {
-        if only.is_some_and(|only| !only.contains(&body.file)) {
+        if prelude.contains(&body.file) || only.is_some_and(|only| !only.contains(&body.file)) {
             continue;
         }
-        let mut cx = Flow {
-            body,
-            table,
-            res,
-            file: body.file,
-            diags: &mut diags,
-            moved: HashMap::new(),
-            quiet: false,
-        };
-        cx.body();
-        // References used after their memory was killed, and clauses that do not say what
-        // the body kills (spec §6.7).
-        let analysis = ties::analyse_body(body, table, res);
-        ties::report(body, table, res, map, &analysis, &mut diags);
-        // What the body does with its inputs' memory, against `sends` and `in x@home`
-        // (D-0097). `std` is the same for every program, so its clauses are checked once,
-        // by `check_std_homes` in the test suite, rather than in every build.
-        if !prelude.contains(&body.file) {
-            let homes = ties::analyse_homes(body, table, res);
-            ties::report_homes(body, table, res, &homes, &mut diags);
-        }
+        check_body(body, table, res, map, &mut diags);
         // A trait method's parameters are declarations, not bindings anything could read:
         // its body exists only to hold their defaults (spec §7.6).
-        let signature_only = matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. });
-        if !prelude.contains(&body.file) && !signature_only {
+        if !matches!(body.owner, dz_hir::BodyOwner::TraitDefaults { .. }) {
             unused(body, &mut unread);
         }
     }
@@ -95,20 +77,44 @@ pub fn check_files(
     diags
 }
 
-/// `std`'s bodies against their `sends` and `in x@home` (D-0097): what [`check_files`]
-/// leaves out, since `std` is the same for every program. The test suite runs it, so a
-/// clause `std` gets wrong fails there rather than in every build.
-pub fn check_std_homes(hir: &Hir, table: &TypeTable, res: &Resolution) -> Diagnostics {
+/// What [`check_files`] leaves out: every check of `std`'s own bodies but the unread
+/// bindings, which are the compiler's business and noise in every program. The test suite
+/// runs it, so a mistake in `std` fails there rather than in every build.
+pub fn check_std(hir: &Hir, table: &TypeTable, res: &Resolution, map: &SourceMap) -> Diagnostics {
+    let prelude = prelude_files(res);
     let mut diags = Diagnostics::new();
-    let prelude: std::collections::HashSet<FileId> =
-        res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect();
     for (_, body) in hir.bodies() {
         if prelude.contains(&body.file) {
-            let homes = ties::analyse_homes(body, table, res);
-            ties::report_homes(body, table, res, &homes, &mut diags);
+            check_body(body, table, res, map, &mut diags);
         }
     }
+    diags.sort_by_position();
     diags
+}
+
+/// The files of the prelude, `std`.
+fn prelude_files(res: &Resolution) -> std::collections::HashSet<FileId> {
+    res.symbols.iter().filter(|s| s.module == res.prelude).map(|s| s.file).collect()
+}
+
+/// Every check of one body but the unread bindings, which are gathered over all of them.
+fn check_body(
+    body: &hir::Body,
+    table: &TypeTable,
+    res: &Resolution,
+    map: &SourceMap,
+    diags: &mut Diagnostics,
+) {
+    let mut cx =
+        Flow { body, table, res, file: body.file, diags, moved: HashMap::new(), quiet: false };
+    cx.body();
+    // References used after their memory was killed, and clauses that do not say what
+    // the body kills (spec §6.7).
+    let analysis = ties::analyse_body(body, table, res);
+    ties::report(body, table, res, map, &analysis, diags);
+    // What the body does with its inputs' memory, against `sends` and `in x@home` (D-0097).
+    let homes = ties::analyse_homes(body, table, res);
+    ties::report_homes(body, table, res, &homes, diags);
 }
 
 /// Unread bindings, gathered over every body before any is reported.

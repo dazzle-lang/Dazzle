@@ -451,23 +451,9 @@ fn verify(
         ));
     }
 
-    // A removed module's generated files stay in `build/cpp` today: nothing compiles or
-    // includes them, so the program is right, but they are stale output (T-0194). They are
-    // the one difference tolerated, and only for a module this edit removed.
-    let removed: Vec<&str> = s
-        .edit
-        .iter()
-        .filter_map(|e| match e {
-            Remove(path) => Some(path.rsplit('/').next().unwrap()),
-            _ => None,
-        })
-        .collect();
-    let mut after = generated(&inc);
+    // A removed module's files included: the build deletes them (T-0194).
+    let after = generated(&inc);
     let fresh_cpp = generated(&clean);
-    after.retain(|file, _| {
-        let module = file.split('.').next().unwrap();
-        fresh_cpp.contains_key(file) || !removed.contains(&module)
-    });
     let diffs = differences(&after, &fresh_cpp);
     if !diffs.is_empty() {
         return Err(format!("the generated C++ differs:\n  {}", diffs.join("\n  ")));
