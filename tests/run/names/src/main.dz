@@ -1,5 +1,6 @@
-// Names C++ would read differently from Dazzle (T-0121): a local or a member named like a
-// free function, a constant or a static, which in C++ hides it.
+// Names C++ would read differently from Dazzle (T-0121, T-0167): a local or a member named
+// like a free function, a constant or a static, which in C++ hides it; and a field default
+// that calls a function declared after the struct.
 
 const LIMIT: i32 = 10
 
@@ -12,6 +13,15 @@ fn total(xs: &List<i32>) -> i32 {
         n += x
     }
     return n
+}
+
+fn peek() -> usize {
+    return 3
+}
+
+struct Holder {
+    pub n: usize = peek()
+    pub m: usize = later() + 1
 }
 
 struct Tally {
@@ -27,6 +37,10 @@ struct Wider : Tally {
     pub fn again(&mut self, xs: &List<i32>) {
         total += total(xs)
     }
+}
+
+fn later() -> usize {
+    return 4
 }
 
 fn main() {
@@ -50,4 +64,7 @@ fn main() {
     let mut w = Wider{}
     w.again(&xs)
     println!("{}", w.total)
+
+    let h = Holder{}
+    println!("{} {}", h.n, h.m)
 }

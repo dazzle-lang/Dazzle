@@ -1012,6 +1012,7 @@ impl<'a> Emitter<'a> {
         if any_early {
             self.header.push('\n');
         }
+        self.field_default_prototypes(&own_types);
         for i in self.sort_types(&nodes) {
             match own_types.get(i) {
                 Some(&(file, item, sym)) => {
@@ -3206,17 +3207,66 @@ impl<'a> Emitter<'a> {
 
     // --- function shells ---------------------------------------------------
 
-    fn free_fn(&mut self, sym: SymbolId, name: &str) {
+    /// A free function's declaration, `size_t peek();`, or `None` for one with no body.
+    fn free_fn_prototype(&mut self, sym: SymbolId, name: &str) -> Option<String> {
         let owner = BodyOwner::Fn(sym);
-        if self.find_body(&owner).is_none() {
-            return;
-        }
+        self.find_body(&owner)?;
         let ret = self.body_ret_ty(&owner);
         let decl = self.decl_params(&owner);
-        // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
         let cpp = sanitize(name);
         let inline = if self.is_inline(&owner) { "inline " } else { "" };
-        let _ = writeln!(self.header, "{inline}{ret} {cpp}({decl});");
+        Some(format!("{inline}{ret} {cpp}({decl});"))
+    }
+
+    /// Declare, before any struct is defined, the module's free functions a field default
+    /// calls: a default is written in the class, so C++ must see the function before it,
+    /// where Dazzle has no declaration order (spec §3, §6.2, T-0167). A declaration needs no
+    /// type complete, and every one is declared by now. `free_fn` declares each again later,
+    /// which C++ allows.
+    fn field_default_prototypes(&mut self, own_types: &[(FileId, &Item, SymbolId)]) {
+        let mut called: Vec<SymbolId> = Vec::new();
+        for &(_, item, sym) in own_types {
+            let ItemKind::Struct(_) = &item.kind else { continue };
+            let Some(sig) = self.table.struct_sig(sym) else { continue };
+            for index in 0..sig.fields.len() {
+                let Some(body) = self.find_body(&BodyOwner::FieldDefault { owner: sym, index })
+                else {
+                    continue;
+                };
+                for x in &body.exprs {
+                    let f = match &x.kind {
+                        hir::ExprKind::Call {
+                            callee: hir::Callee::Fn { sym, type_args }, ..
+                        } if type_args.is_empty() => *sym,
+                        hir::ExprKind::FnItem { sym, type_args } if type_args.is_empty() => *sym,
+                        _ => continue,
+                    };
+                    if self.res.symbol(f).module == self.module && !called.contains(&f) {
+                        called.push(f);
+                    }
+                }
+            }
+        }
+        let mut any = false;
+        for f in called {
+            let name = self.res.symbol(f).name.clone();
+            if let Some(line) = self.free_fn_prototype(f, &name) {
+                let _ = writeln!(self.header, "{line}");
+                any = true;
+            }
+        }
+        if any {
+            self.header.push('\n');
+        }
+    }
+
+    fn free_fn(&mut self, sym: SymbolId, name: &str) {
+        let owner = BodyOwner::Fn(sym);
+        let Some(proto) = self.free_fn_prototype(sym, name) else { return };
+        let _ = writeln!(self.header, "{proto}");
+        let ret = self.body_ret_ty(&owner);
+        // `current_fn` feeds `#function`, which names the Dazzle function, not the C++ one.
+        let cpp = sanitize(name);
 
         let params = self.decl_params(&owner);
         self.current_fn = name.to_owned();
