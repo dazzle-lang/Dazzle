@@ -20679,6 +20679,23 @@ body fn slot_maps -> f32
         local _6 total: f32
         field #2: f32
           local _9 gone: Vec3
+body fn passed_on -> T
+  param _0 x: T
+  block
+    return: !
+      move: T
+        local _0 x: T
+body fn a_reference_passed_on -> i32
+  block
+    let _0 a: i32
+      int 7: i32
+    let _1 r: &i32
+      call passed_on: &i32
+        ref: &i32
+          local _0 a: i32
+    return: !
+      deref: i32
+        local _1 r: &i32
 body fn first_item -> T::Item
   param _0 it: &T
   block

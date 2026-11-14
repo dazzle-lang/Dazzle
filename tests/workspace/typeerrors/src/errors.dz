@@ -1427,6 +1427,18 @@ fn stores_views(xs: &List<i32>) {
     let _many = List<SliceIter<i32>>()
 }
 
+// A reference is refused where a view is, as an element or a plain parameter's argument
+// (spec §5.2, T-0212): the list would outlive `local`.
+fn stores_references() {
+    let mut refs = List<&i32>()
+    {
+        let local = 42
+        refs.push(&local)
+    }
+    let a = 1
+    let _kept = keep(&a)
+}
+
 struct Wrapper<view I: Iterate> {
     pub inner: I
 }

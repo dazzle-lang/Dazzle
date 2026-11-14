@@ -1763,6 +1763,18 @@ fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 kills 
     return total + gone.z
 }
 
+// §6.7, T-0212: a `view` parameter is placed as a reference is, so it may be given one,
+// where a plain parameter, a container's element say, may not.
+fn passed_on<view T>(x: T) -> T in x {
+    return move(x)
+}
+
+fn a_reference_passed_on() -> i32 {
+    let a = 7
+    let r = passed_on(&a)
+    return r
+}
+
 // §8.5: an associated type named off a bound — `T::Item`, `C::Iter::Item` — in a signature,
 // in a `for` over a generic iterator and a generic container, and in an adapter's `Item`,
 // which each instance reads as the implementation's choice.

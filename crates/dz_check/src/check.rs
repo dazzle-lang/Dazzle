@@ -427,13 +427,14 @@ fn check_impl_conformance(cx: &mut Ctx, imp: &ImplSig, trait_name: &str, me: &st
                 ),
             );
         } else if !declared.is_view {
-            if let Some(t) = chosen.ty.as_ref().filter(|t| cx.table.placed_as_view(t)) {
+            if let Some(t) = chosen.ty.as_ref().filter(|t| cx.table.stored_as_view(t)) {
                 let shown = cx.name_of(t);
                 cx.error_help(
                     codes::REF_IN_FIELD,
                     chosen.span,
                     format!(
-                        "`{shown}` is a view, and `{trait_name}`'s `{}` is not a `view type`",
+                        "`{shown}` {}, and `{trait_name}`'s `{}` is not a `view type`",
+                        cx.table.stored_view_word(t),
                         chosen.name
                     ),
                     "a view chosen where it could be stored",
@@ -4958,14 +4959,21 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         // A plain parameter is never a view, so its body may store one anywhere; only a
         // `view` parameter may be given a view (spec §6.7, D-0093).
-        if !def.param.view && self.cx.table.placed_as_view(chosen) {
+        if !def.param.view && self.cx.table.stored_as_view(chosen) {
             let shown = self.cx.name_of(chosen);
             let p = def.name();
             self.cx.error_help(
                 codes::REF_IN_FIELD,
                 span,
-                format!("`{shown}` is a view, and `{p}` is not a `view` parameter"),
-                "a view given where it could be stored",
+                format!(
+                    "`{shown}` {}, and `{p}` is not a `view` parameter",
+                    self.cx.table.stored_view_word(chosen)
+                ),
+                if self.cx.table.placed_as_view(chosen) {
+                    "a view given where it could be stored"
+                } else {
+                    "a reference given where it could be stored"
+                },
                 format!(
                     "a view lives only where a reference does, and a value of `{p}` may be \
                      stored in a container or a field; keep the view in a local, or declare \

@@ -2,10 +2,19 @@
 id: T-0212
 title: A reference as a container's element is accepted: List<&i32> checks clean, dangles, and emits invalid C++
 milestone: none
-status: open
+status: done
 kind: bug
 area: checker
 ---
+
+**Done 2026-11-14.** A reference is refused wherever a view is (`DZ0517`): as a type
+argument to a parameter that is not `view` (`List<&i32>`, `Box<&i32>`, `keep(&a)`), in a
+static, a union's payload, and inside a tuple, optional or array in a plain struct's field.
+`TypeTable::stored_as_view` is `placed_as_view` plus `&T`, asked by the four storage checks;
+the ties check still asks `placed_as_view`, which it follows references apart from. The
+message says "is a reference" or "holds a reference" rather than calling `&i32` a view. Tests:
+`a_reference_cannot_be_a_plain_type_argument`, `stores_references` in `typeerrors/`, and
+`a_reference_passed_on` in `typed/` (a `view` parameter given one).
 
 Reported by the user on 2026-11-13. `dz check` accepts a `List<&i32>`, even holding a
 reference to a block-local value read after the block, and the build then fails in C++,

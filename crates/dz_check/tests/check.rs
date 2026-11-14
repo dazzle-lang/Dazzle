@@ -563,6 +563,29 @@ fn a_reference_cannot_be_stored_in_a_field() {
 }
 
 #[test]
+fn a_reference_cannot_be_a_plain_type_argument() {
+    // spec §5.2, §6.7, T-0212: a container's element, a `Box`'s contents and a plain
+    // generic's argument may be stored, so none may be a reference, as none may be a view.
+    let only = |src: &str| {
+        let codes = snippet(src);
+        assert_eq!(codes, vec![dz_diag::codes::REF_IN_FIELD], "{src}");
+    };
+    only("fn f() {\n let a = 1\n let mut xs = List<&i32>()\n xs.push(&a)\n}\n");
+    only("fn f() {\n let _xs = List<(i32, &i32)>()\n}\n");
+    only("fn f() {\n let a = 1\n let _b = Box<&i32>(&a)\n}\n");
+    only("fn keep<T>(x: T) -> T {\n return move(x)\n}\nfn f() {\n let a = 1\n let _k = keep(&a)\n}\n");
+    only("struct S {\n r: &i32?\n}\n");
+    only("struct S {\n r: (i32, &i32)\n}\n");
+    only("union U {\n Held { r: &i32 }\n Empty {}\n}\n");
+    // A `view` parameter is placed as a reference is, so it may be given one; so may `^T`.
+    assert!(snippet(
+        "fn pass<view T>(x: T) -> T in x {\n return move(x)\n}\nfn f() {\n let a = 1\n let _r = pass(&a)\n}\n"
+    )
+    .is_empty());
+    assert!(snippet("fn f() {\n let _xs = List<^i32>()\n}\n").is_empty());
+}
+
+#[test]
 fn field_and_method_visibility_is_enforced_through_a_value() {
     // The `.` side of spec §4, which M2 could not reach without types.
     let base = "struct S {\n hidden: i32\n pub shown: i32\n}\n";

@@ -467,6 +467,34 @@ impl TypeTable {
         }
     }
 
+    /// Whether a value of `t` may live only where a reference does: [`Self::placed_as_view`]'s
+    /// views, and a reference itself, alone or in a tuple, optional or array (spec §5.2,
+    /// §6.7). This is what a container's element, a plain parameter's argument, a static or a
+    /// union's payload may not be; a reference held there would outlive its referent with
+    /// nothing to tie it (T-0212). Kept apart from `placed_as_view`, which the ties check
+    /// asks of a value it already follows as a reference when it is one.
+    pub fn stored_as_view(&self, t: &Ty) -> bool {
+        match t {
+            Ty::Ref { .. } => true,
+            Ty::Tuple(parts) => parts.iter().any(|p| self.stored_as_view(p)),
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => self.stored_as_view(inner),
+            _ => self.placed_as_view(t),
+        }
+    }
+
+    /// What a diagnostic says of a value [`Self::stored_as_view`] refuses, as a verb phrase:
+    /// "is a view", or for one that is only so through a reference "is a reference" or, a
+    /// tuple holding one say, "holds a reference", so `&i32` is not called a view.
+    pub fn stored_view_word(&self, t: &Ty) -> &'static str {
+        if self.placed_as_view(t) {
+            "is a view"
+        } else if matches!(t, Ty::Ref { .. }) {
+            "is a reference"
+        } else {
+            "holds a reference"
+        }
+    }
+
     /// Whether a value of `t` holds a reference field somewhere inline: a view struct's
     /// `&T`, directly or in a field, tuple or array of one. Such a value has no defaults to
     /// start from, since a reference has no zero value (spec §6.2, §6.7). An optional does
@@ -2747,14 +2775,14 @@ impl<'a> Ctx<'a> {
     /// A view stored where it may outlive what it views (spec §6.7, D-0093): `place` is
     /// what holds it, "a static" or "a union's payload".
     fn check_view_storage(&mut self, ty: &Ty, span: Span, place: &str) {
-        if !self.table.placed_as_view(ty) {
+        if !self.table.stored_as_view(ty) {
             return;
         }
         let shown = self.name_of(ty);
         self.error_help(
             codes::REF_IN_FIELD,
             span,
-            format!("{place} cannot hold `{shown}`, which is a view"),
+            format!("{place} cannot hold `{shown}`, which {}", self.table.stored_view_word(ty)),
             "a view lives only where a reference does",
             "a view lives in a local, a parameter or a result; keep it there, or store what \
              it views (spec §6.7)",
@@ -2764,7 +2792,7 @@ impl<'a> Ctx<'a> {
     /// A view given to a type parameter that is not `view` (spec §6.7, D-0093): a container's
     /// element, a `Box`'s contents, a plain generic's argument. `owner` declares `def`.
     pub(crate) fn check_view_arg(&mut self, owner: SymbolId, def: &ParamDef, arg: &Ty, span: Span) {
-        if def.param.view || !self.table.placed_as_view(arg) {
+        if def.param.view || !self.table.stored_as_view(arg) {
             return;
         }
         // A trait's argument stores nothing: `ImplicitAs<&str>` names a conversion, and
@@ -2778,8 +2806,15 @@ impl<'a> Ctx<'a> {
         self.error_help(
             codes::REF_IN_FIELD,
             span,
-            format!("`{shown}` is a view, and `{name}`'s `{p}` is not a `view` parameter"),
-            "a view given where it could be stored",
+            format!(
+                "`{shown}` {}, and `{name}`'s `{p}` is not a `view` parameter",
+                self.table.stored_view_word(arg)
+            ),
+            if self.table.placed_as_view(arg) {
+                "a view given where it could be stored"
+            } else {
+                "a reference given where it could be stored"
+            },
             format!(
                 "a view lives only where a reference does, never in a container or another \
                  value's field; keep it in a local, or declare the parameter `view {p}` where \
@@ -3550,14 +3585,18 @@ impl<'a> Ctx<'a> {
                     let told = self.table.type_params(sym).iter().any(|p| p.param.view);
                     if !self.table.is_view_struct(sym)
                         && !told
-                        && self.table.placed_as_view(&field.ty)
+                        && !matches!(field.ty, Ty::Ref { .. })   // a bare `&T` has its own message below
+                        && self.table.stored_as_view(&field.ty)
                     {
                         let shown = self.name_of(&field.ty);
                         let owner = self.res.symbol(sym).name.clone();
                         self.error_help(
                             codes::REF_IN_FIELD,
                             f.ty.span,
-                            format!("a struct field cannot hold `{shown}`, which is a view"),
+                            format!(
+                                "a struct field cannot hold `{shown}`, which {}",
+                                self.table.stored_view_word(&field.ty)
+                            ),
                             "a view lives only where a reference does",
                             format!(
                                 "declare `{owner}` a `view struct`, which is itself placed as a \
