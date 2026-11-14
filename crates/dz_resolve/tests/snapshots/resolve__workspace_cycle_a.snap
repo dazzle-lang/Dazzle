@@ -1,8 +1,8 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
-expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
+expression: "format!(\"modules: {}, own files: {}\\n\\n{}\", r.module_count, r.own_file_count,\nbody)"
 ---
-modules: 4, files: 87
+modules: 4, own files: 2
 
 error[DZ0006]: circular dependency between `alpha` and `beta`
   ┌─ cycle/a/dazzle.toml:7:17

@@ -17,6 +17,8 @@ struct Checked {
     error_count: usize,
     module_count: usize,
     file_count: usize,
+    /// The files of the workspace's own modules, not the standard library's.
+    own_file_count: usize,
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -76,11 +78,13 @@ fn check(entry: &Path) -> Checked {
             error_count,
             module_count: 0,
             file_count: 0,
+            own_file_count: 0,
         };
     };
 
     let mut files: HashMap<ModuleId, Vec<dz_resolve::ParsedFile>> = HashMap::new();
     let mut file_count = 0;
+    let mut own_file_count = 0;
     for module in ws.modules() {
         let mut parsed = Vec::new();
         for path in &module.sources {
@@ -93,6 +97,9 @@ fn check(entry: &Path) -> Checked {
             diags.extend(p.diagnostics);
             parsed.push(dz_resolve::ParsedFile { file: id, ast: p.ast });
             file_count += 1;
+            if module.id != ws.prelude {
+                own_file_count += 1;
+            }
         }
         files.insert(module.id, parsed);
     }
@@ -109,6 +116,7 @@ fn check(entry: &Path) -> Checked {
         error_count: diags.error_count(),
         module_count: ws.len(),
         file_count,
+        own_file_count,
         rendered,
     }
 }
@@ -181,6 +189,10 @@ fn manifest_problems_are_reported_with_spans() {
 
 // --- snapshots ------------------------------------------------------------
 
+/// The diagnostics each fixture workspace gets, and how many files of its own it has. Not
+/// the standard library's: that count changes with every file `std` gains, which is not
+/// what this pins, and it failed CI from T-0175 to T-0177 for that alone.
+/// `a_three_module_workspace_resolves_cleanly` checks that every `std` file is loaded.
 #[test]
 fn diagnostics_snapshot() {
     for name in ["good", "private", "cycle/a", "badmanifest"] {
@@ -188,7 +200,7 @@ fn diagnostics_snapshot() {
         let body = if r.rendered.is_empty() { "(none)\n".to_owned() } else { r.rendered };
         insta::assert_snapshot!(
             format!("workspace_{}", name.replace('/', "_")),
-            format!("modules: {}, files: {}\n\n{}", r.module_count, r.file_count, body)
+            format!("modules: {}, own files: {}\n\n{}", r.module_count, r.own_file_count, body)
         );
     }
 }

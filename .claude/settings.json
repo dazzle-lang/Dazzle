@@ -13,6 +13,12 @@
             "command": "git -C \"$CLAUDE_PROJECT_DIR\" pull --ff-only 2>&1 || echo 'git pull --ff-only FAILED: tell the user before reading or changing anything (CLAUDE.md).'",
             "timeout": 60,
             "statusMessage": "git pull"
+          },
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/ci_status.py\"",
+            "timeout": 30,
+            "statusMessage": "CI status of master"
           }
         ]
       }
@@ -23,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/tools/hooks/no_heredoc.py\"",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/no_heredoc.py\"",
             "timeout": 10
           }
         ]
@@ -35,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/tools/hooks/tasks_backlog.py\"",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/tasks_backlog.py\"",
             "timeout": 20
           }
         ]

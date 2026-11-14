@@ -1,8 +1,8 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
-expression: "format!(\"modules: {}, files: {}\\n\\n{}\", r.module_count, r.file_count, body)"
+expression: "format!(\"modules: {}, own files: {}\\n\\n{}\", r.module_count, r.own_file_count,\nbody)"
 ---
-modules: 5, files: 90
+modules: 5, own files: 5
 
 error[DZ0303]: no module `graphics` in scope
   ┌─ private/src/violations.dz:3:8

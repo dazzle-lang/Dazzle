@@ -158,6 +158,7 @@ Crates still to come are listed in spec §17.1. Follow that layout rather than i
 ```bash
 cargo build --workspace
 cargo test -p <crate>            # test the crate you touched; the full suite is slow
+cargo test --workspace --no-fail-fast   # before every push: see Conventions
 cargo clippy --workspace --all-targets
 cargo insta review               # review snapshot changes interactively
 cargo run -p dz -- lex <file.dz>     # tokens
@@ -231,6 +232,17 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
 - **Comments** explain *why*, especially where a choice looks arbitrary. Do not narrate
   what the code already says.
 - **Do not commit or push unless the user asks.**
+- **Before a push, run `cargo test --workspace --no-fail-fast`**, not only the crates you
+  touched. `std` is read by every crate's tests, so a change to it changes snapshots far from
+  the edit: `dz_check`'s `hir_typed` prints every `std` body. From T-0175 to T-0177 three
+  commits each ran their own crate's tests and left `master` red on every platform, and the
+  next session pushed on top of it. `--no-fail-fast` matters: `cargo test` stops at the first
+  failing test binary, so one failure hides the rest. Accept a changed snapshot only after
+  reading its diff, and never one that pins something the test is not about.
+- **After a push, check CI** (`gh run list --branch master`) and fix a red `master` before
+  starting anything else. A push cancels the run before it, so a failure can sit behind
+  cancelled runs; the SessionStart hook (`tools/hooks/ci_status.py`) prints `master`'s latest
+  finished run, so a session starts knowing.
 - **Clean up after landing.** Once a branch's work is on `origin/master`, switch back to
   `master`, pull, and delete the branch (local and remote) and its worktree, in the same
   session. Before deleting one, check `git log origin/master..<branch>`: work may have landed
@@ -250,6 +262,9 @@ These are load-bearing. Breaking one is a real regression even if tests still pa
   Python script written to fix them. A PreToolUse hook (`tools/hooks/no_heredoc.py`) refuses
   them. Use `Edit` to change a file, `Write` for a new one, and for a script: `Write` it to
   the scratchpad and run it in a separate Bash call — never pipe it in.
+- **Linux has no `python`**, only `python3`: use `python3 tools/track.py …` there. The
+  hooks pick whichever exists; until 2026-11-14 they called `python`, so on Linux none of
+  them ran, the heredoc guard included.
 - Windows. The Bash tool is Git Bash (POSIX sh); PowerShell is also available. Prefer
   forward slashes in paths.
 - `.gitignore` uses CRLF and had no trailing newline — appending with `>>` once produced
