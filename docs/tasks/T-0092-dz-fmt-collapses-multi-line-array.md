@@ -2,10 +2,15 @@
 id: T-0092
 title: dz fmt collapses a multi-line array literal and detaches its elements' comments
 milestone: none
-status: open
+status: done
 kind: bug
 area: tooling
 ---
+
+**Done 2026-11-14.** `Printer::array_lit`: a literal with a comment inside is broken one
+element to a line, each line comment after the element it followed and each other comment
+on a line of its own above the next element, a trailing comma added; one with no comment is
+still joined. Test: `an_array_literal_keeps_its_comments_beside_its_elements`.
 
 **What it is.** An array literal written one element per line, each with a trailing comment,
 is joined onto one line, and the comments are moved after the whole declaration, where they

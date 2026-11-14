@@ -380,3 +380,21 @@ fn a_comment_inside_a_macro_or_an_invocation_is_kept_once() {
          fn main() {\n    trace!(\"here\") // why\n    let x = twice!(\n        // four\n        4\n    )\n}\n",
     );
 }
+
+/// T-0092: an array literal holding a comment keeps one element to a line, and each
+/// comment beside the element it was written after or above the one it precedes; one with
+/// none is still joined.
+#[test]
+fn an_array_literal_keeps_its_comments_beside_its_elements() {
+    unchanged(
+        "const CHORDS: [4][4]i32 = [\n    [0, 3, 7, 12],  // A minor\n    [-4, 0, 3, 8],  // F major\n    // the turnaround\n    [3, 7, 10, 15], // C major\n    [-2, 2, 5, 10], // G major\n]\n",
+    );
+    assert_eq!(
+        fmt("const T: [2]i32 = [\n    1, // one\n    2]\n"),
+        "const T: [2]i32 = [\n    1, // one\n    2,\n]\n"
+    );
+    assert_eq!(
+        fmt("const T: [3]i32 = [\n    1,\n    2,\n    3,\n]\n"),
+        "const T: [3]i32 = [1, 2, 3]\n"
+    );
+}

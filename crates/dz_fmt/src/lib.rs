@@ -980,10 +980,7 @@ impl<'a> Printer<'a> {
                 Some(fields) => format!(".{}{}", name.name, self.struct_body(fields)),
                 None => format!(".{}", name.name),
             },
-            ExprKind::ArrayLit(elems) => {
-                let rendered: Vec<String> = elems.iter().map(|x| self.expr(x)).collect();
-                format!("[{}]", rendered.join(", "))
-            }
+            ExprKind::ArrayLit(elems) => self.array_lit(e.span, elems),
             ExprKind::StructLit { path, fields } => {
                 format!("{}{}", self.path(path), self.struct_body(fields))
             }
@@ -1153,6 +1150,61 @@ impl<'a> Printer<'a> {
             ExprKind::Named { name, value } => format!("{} = {}", name.name, self.expr(value)),
             ExprKind::Error => "/* <error> */".to_owned(),
         }
+    }
+
+    /// `[a, b, c]` on one line, unless a comment is written inside it: then one element to a
+    /// line, each comment where it was, after its element or on a line of its own above it
+    /// (T-0092). A table of rows with a comment each, a palette or a chord progression, is
+    /// how such a literal is documented, and joining it moved every comment past the end.
+    fn array_lit(&self, span: Span, elems: &[Expr]) -> String {
+        if !self.comment_inside(span) {
+            let rendered: Vec<String> = elems.iter().map(|x| self.expr(x)).collect();
+            return format!("[{}]", rendered.join(", "));
+        }
+        let mut s = "[".to_owned();
+        // A comment after the `[` itself stays on its line; one after a first element on
+        // that line is the element's.
+        let first = elems.first().map_or(span.end, |x| x.span.start);
+        if self.comments.get(self.next_comment.get()).is_some_and(|c| c.span.start < first) {
+            if let Some(text) = self.take_trailing_comment(span.start) {
+                s.push_str(&text);
+            }
+        }
+        s.push('\n');
+        for x in elems {
+            for c in self.own_line_comments_before(x.span.start) {
+                s.push_str(&indent_lines(&c));
+                s.push('\n');
+            }
+            let mut line = format!("{},", self.expr(x));
+            if let Some(text) = self.take_trailing_comment(x.span.end) {
+                line.push_str(&text);
+            }
+            s.push_str(&indent_lines(&line));
+            s.push('\n');
+        }
+        // What is written after the last element, before the `]`.
+        for c in self.own_line_comments_before(span.end) {
+            s.push_str(&indent_lines(&c));
+            s.push('\n');
+        }
+        s.push(']');
+        s
+    }
+
+    /// The comments still to be placed that start before `offset`, as the lines they are
+    /// printed as, each passed over: a comment inside an expression laid out over several
+    /// lines, which goes on a line of its own.
+    fn own_line_comments_before(&self, offset: u32) -> Vec<String> {
+        let mut out = Vec::new();
+        while let Some(c) = self.comments.get(self.next_comment.get()) {
+            if c.span.start >= offset {
+                break;
+            }
+            self.next_comment.set(self.next_comment.get() + 1);
+            out.push(self.text(c.span).trim_end().to_owned());
+        }
+        out
     }
 
     fn struct_body(&self, fields: &[FieldInit]) -> String {

@@ -16,9 +16,12 @@ example in T-0147 is wholly in the region; T-0147's other three rows stay open, 
 **The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
 the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
 
-1. **Bugs in the generated C++ and the tools.** A C++ error in generated code is a compiler
-   bug (invariant 7): T-0121, T-0167, T-0034 and T-0053; then the parser's `as` precedence
-   (T-0161) and `dz fmt` on array literals (T-0092).
+1. **Bugs in the generated C++ and the tools.** Done 2026-11-14, with the two found since,
+   T-0205 and T-0212: a local or member named like an item (T-0121), a field default calling
+   a later function (T-0167), the shim moved to `dz::rt` (T-0034), a stale error's message
+   caught (T-0053, r123), `as` below prefix operators (T-0161, r124), array literals keeping
+   their comments (T-0092), a field and a method of one name refused (T-0205, r122), and a
+   reference refused as a container's element (T-0212).
 2. **Build times.** The C++ compiler is about 90% of a build. T-0102 is done
    (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
    compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
@@ -231,7 +234,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (28 open)
+## none — not scheduled (27 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -245,7 +248,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0070](tasks/T-0070-one-word-one-job.md)** One word, one job · design, language
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
-- **[T-0092](tasks/T-0092-dz-fmt-collapses-multi-line-array.md)** dz fmt collapses a multi-line array literal and detaches its elements' comments · bug, tooling
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0103](tasks/T-0103-renamed-or-removed-module-generated-c.md)** A renamed or removed module's generated C++ stays in build/cpp · feature, tooling
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership

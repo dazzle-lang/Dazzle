@@ -27,9 +27,12 @@ example in T-0147 is wholly in the region; T-0147's other three rows stay open, 
 **The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
 the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
 
-1. **Bugs in the generated C++ and the tools.** A C++ error in generated code is a compiler
-   bug (invariant 7): T-0121, T-0167, T-0034 and T-0053; then the parser's `as` precedence
-   (T-0161) and `dz fmt` on array literals (T-0092).
+1. **Bugs in the generated C++ and the tools.** Done 2026-11-14, with the two found since,
+   T-0205 and T-0212: a local or member named like an item (T-0121), a field default calling
+   a later function (T-0167), the shim moved to `dz::rt` (T-0034), a stale error's message
+   caught (T-0053, r123), `as` below prefix operators (T-0161, r124), array literals keeping
+   their comments (T-0092), a field and a method of one name refused (T-0205, r122), and a
+   reference refused as a container's element (T-0212).
 2. **Build times.** The C++ compiler is about 90% of a build. T-0102 is done
    (2026-11-09): each generated file has a cached object, so an unchanged `std` is not
    compiled again. T-0180 holds the targets for 0.2 (a debug rebuild under 0.5 s, a clean
