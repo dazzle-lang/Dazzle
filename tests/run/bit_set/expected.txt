@@ -1,0 +1,17 @@
+u32 11: 3 0 28
+u8 0: 0 8 8
+i8 -1: 8 0 0
+i16 min: 1 15 0
+u64 top: 1 63 0
+usize 1: 1 0 63
+empty: true 0 []
+5 was already there
+set: [0 5 63 64 127 128 1000 ] len 7
+contains: true false true false
+removed: true false false
+after: [0 5 64 127 128 1000 ] capacity at least 1001 true
+union [1 2 3 4 70 200 ] intersect [2 3 70 ] difference [1 200 ]
+equal however long: true false
+intersect with short: [3 ] equal true
+cleared: true 0 [] true
+visited: 3334 3334 16668333

@@ -1,0 +1,45 @@
+/// Steps through a bit set's integers in increasing order: `for n in set`. Each comes from
+/// the lowest bit left in the current word, its trailing zeros counted, and that bit is then
+/// cleared, so a sparse set costs a step per integer and one per word.
+pub view struct BitSetIter {
+    m_words: &[]u64
+    /// The word being read, and its bits not yet handed out.
+    m_word: usize = 0
+    m_bits: u64 = 0
+
+    /// The set's words, so the iterator cannot outlive them (spec §6.7).
+    tie @items = m_words
+
+    BitSetIter(words: &[]u64) {
+        m_words = words
+        if words.len > 0 {
+            m_bits = words[0]
+        }
+        self.settle()
+    }
+
+    /// Move on to the next word with a bit set, if the current one has none left.
+    fn settle(&mut self) {
+        while m_bits == 0 && m_word + 1 < m_words.len {
+            m_word += 1
+            m_bits = m_words[m_word]
+        }
+    }
+}
+
+impl Iterate for BitSetIter {
+    type Item = usize
+
+    fn valid(&self) -> bool {
+        return m_bits != 0
+    }
+
+    fn get(&self) -> usize {
+        return m_word * 64 + m_bits.trailing_zeros() as usize
+    }
+
+    fn advance(&mut self) {
+        m_bits = m_bits & m_bits - 1
+        self.settle()
+    }
+}

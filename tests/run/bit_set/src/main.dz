@@ -1,0 +1,90 @@
+// std's BitSet (T-0177), and the bit counts on integers it is built on.
+
+fn show(set: &BitSet) -> String {
+    let mut out = String()
+    for n in set {
+        out.push_str(format!("{} ", n))
+    }
+    return out
+}
+
+fn main() {
+    // The counts on every width, signed and unsigned, and on zero.
+    let eleven: u32 = 11
+    println!("u32 11: {} {} {}", eleven.count_ones(), eleven.trailing_zeros(), eleven.leading_zeros())
+    let z: u8 = 0
+    println!("u8 0: {} {} {}", z.count_ones(), z.trailing_zeros(), z.leading_zeros())
+    let neg: i8 = -1
+    println!("i8 -1: {} {} {}", neg.count_ones(), neg.trailing_zeros(), neg.leading_zeros())
+    let min: i16 = -32768
+    println!("i16 min: {} {} {}", min.count_ones(), min.trailing_zeros(), min.leading_zeros())
+    let top: u64 = 1 << 63
+    println!("u64 top: {} {} {}", top.count_ones(), top.trailing_zeros(), top.leading_zeros())
+    let one: usize = 1
+    println!("usize 1: {} {} {}", one.count_ones(), one.trailing_zeros(), one.leading_zeros())
+
+    let mut set = BitSet()
+    println!("empty: {} {} [{}]", set.is_empty(), set.len(), show(&set))
+    let inserted: [8]usize = [5, 0, 63, 64, 127, 128, 1000, 5]
+    for n in inserted {
+        let fresh = set.insert(n)
+        if !fresh {
+            println!("{} was already there", n)
+        }
+    }
+    println!("set: [{}] len {}", show(&set), set.len())
+    println!("contains: {} {} {} {}", set.contains(64), set.contains(65), set.contains(1000), set.contains(99999))
+    println!("removed: {} {} {}", set.remove(63), set.remove(63), set.remove(5000))
+    println!("after: [{}] capacity at least 1001 {}", show(&set), set.capacity() >= 1001)
+
+    // Set operations on sets of different lengths.
+    let mut a = BitSet()
+    let mut b = BitSet()
+    let in_a: [5]usize = [1, 2, 3, 70, 200]
+    for n in in_a {
+        a.insert(n)
+    }
+    let in_b: [4]usize = [2, 3, 4, 70]
+    for n in in_b {
+        b.insert(n)
+    }
+    let mut u = a
+    u.union_with(&b)
+    let mut i = a
+    i.intersect_with(&b)
+    let mut d = a
+    d.difference_with(&b)
+    let mut grown = b
+    grown.union_with(&a)
+    println!("union [{}] intersect [{}] difference [{}]", show(&u), show(&i), show(&d))
+    println!("equal however long: {} {}", u == grown, i == d)
+
+    // A short set intersected with a long one drops the long one's extra words.
+    let mut short = BitSet()
+    short.insert(3)
+    let mut long = BitSet()
+    long.insert(3)
+    long.insert(500)
+    long.intersect_with(&short)
+    println!("intersect with short: [{}] equal {}", show(&long), long == short)
+
+    // Clear keeps the words; the set is empty and still equal to a new one.
+    set.clear()
+    println!("cleared: {} {} [{}] {}", set.is_empty(), set.len(), show(&set), set == BitSet())
+
+    // A visited set over a 100 by 100 grid: every third cell, then counted two ways.
+    let mut visited = BitSet(10000)
+    let cells: usize = 10000
+    for c in 0..cells {
+        if c % 3 == 0 {
+            visited.insert(c)
+        }
+    }
+    let mut walked: usize = 0
+    let mut sum: usize = 0
+    for c in visited {
+        walked += 1
+        sum += c
+    }
+    println!("visited: {} {} {}", visited.len(), walked, sum)
+}

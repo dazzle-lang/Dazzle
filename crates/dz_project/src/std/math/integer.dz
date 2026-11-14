@@ -23,4 +23,11 @@ pub trait Integer : Number {
     fn saturating_add(&self, rhs: Self) -> Self
     fn saturating_sub(&self, rhs: Self) -> Self
     fn is_power_of_two(&self) -> bool
+    /// How many bits are set, a negative value's sign bit among them: `0b1011.count_ones()`
+    /// is 3.
+    fn count_ones(&self) -> u32
+    /// How many zero bits come before the lowest set one; the type's width for zero.
+    fn trailing_zeros(&self) -> u32
+    /// How many zero bits come before the highest set one; the type's width for zero.
+    fn leading_zeros(&self) -> u32
 }

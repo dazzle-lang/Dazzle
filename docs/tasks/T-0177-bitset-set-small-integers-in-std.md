@@ -2,10 +2,29 @@
 id: T-0177
 title: BitSet: a set of small integers in std
 milestone: M12
-status: open
+status: done
 kind: feature
 area: stdlib
 ---
+
+**Done** (2026-11-14, r127). The counts are `Integer` methods, `count_ones`,
+`trailing_zeros` and `leading_zeros`, which the emitter turns into `::dz::rt::num`'s of
+the same name, as it does every `Integer` method; the shim's are `__builtin_popcountll`,
+`__builtin_ctzll` and `__builtin_clzll` on the unsigned type of the same width, with zero
+answered first, where the builtins are undefined. Beyond the plan: `==` by the integers
+held, `is_empty`, `capacity` and `reserve`. Writing `insert` found T-0213: `let was =
+m_words[word]` bound a reference to the word, not a copy.
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| the set | `crates/dz_project/src/std/collections/bit_set.dz` |
+| `for n in set` | `crates/dz_project/src/std/collections/bit_set_iter.dz` |
+| the counts, declared | `crates/dz_project/src/std/math/integer.dz` |
+| the counts, in C++ | `crates/dz_cpp/src/runtime.rs`, `namespace num`, after `is_power_of_two` |
+| an `Integer` method's C++ | `crates/dz_cpp/src/lib.rs`, the `"Float" \| "Integer" \| "Number"` arm |
+| test | `tests/run/bit_set` |
 
 Planned for 0.2 by the user on 2026-11-09.
 

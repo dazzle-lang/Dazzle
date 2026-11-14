@@ -1,0 +1,156 @@
+/// A set of small non-negative integers, one bit each, in memory from wherever the compiler
+/// places the set (spec §14.6).
+///
+/// Bit `n` of the set is bit `n % 64` of word `n / 64` of a `List<u64>`, which grows to hold
+/// the largest integer inserted: a visited set over a grid of a million cells is 125 KiB,
+/// where a `List<bool>` is 1 MiB and a `HashSet<usize>` more. `for n in set` visits the
+/// integers in increasing order. Copyable.
+pub struct BitSet {
+    m_words: List<u64>
+
+    /// The words, which move when the set grows.
+    tie @items = m_words@items
+
+    /// An empty set, with room for the integers below `capacity` already allocated when it
+    /// is given.
+    BitSet(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_words = List<u64>((capacity + 63) / 64, loc)
+    }
+
+    /// How many integers are in the set: a population count of every word.
+    pub fn len(&self) -> usize {
+        let mut n: usize = 0
+        for &w in m_words {
+            n += w.count_ones() as usize
+        }
+        return n
+    }
+
+    pub fn is_empty(&self) -> bool {
+        for &w in m_words {
+            if w != 0 {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The integers below this fit before the set grows again.
+    pub fn capacity(&self) -> usize {
+        return m_words.capacity() * 64
+    }
+
+    /// Add `n`, saying whether it is new: `false` when it was already there.
+    pub fn insert(&mut self, n: usize, loc: SourceLocation = #location) -> bool kills self@items {
+        let word = n / 64
+        if word >= m_words.len() {
+            m_words.resize(word + 1, loc)
+        }
+        let bit: u64 = 1 << (n % 64) as u64
+        let was: u64 = m_words[word]
+        m_words[word] = was | bit
+        return was & bit == 0
+    }
+
+    /// Take `n` out, saying whether it was there. The set never shrinks.
+    pub fn remove(&mut self, n: usize) -> bool {
+        let word = n / 64
+        if word >= m_words.len() {
+            return false
+        }
+        let bit: u64 = 1 << (n % 64) as u64
+        let was: u64 = m_words[word]
+        m_words[word] = was & ~bit
+        return was & bit != 0
+    }
+
+    pub fn contains(&self, n: usize) -> bool {
+        let word = n / 64
+        if word >= m_words.len() {
+            return false
+        }
+        return m_words[word] & 1 << (n % 64) as u64 != 0
+    }
+
+    /// Take every integer out and keep the allocation.
+    pub fn clear(&mut self) {
+        for &mut w in m_words {
+            w = 0
+        }
+    }
+
+    /// Room for the integers below `capacity` without growing again.
+    pub fn reserve(&mut self, capacity: usize, loc: SourceLocation = #location) kills self@items {
+        let words = (capacity + 63) / 64
+        if words > m_words.len() {
+            m_words.reserve(words - m_words.len(), loc)
+        }
+    }
+
+    /// Add every integer `other` holds.
+    pub fn union_with(&mut self, other: &BitSet, loc: SourceLocation = #location) kills self@items {
+        if other.m_words.len() > m_words.len() {
+            m_words.resize(other.m_words.len(), loc)
+        }
+        for i in 0..other.m_words.len() {
+            m_words[i] = m_words[i] | other.m_words[i]
+        }
+    }
+
+    /// Keep only the integers `other` holds too.
+    pub fn intersect_with(&mut self, other: &BitSet) {
+        for i in 0..m_words.len() {
+            m_words[i] = if i < other.m_words.len() {
+                m_words[i] & other.m_words[i]
+            } else {
+                0
+            }
+        }
+    }
+
+    /// Word `i`, or zero past the words the set has grown to.
+    fn word(&self, i: usize) -> u64 {
+        if i < m_words.len() {
+            return m_words[i]
+        }
+        return 0
+    }
+
+    /// Take out every integer `other` holds.
+    pub fn difference_with(&mut self, other: &BitSet) {
+        let n = if other.m_words.len() < m_words.len() {
+            other.m_words.len()
+        } else {
+            m_words.len()
+        }
+        for i in 0..n {
+            m_words[i] = m_words[i] & ~other.m_words[i]
+        }
+    }
+}
+
+/// The same integers, however many words each has grown to.
+impl Eq for BitSet {
+    fn eq(&self, rhs: &BitSet) -> bool {
+        let n = if m_words.len() > rhs.m_words.len() {
+            m_words.len()
+        } else {
+            rhs.m_words.len()
+        }
+        for i in 0..n {
+            if self.word(i) != rhs.word(i) {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+/// `for n in set`, in increasing order.
+impl Iterable for BitSet {
+    type Iter = BitSetIter
+
+    fn iter(&self) -> BitSetIter {
+        return BitSetIter(m_words.as_slice())
+    }
+}

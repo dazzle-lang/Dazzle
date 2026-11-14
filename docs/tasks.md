@@ -64,7 +64,7 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    runtime's `destroy` of a word ended its lifetime, and g++ deleted `String`'s store to it.
 3. **The stdlib.** `BinaryHeap` (T-0175, done 2026-11-14, r125: the largest first, with
    `Reverse<T>` for the smallest, D-0098; `astar` uses it), `Deque`
-   (T-0176, done 2026-11-14, r126) and `BitSet` (T-0177); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
+   (T-0176, done 2026-11-14, r126) and `BitSet` (T-0177, done 2026-11-14, r127); then `str[a..b]` (T-0098), `indexed()` (T-0037) and
    generic trait methods (T-0007); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
    what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
@@ -206,7 +206,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
 - **[T-0098](tasks/T-0098-str-cannot-be-cut-str-b.md)** A str cannot be cut: str[a..b] is refused, and only String has slice · feature, stdlib
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
-- **[T-0177](tasks/T-0177-bitset-set-small-integers-in-std.md)** BitSet: a set of small integers in std · feature, stdlib
+- **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 
 ## M15 — `dz bench`, and the C++ comparison (9 open)
 

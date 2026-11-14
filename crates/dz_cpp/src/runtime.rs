@@ -691,6 +691,22 @@ template <class T> DZ_INLINE T pow_int(T base, uint32_t e) {
     return r;
 }
 template <class T> DZ_INLINE bool is_power_of_two(T x) { return T(0) < x && (x & (x - 1)) == 0; }
+// Bits, counted on the unsigned type of the same width, so a negative value's sign bit is one
+// of them (spec §14.4). The builtins leave zero undefined for the two counts of zeros, so it
+// is answered first: every bit is zero.
+template <class T> DZ_INLINE uint32_t count_ones(T x) {
+    return static_cast<uint32_t>(__builtin_popcountll(static_cast<unsigned long long>(static_cast<U<T>>(x))));
+}
+template <class T> DZ_INLINE uint32_t trailing_zeros(T x) {
+    const U<T> u = static_cast<U<T>>(x);
+    if (u == 0) { return static_cast<uint32_t>(sizeof(T) * 8); }
+    return static_cast<uint32_t>(__builtin_ctzll(static_cast<unsigned long long>(u)));
+}
+template <class T> DZ_INLINE uint32_t leading_zeros(T x) {
+    const U<T> u = static_cast<U<T>>(x);
+    if (u == 0) { return static_cast<uint32_t>(sizeof(T) * 8); }
+    return static_cast<uint32_t>(__builtin_clzll(static_cast<unsigned long long>(u)) - static_cast<int>(64 - sizeof(T) * 8));
+}
 
 // `Number` (spec §14.4): both kinds.
 template <class T> DZ_INLINE double to_f64(T x) { return static_cast<double>(x); }

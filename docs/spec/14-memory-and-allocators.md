@@ -218,6 +218,24 @@ while true {                                       // a breadth-first search
 }
 ```
 
+**`BitSet`** is a set of small non-negative integers, one bit each, in `std`: bit `n` is a
+bit of word `n / 64` of a `List<u64>`, which grows to hold the largest integer inserted.
+`BitSet(capacity)`; `insert(n)` (whether `n` was new), `remove(n)` (whether it was there),
+`contains(n)`, all taking a `usize`; `len` (a population count), `is_empty`, `capacity`,
+`clear`, `reserve`; `union_with(&other)`, `intersect_with(&other)` and
+`difference_with(&other)`, on sets of any two lengths; `==`, which compares the integers
+held, not how far each set has grown; and `for n in set`, the integers in increasing order.
+It is copyable. Its counts come from three methods every **integer** has, with Rust's names:
+`count_ones()`, `trailing_zeros()` and `leading_zeros()`, each a `u32`, counted on the bits
+of the type's own width, so `(-1 as i8).count_ones()` is 8 and the two counts of zeros of
+`0` are the width.
+
+```dz
+let mut visited = BitSet(width * height)
+visited.insert(cell)
+if !visited.contains(next) { ... }
+```
+
 **`SlotMap<T>`** holds values that are added and removed in any order and named by a
 **`Key<T>`**, in `std`. It is what to use where a struct would keep a reference to
 something it does not own — an entity, a node, a connection — which a field cannot be
@@ -328,7 +346,8 @@ is an error. `[DECIDED — §18.57, superseding §18.23 and §18.55]`
 - **`Float`**, implemented by `f32` and `f64`, and **`Integer`**, implemented by every integer
   type, both without an `impl`. Their methods are called on the number: `x.sqrt()`,
   `angle.sin()`, `t.lerp(to, 0.5)`, `hp.clamp(0, max)`, `seed.wrapping_mul(31)`,
-  `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`. Plain integer arithmetic wraps on
+  `a.checked_add(b)` (a `T?`), `n.saturating_sub(1)`, `mask.count_ones()`,
+  `bits.trailing_zeros()`, `bits.leading_zeros()` (each a `u32`). Plain integer arithmetic wraps on
   overflow (§5.1) — `hash_combine` relies on it; these methods are how a program asks for
   anything else. A method
   of the wrong kind of number is an error that says which kind has it.
