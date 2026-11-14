@@ -9,13 +9,9 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
-**First, by the user's choice (2026-11-13): T-0147's `format!` row.** A `List<String>`
-filled with `format!` text in its region still runs its drop, though the text is in the
-region (T-0149 placed it there): the drop-skip rule does not take the macro's value as a site
-built whole. The same function with `String(…)` in place of `format!`
-skips its drop, indexing, `&mut xs[i]` held in a `let`, `push_str` and returning a copy
-included (T-0208, T-0209), so `format!` is all that is left of the user's example in T-0147.
-Suggest it before anything else when asked what to work on.
+**Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
+`List<String>` filled with `format!` text in its region now skips its drop, so the user's
+example in T-0147 is wholly in the region; T-0147's other three rows stay open, not in 0.2.
 
 **The 0.2 release**, planned with the user on 2026-11-09. Six parts, roughly in this order;
 the stdlib and the benchmarks go together, since the new programs show what `std` lacks:
@@ -262,7 +258,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
 - **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
-- **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body · feature, ownership
+- **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
 - **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language

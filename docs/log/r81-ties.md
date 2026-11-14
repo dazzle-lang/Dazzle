@@ -6,6 +6,20 @@ T-0107. How it came about: the regions prototype (T-0104, T-0105, on the branch
 safety rested on rules a test had found. The user's own "ties" idea supplied the checker, and
 D-0091 was decided on 2026-10-27.
 
+## T-0147's `format!` row: the macro's text is a site built whole (2026-11-14)
+
+Compiler work; no language change. `skipped_drops` took only a call or a struct literal as a
+value built whole, so `format!`'s text kept its drop wherever it was placed. A `Formatted`
+node is now judged by the site that builds its text (`built_in_region`, through
+`placement::format_text`, the inverse of `formatted_by`): the lowering's `String("")`,
+appended to only by its `Formatter`, whose `^mut String` is private and only pushed to. The
+same look-through lets `return format!(…)` make a function whole (`whole_functions`), so a
+caller's `let m = made(n)` skips its drop too. The user's example from the task, a
+`List<String>` filled with `format!` text, indexed, grown through an element and through a
+`&mut` in a `let`, now skips its drop. Tests: `format_text_is_built_whole_where_it_is_placed`
+in `dz_flow/tests/placement.rs` (held, returned, stored; replaced keeps it), and the user's
+example as `create_strings` in `tests/run/regions`, leak-checked, regions on and off.
+
 ## T-0206, T-0207: two ways safe code escaped the ties check, closed (2026-11-13)
 
 Compiler work; no language change: both are §6.7 as written, which the checker now holds.

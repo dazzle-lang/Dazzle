@@ -32,7 +32,7 @@ use dz_hir::ty::Ty;
 use dz_hir::{self as hir, BlockId, Body, BodyOwner, Callee, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::{Resolution, SymbolId};
 
-use crate::placement::{callee_owner, self_field, Decision, Placements};
+use crate::placement::{callee_owner, format_text, self_field, Decision, Placements};
 
 /// What is known about drops, worked out once per type and kept.
 pub struct Drops<'a> {
@@ -485,8 +485,9 @@ fn field_name(table: &TypeTable, base: &Ty, index: usize) -> Option<String> {
 /// A local `x` qualifies when:
 ///
 /// - `let x = …` builds it whole in its block's region: its value is a site placed there
-///   whose callee builds everything it owns in its placement ([`whole_functions`]), or a
-///   struct literal whose owning fields are such sites;
+///   whose callee builds everything it owns in its placement ([`whole_functions`]), a
+///   `format!` whose text is such a site, or a struct literal whose owning fields are such
+///   sites;
 /// - its type is concrete and [`Drops::releasable`];
 /// - nothing in the body replaces it or an owning part of it: no assignment, no `&mut`
 ///   handed on (the receiver of its own methods aside), no `construct` into it.
@@ -584,6 +585,13 @@ fn built_in_region(
                 Some(f) => built_in_region(d, body, decision, whole, *f, Some(region), held),
             })
         }
+        // `format!`'s value is its text (T-0147): the `String` its lowering builds and moves
+        // out, which only its `Formatter` writes, through a private `^mut String` that it
+        // only appends to, so the text is wholly where its site was placed.
+        hir::ExprKind::Formatted { .. } => match format_text(body, e) {
+            Some(text) => built_in_region(d, body, decision, whole, text, region, held),
+            None => false,
+        },
         _ => false,
     }
 }
@@ -759,6 +767,8 @@ fn whole_functions(
                 .map(|p| p.sites.iter().map(|s| (s.call, &s.decision)).collect())
                 .unwrap_or_default();
             let site = |e: ExprId| {
+                // `return format!(…)` hands back the text, built as `built_in_region` says.
+                let e = format_text(body, e).unwrap_or(e);
                 matches!(decision.get(&e), Some(Decision::Result { .. }))
                     && match &body.expr(e).kind {
                         hir::ExprKind::Call { callee, .. } => callee_owner(res, callee)

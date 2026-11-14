@@ -1,6 +1,6 @@
 ---
 id: T-0147
-title: Skip more drops: a value lent as &mut, built by a trait method or format!, or in a generic body
+title: Skip more drops: a value lent as &mut, built by a trait method, or in a generic body
 milestone: none
 status: open
 kind: feature
@@ -17,7 +17,7 @@ region that frees it:
 |---|---|---|
 | lent as `&mut` to a function, `fill(&mut xs)` | the callee could replace it with a value built elsewhere | follow the callee: whether it ever assigns its parameter whole, or hands it on as `&mut` |
 | built by a trait method or a function value, `c.upto(n)` | which body builds it is not known at the call | every implementation of the trait method builds whole ([`whole_functions`]) |
-| `format!`'s text, `let line = format!(…)` | the text is built inside the macro's lambda, not by a call the rule follows | treat the macro's value as the site its text is |
+| ~~`format!`'s text, `let line = format!(…)`~~ | **done 2026-11-14**, below | the macro's value is judged by the site its text is |
 | in a generic body, `let tmp = List<T>()` | the type has a parameter, and one body is decided for every instance | decide per instance in codegen, which knows `T` |
 
 A container of values that own memory, `List<String>`, skips its drop since
@@ -35,11 +35,13 @@ which waits for T-0145 anyway.
 | Piece | Where |
 |---|---|
 | The rules: `skipped_drops`, `built_in_region`, `replaced`, `whole_functions`, `returns_whole` | `dz_flow/src/release.rs` |
+| `format!`'s text, the site its macro's value is: `format_text` (the inverse of `formatted_by`) | `dz_flow/src/placement.rs` |
 | The test that pins what is kept today | `a_drop_is_skipped_only_when_its_region_frees_everything` in `dz_flow/tests/placement.rs` |
+| The `format!` row's tests | `format_text_is_built_whole_where_it_is_placed` there; `create_strings` in `tests/run/regions` |
 
-**The `format!` row first** (the user's choice, 2026-11-13). This keeps its drop only because
-of `format!`; with `String("…")` in the loop it is skipped, since T-0208 and T-0209 follow the
-indexing and the `&mut` in a `let`:
+**The `format!` row, done 2026-11-14** (the user's choice, 2026-11-13). This kept its drop
+only because of `format!`; with `String("…")` in the loop it was skipped, since T-0208 and
+T-0209 follow the indexing and the `&mut` in a `let`. It now skips its drop:
 
 ```dz
 fn create_strings() -> String {
@@ -56,10 +58,11 @@ fn create_strings() -> String {
 }
 ```
 
-Where it stops: `built_in_region` in `dz_flow/src/release.rs` accepts a `Call` or a struct
-literal as a site built whole, and `format!` is a `Formatted` node. Its value is the text
-`placement.rs`'s `formatted_by` already treats as a site (T-0149); `Contents::built_here`
-would take it when that site is placed in the container's region and the macro builds its
-text whole there.
+How: `built_in_region` accepted a `Call` or a struct literal as a site built whole, and
+`format!` is a `Formatted` node. It now judges one by the site that builds its text, the
+lowering's `String("")`, which only the macro's `Formatter` writes, through a private `^mut
+String` it only appends to. `Contents::built_here` goes through `built_in_region`, so a
+pushed `format!` counts too, and `whole_functions` looks through it the same way, so a
+function that returns `format!(…)` builds whole.
 
 **What it would take.** Compiler work only (`docs/log/`). Each row is independent.

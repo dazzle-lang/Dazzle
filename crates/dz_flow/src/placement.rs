@@ -188,20 +188,22 @@ pub(crate) fn self_field(body: &Body, e: ExprId) -> bool {
 /// out as its last statement (`dz_check`'s lowering) — the macro's own expression, whose
 /// value the text is.
 pub(crate) fn formatted_by(body: &Body, e: ExprId) -> Option<ExprId> {
-    (0..body.exprs.len() as u32).map(ExprId).find(|f| {
-        let hir::ExprKind::Formatted { body: block, .. } = body.expr(*f).kind else {
-            return false;
-        };
-        let stmts = &body.block(block).stmts;
-        let (Some(first), Some(last)) = (stmts.first(), stmts.last()) else { return false };
-        let hir::StmtKind::Let { local: Some(text), init: Some(init) } = body.stmt(*first).kind
-        else {
-            return false;
-        };
-        let hir::StmtKind::Expr(tail) = body.stmt(*last).kind else { return false };
-        let hir::ExprKind::Move(moved) = body.expr(tail).kind else { return false };
-        init == e && matches!(body.expr(moved).kind, hir::ExprKind::Local(l) if l == text)
-    })
+    (0..body.exprs.len() as u32).map(ExprId).find(|f| format_text(body, *f) == Some(e))
+}
+
+/// When `f` is a `format!`, the site that builds its text: the init of the first `let` of
+/// the macro's body, when its last statement moves that local out. The inverse of
+/// [`formatted_by`].
+pub(crate) fn format_text(body: &Body, f: ExprId) -> Option<ExprId> {
+    let hir::ExprKind::Formatted { body: block, .. } = body.expr(f).kind else { return None };
+    let stmts = &body.block(block).stmts;
+    let (first, last) = (stmts.first()?, stmts.last()?);
+    let hir::StmtKind::Let { local: Some(text), init: Some(init) } = body.stmt(*first).kind else {
+        return None;
+    };
+    let hir::StmtKind::Expr(tail) = body.stmt(*last).kind else { return None };
+    let hir::ExprKind::Move(moved) = body.expr(tail).kind else { return None };
+    matches!(body.expr(moved).kind, hir::ExprKind::Local(l) if l == text).then_some(init)
 }
 
 /// The functions that take a hidden result placement (spec §14.6, T-0117 stage 2): each

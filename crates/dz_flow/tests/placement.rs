@@ -1790,6 +1790,63 @@ fn main() {
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
 }
 
+/// `format!`'s value is the text it builds, so it is a site built whole wherever that text
+/// was placed (T-0147): held in a `let`, stored into a container, or returned by a function
+/// a caller then holds. Replacing the text afterwards keeps its drop, as for any value.
+#[test]
+fn format_text_is_built_whole_where_it_is_placed() {
+    let a = analyse(
+        r#"
+fn made(n: i32) -> String {
+    return format!("made {}", n)
+}
+
+fn held(n: i32) -> usize {
+    let line = format!("line {}", n)
+    let m = made(n)
+    return line.len() + m.len()
+}
+
+// The user's example in T-0147: everything in `strings` is `format!`'s text but one
+// `String(…)`, all built in its region.
+fn create_strings() -> String {
+    let mut strings: List<String> = List<String>()
+    for i in 0..1000 {
+        strings.push(format!("String number {}", i))
+    }
+    let selected: &mut String = &mut strings[500]
+    selected.push_str(" - modified!")
+    strings[100].push_str(" - changed too")
+    println!("{}", selected)
+    strings.push(String("One more string"))
+    return strings[500]
+}
+
+fn replaced(n: i32) -> usize {
+    let mut line = format!("line {}", n)
+    line = String::from("on the heap")
+    return line.len()
+}
+
+fn main() {
+    println!("{} {} {}", held(1), create_strings(), replaced(2))
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let skipped = |name: &str| -> Vec<String> {
+        sites(&a, p, name).iter().filter(|s| s.drop_skipped).map(|s| s.callee.clone()).collect()
+    };
+    assert_eq!(skipped("held"), ["String", "made"], "{:?}", decisions(&a, p, "held"));
+    assert_eq!(
+        skipped("create_strings"),
+        ["List<String>"],
+        "{:?}",
+        decisions(&a, p, "create_strings")
+    );
+    assert_eq!(skipped("replaced"), [] as [&str; 0], "{:?}", decisions(&a, p, "replaced"));
+}
+
 /// `xs[i]` on a `let mut` container is `index_mut` even for a read (§11.2), so what is done
 /// with the `&mut` element it hands back decides whether the container's drop is skipped
 /// (T-0208): reading it, formatting it, a non-owning part assigned and the element's own

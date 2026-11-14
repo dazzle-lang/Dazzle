@@ -402,6 +402,24 @@ fn main() {
     println!("kept {} {}", store.names[store.names.len() - 1], churn())
     println!("paths {}", paths(8))
     println!("appended {} indexed {}", appended(), indexed())
+    println!("returned {}", create_strings())
+}
+
+// The user's example in T-0147: a list filled with `format!`'s text, indexed, grown through
+// an element and through a `&mut` held in a `let`, all in the region, so it skips its drop;
+// what it returns is a copy, on the heap.
+fn create_strings() -> String {
+    let mut strings: List<String> = List<String>()
+    for i in 0..1000 {
+        strings.push(format!("String number {}", i))
+    }
+    let selected: &mut String = &mut strings[500]
+    selected.push_str(" - modified!")
+    strings[100].push_str(" - changed too")
+    println!("{}", selected)
+    strings.push(String("One more string"))
+    churn()
+    return strings[500]
 }
 
 // `append` moves in the elements of a list that was lent, so they are on the heap: the

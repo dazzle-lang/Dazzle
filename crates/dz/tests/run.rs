@@ -368,7 +368,7 @@ fn dz_placements_prints_each_site() {
     );
     assert_eq!(
         lines.last().copied(),
-        Some("100 allocations, 70 in a region, 4 in a lent container's home"),
+        Some("105 allocations, 73 in a region, 4 in a lent container's home"),
         "{text}"
     );
 
@@ -379,7 +379,7 @@ fn dz_placements_prints_each_site() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let doc: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON on stdout");
     let sites = doc["sites"].as_array().unwrap();
-    assert_eq!(sites.len(), 100);
+    assert_eq!(sites.len(), 105);
     assert_eq!(sites[0]["placement"], "region");
     assert_eq!(sites[0]["scope"], "`sum_squares`");
     assert_eq!(sites[0]["line"], 14);
