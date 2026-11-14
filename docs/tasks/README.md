@@ -88,8 +88,12 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
    `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
    day; its spelling is the user's decision).
-5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
-   (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
+5. **Benchmarks.** Two whole programs against C++, `json` (T-0173, done 2026-11-14: 1.16×
+   on clang++ and 1.31× on g++, with floats written in full, r130, and `loop`, r131, the
+   user's decisions on what it found; the rest is T-0225) and `raytrace`
+   (T-0174, done 2026-11-14: 1.07× its C++ half on both compilers, from 1.25× on clang++,
+   once private functions were `static` (T-0221), a literal on the left typed as the right
+   operand and a union's `switch` ended in `else`; the rest is T-0222); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
    query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
    over time (T-0075). The other programs get no Rust half.
 6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and

@@ -394,13 +394,21 @@ The spec set is deliberately small, and each one names the kind of value it suit
 
 | Spec | Writes | Suits |
 |---|---|---|
-| `{}` | the value, in its natural form | anything formattable |
+| `{}` | the value, in its natural form; a float as the shortest digits that read back to it, in plain decimal | anything formattable |
 | `{:x}` / `{:X}` | hex, lower / upper case | integers |
 | `{:.N}` | `N` digits after the point | floats |
 | `{:N}` | at least `N` characters, padded with spaces | anything formattable |
 | `{:0N}` | at least `N` characters, padded with zeros after the sign | numbers |
 | `{:p}` | the address, in hex after `0x` | pointers |
 | `{{` / `}}` | a literal brace | — |
+
+**A float under `{}`** is written as the shortest decimal digits that read back to the same
+value, laid out in plain decimal with no exponent, and with no point when it is whole: `1`,
+`0.1`, `0.30000000000000004` for `0.1 + 0.2`, `1000000000000000000000` for `1e21`, as
+Rust's `{}` writes them. An `f32` is written as an `f32`, so `0.1_f32` is `0.1` and not the
+digits of the `f64` it widens to. Infinities and NaN are `inf`, `-inf` and `NaN`, and
+negative zero `-0`. `{:.N}` writes `N` digits after the point, rounded.
+`[DECIDED — D-0101]`
 
 **A width comes first and combines with the rest**: `{:8x}`, `{:08X}`, `{:10.3}`,
 `{:010.3}`. It is a least, never a most — a value longer than its width is written whole —

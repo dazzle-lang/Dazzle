@@ -820,7 +820,11 @@ impl<'a> Printer<'a> {
             }
             StmtKind::While(w) => {
                 let label = w.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
-                let text = format!("{label}while {} {{", self.expr(&w.cond));
+                let text = if w.is_loop {
+                    format!("{label}loop {{")
+                } else {
+                    format!("{label}while {} {{", self.expr(&w.cond))
+                };
                 self.line(&text);
                 self.indent += 1;
                 self.block_body(&w.body);

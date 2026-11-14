@@ -1,0 +1,9 @@
+[module]
+name    = "literal_left"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

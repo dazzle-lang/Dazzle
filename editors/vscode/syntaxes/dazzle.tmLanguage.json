@@ -205,7 +205,7 @@
       "patterns": [
         {
           "name": "keyword.control.dazzle",
-          "match": "\\b(?:if|else|for|while|switch|case|default|break|continue|return|defer|unreachable|in|ignore)\\b"
+          "match": "\\b(?:if|else|for|while|loop|switch|case|default|break|continue|return|defer|unreachable|in|ignore)\\b"
         },
         {
           "comment": "`or` decides where control goes when something fails (spec §9.4).",

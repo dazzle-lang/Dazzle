@@ -127,7 +127,7 @@ and it is deliberate — access describes how you reach a value, `?` describes t
 ```
 as       break     case     const    continue  defer     else     enum
 extern   false     fn       for      if        ignore    impl     import
-in       kills     let      macro    module    move      mut      none     null
+in       kills     let      loop     macro    module    move      mut      none     null
 or       own       pub      return   self      Self      sends    struct
 switch   static    tie      trait    true      unreachable         union     unsafe
 while

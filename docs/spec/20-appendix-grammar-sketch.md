@@ -80,7 +80,7 @@ spell an optional function pointer.
 
 ```ebnf
 
-statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | for_stmt
+statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | loop_stmt | for_stmt
               | switch_stmt | return_stmt | defer_stmt | block | "unsafe" block
               | macro_invoke
               | "break" [ ident ] | "continue" [ ident ] ;   (* no value after `break` *)
@@ -90,6 +90,7 @@ assign        = place ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" ) expr TERM ;
 if_stmt       = "if" if_head block { "else" "if" if_head block } [ "else" block ] ;
 if_head       = expr | "let" [ "mut" ] ident "=" expr ;
 while_stmt    = [ ident ":" ] "while" expr block ;
+loop_stmt     = [ ident ":" ] "loop" block ;
 for_stmt      = [ ident ":" ] "for" for_binding { "," for_binding } "in" expr block ;
 for_binding   = [ "&" [ "mut" ] ] ( ident | "_" ) ;
 switch_stmt   = "switch" expr "{" { case_arm } [ "default" block ] "}" ;

@@ -1,0 +1,36 @@
+// A `loop` a `break` leaves can end, and then the function has no value to return (spec
+// §10.2, D-0102), whether the `break` is its own or names it from a loop inside it. A `while`
+// may always end, even `while true`. Half of a pair with loop_never_ends.dz.
+// expect: DZ0405, DZ0405, DZ0405
+
+fn plain_break(n: i32) -> i32 {
+    let mut i = 0
+    loop {
+        i += 1
+        if i == n {
+            break
+        }
+    }
+}
+
+fn labelled_break(n: i32) -> i32 {
+    let mut i = 0
+    outer: loop {
+        loop {
+            i += 1
+            if i == n {
+                break outer
+            }
+        }
+    }
+}
+
+fn while_true(n: i32) -> i32 {
+    let mut i = 0
+    while true {
+        i += 1
+        if i == n {
+            return i
+        }
+    }
+}

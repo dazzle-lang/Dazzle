@@ -1,0 +1,5 @@
+first longer than 3: 1
+first longer than 9: -1
+odd 1
+odd 3
+found 23

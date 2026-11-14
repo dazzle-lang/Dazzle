@@ -1,0 +1,9 @@
+[module]
+name    = "float_text"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

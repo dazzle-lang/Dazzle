@@ -269,7 +269,11 @@ const STRING_INLINE: usize = sizeof(usize) * 2 - 1
 const STRING_ON_HEAP: usize = (1 as usize) << (sizeof(usize) * 8 - 1)
 
 /// Gives a long text's memory back; a short one is in the string.
+///
+/// Written where a `String` dies: most strings are short and free nothing, and as a call
+/// the test was one per string dropped, hundreds of thousands in a JSON tree (T-0225).
 impl Drop for String {
+    #[inline]
     fn drop(&mut self) {
         if m_len < STRING_ON_HEAP {
             return

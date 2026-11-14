@@ -67,13 +67,14 @@ impl Format for usize {
 
 impl Format for f32 {
     fn format(&self, f: &mut Formatter) {
-        write_float(f, self as f64)
+        // Widening is exact; `true` asks for the digits that read back to the `f32`.
+        write_float(f, self as f64, true)
     }
 }
 
 impl Format for f64 {
     fn format(&self, f: &mut Formatter) {
-        write_float(f, self as f64)
+        write_float(f, self as f64, false)
     }
 }
 
@@ -155,18 +156,20 @@ fn write_digits(f: &mut Formatter, value: u64, base: u64, negative: bool) {
     f.write_number(unsafe { buf[at..21] as &str })
 }
 
-/// A float as `{}` writes it — the shortest of fixed and scientific, to six significant
-/// digits, as C's `%g` — or with `{:.N}`'s digits after the point.
-fn write_float(f: &mut Formatter, value: f64) {
-    let mut buf: [64]u8
+/// A float as `{}` writes it — the shortest digits that read back to the same value, in
+/// plain decimal, with no point when it is whole: `0.1`, `1e21` as 22 digits, `NaN`,
+/// `inf` (spec §12.9, D-0101) — or with `{:.N}`'s digits after the point. `single` when it
+/// is an `f32`, so the digits are the `f32`'s.
+fn write_float(f: &mut Formatter, value: f64, single: bool) {
+    // Room for any: the smallest `f64` above zero is `0.`, 323 zeros and a `5`.
+    let mut buf: [336]u8
     let precision = if let p = f.precision() { p as i32 } else { -1 }
-    let n = format_float(value, precision, buf[0..64])
+    let n = format_float(value, precision, single, buf[0..336])
     f.write_number(unsafe { buf[0..n] as &str })
 }
 
-/// `value` written by C's `snprintf` into `out`, with `%.*f` when `precision` is not
-/// negative and `%g` when it is; how many bytes it wrote, cut to fit.
-extern fn format_float(value: f64, precision: i32, out: &mut []u8) -> usize
+/// `value` as `write_float` describes it, into `out`; how many bytes it wrote, cut to fit.
+extern fn format_float(value: f64, precision: i32, single: bool, out: &mut []u8) -> usize
 
 /// The text of a C string, up to its zero, as a view of the same bytes.
 extern fn cstr_text(s: &cstr) -> &str

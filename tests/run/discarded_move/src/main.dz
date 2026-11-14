@@ -1,0 +1,41 @@
+// `let _ = move(x)` hands `x` to nobody, so it is dropped there, as the statement ends, and
+// not when its scope does (spec §6.4, §6.5). The generated C++ wrote `(void)(mv(x))`, a cast
+// that moves nothing, for a move-only `x`, which then lived on to the end of its scope;
+// it now builds the value and lets it go (T-0225). A local moved into a call or a list is
+// moved without being reset only when no `drop` of the program's own could see it: these
+// print, so `Token` keeps its reset, and each moved-from `Token`, back at its defaults, is
+// dropped too, as `drop 0` (spec §6.5).
+
+struct Token {
+    pub id:  i32
+    m_owned: own ^mut i32 = null
+
+    Token(id: i32) {
+        self.id = id
+    }
+}
+
+impl Drop for Token {
+    fn drop(&mut self) {
+        println!("drop {}", id)
+    }
+}
+
+fn take_one(t: Token) {
+    println!("took {}", t.id)
+}
+
+fn main() {
+    let a = Token(1)
+    let _ = move(a)
+    println!("after discarding 1")
+
+    let b = Token(2)
+    take_one(move(b))
+    println!("after giving 2 away")
+
+    let mut kept = List<Token>()
+    let c = Token(3)
+    kept.push(move(c))
+    println!("after keeping 3")
+}

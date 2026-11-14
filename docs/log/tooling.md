@@ -199,6 +199,166 @@ making it too large to inline; that path is `push_encoded` now. `bench_programs.
 alternating runs, Dazzle / C++: `words` 0.77× on clang++ and 0.97× on g++; `astar` 0.92× and
 1.08×; `expr` 1.47× and 1.22×. Between runs on this machine a ratio moves by about a tenth.
 
+## Moves that leave nothing to reset, and small `std` functions inlined (T-0225; 2026-11-14)
+
+Compiler and library work, no language change. On `json`, from 1.25× its C++ half on
+clang++ to 1.16×, and 1.42× to 1.31× on g++:
+
+- **`move(x)` of a copyable local is a plain C++ move** when the reset §6.4 promises cannot
+  be seen. The flow analysis refuses any use of a moved-from local and ties any reference or
+  pointer to it, so only its drop meets it again, and the C++ move leaves a value harmless to
+  destroy. `take` had built a default and assigned it: for a union, a switch and a drop on
+  every `push(move(v))`. Guarded by `drops_silently` (no `drop` of the program's own
+  anywhere in the value, which could print, and no base) and by the function making no
+  pointer with an explicit cast, which ties do not follow. Parse 138 → 123 ms.
+- **`let v = f() or return` names the value in the result** it was read out of, a
+  temporary of the same block declared just before `v`, rather than moving it out: one move
+  of a union fewer per element. Also only where `drops_silently`, since otherwise the
+  moved-from value left behind would no longer be dropped. Parse 125 → 120 ms.
+- **`let _ = move(x)` drops `x` there.** It was emitted as `(void)(mv(x))`, a cast that moves
+  nothing, so a move-only `x` lived to the end of its scope; it now builds the value and
+  lets it go. `tests/run/discarded_move`, which the old compiler got wrong.
+- **`cut_bytes` inline**, its panic moved to `cut_bytes_failed`; `slice_bytes` and
+  `is_utf8_boundary` `#[inline]`; `Formatter::write_char`'s non-ASCII path a call of its own
+  so the ASCII one inlines; `String`'s `drop` `#[inline]`. About 10 ms together.
+
+Tried and not kept: returning `f()`'s result whole from `return f() or return`, which C++'s
+own elision had already covered. One cost, kept knowingly: `words` on g++ went from 141 to
+148 ms (0.85× its C++ half to 0.89×). The plain moves shrank `std`'s `HashMap` and `List`
+code enough that g++ now inlines the map's lookup, `get_mut_str`, into `words`'s loop, and
+the loop is slower for it; nothing does more work, and clang++ did not move. What is left of `json`'s gap is mostly memory, its
+containers' two-word allocator handle (T-0228, a design question).
+
+## Floats written in full, and `loop` (r130, r131; D-0101, D-0102; 2026-11-14)
+
+Two language changes the `json` benchmark led to, both the user's choice.
+
+**`{}` on a float** (r130, D-0101, T-0223) writes the shortest digits that read back to the
+value, in plain decimal, as Rust's `{}` does; it was `snprintf("%g")`, six significant
+digits. The runtime's `format_float` gets the digits from `std::to_chars`'s scientific form
+and lays them out itself: its fixed form writes a large whole number's exact digits
+(`f64::MAX` as 309 of them), where Rust and D-0101 write the shortest digits and zeros, and
+the standard breaks that tie the other way. Where the C++ library has no floating
+`to_chars` (libc++ before it had `from_chars` too, as on macOS), `%.*e` at one more digit
+each time until `strtod` reads it back gives the same digits; `DZ_FLOAT_FALLBACK` forces
+that path, and `float_text_is_the_same_without_to_chars` holds it to
+`tests/run/float_text`'s expected output. Checked beyond the corpus: the two paths agreed
+on 200,000 random `f64` and `f32` bit patterns, and every `f64` matched Python's `repr`.
+`Format for f32` passes the `f32` rather than widening it, `std`'s buffer is 336 bytes (an
+`f64` in plain decimal can need 327), and `error(...)`'s messages format floats the same way.
+`tests/run/formatting` and `math` print more digits, and so does one test in `run.rs`, where
+an `f32` that is 1.9999999 had been rounded to `2`. `json` went from 1.40× its C++ half
+to 1.25× on clang++, and from 1.56× to 1.42× on g++.
+
+**`loop { … }`** (r131, D-0102, T-0224). The parser makes it a `while` whose condition is a
+`true` spanning the keyword, with `is_loop` for the formatter and the dumps, so every walker
+of a `while` walks it unchanged. The checker marks each loop a `break` leaves, labelled or
+not (`LoopFrame::left`), and a `loop` none leaves is `forever` in the HIR, which definite
+return treats as never falling through. `tests/flow/loop_never_ends.dz` and
+`loop_left_by_break.dz` are the pair; `tests/run/looping` runs it; the lexer, parser and
+formatter corpora have it, and the language server's keywords and the VS Code grammar know
+it. Left for later: the warning on `while true` that suggests `loop` (T-0226, 0.3), and a
+move on a path that ends in `return` counted when a loop body runs again (T-0227).
+
+## A JSON reader and writer against C++ (T-0173; 2026-11-14)
+
+A benchmark, with a compiler fix and two library changes it found; no language change.
+`tests/bench_programs/json` generates 100,000 records as a JSON document, parses it into a
+recursive union of `String`s and `List`s, turns the tree into a `List<Record>` by hand (a
+`String` cannot be built at a raw address in safe code, so reflection does not read), and
+writes the records back through a serializer written once against reflection's type table.
+The C++ half has a `std::variant` tree and hand-written `from_json` and `to_json`. Both
+agree on every byte written; its numbers have at most six digits, since `{}` on a float is
+`%g` (T-0223).
+
+- **The checker overflowed its stack** on a union holding a `List` of itself: `copyable`
+  asked about `List<Json>`, whose `impl<T: Copy> Copy` asked about `Json` through
+  `impl_applies` and `implements`, from an empty stack each time. The stack is now kept in
+  a thread-local while an `impl Copy`'s bounds are checked, so the cycle is seen and
+  answered as `copyable_guarded` answers cycles. `tests/run/recursive_union`.
+- **`List`'s first allocation** was 8 elements whatever their size; it is now 8 bytes, 4
+  elements up to a KiB, 1 beyond, as Rust's `Vec` does. `json` 376 → 329 ms and 316 → 237
+  MiB; the other programs unchanged.
+- **`parse_f64`** goes through `std::from_chars` where the C++ library has it for floats,
+  falling back to `strtod` for anything it does not take, so no result changes. The parse
+  160 → 142 ms.
+
+Tried and not kept, since neither measured: `List::push` marked `#[inline]`, and
+`Formatter::write_char`'s encoding moved out of its inline body. `json` is 1.40× its C++
+half on clang++ and 1.56× on g++, from 1.70× and 1.91×; T-0225 has the profile of the rest,
+most of it float text and a union moved through every `!->` return.
+
+## A literal on the left takes the right's type, and a union's `switch` ends in `else` (T-0222; 2026-11-14)
+
+Compiler work, no language change. With `perf` allowed, `raytrace`'s remaining 10% was
+profiled, and then bounded: the generated `intersect`, `closest`, `sky` and `trace`
+rewritten by hand as clean C++ on Dazzle's own types and operations ran 475 / 625 ms
+(clang++ / g++) against 501 / 688 generated and 455 / 624 for the C++ half. So most of the
+gap was the shape of the generated code, not the types, and T-0222 records which shapes
+were tried one at a time; most interact, and two changes are clear:
+
+- **A number on the left of an operator** stayed untyped while the operator became the
+  right operand's type, then settled on `f64`: `0.5 * x` for an `f32` `x` reached C++ as
+  `0.5 * x`, computed in `double` and narrowed, against spec §2.5. The checker now checks
+  the right operand first when the left is a written-out number (`literal_on_left`, decided
+  from the syntax so a long sum is not checked twice per level), for arithmetic, bitwise
+  operators and comparisons, and lends its type only when it is a number. `std`'s
+  `Random::unit_vec3` took its square root in `double` because of it; `hir_typed` shows 13
+  literals retyped, all the right way. `tests/run/literal_left` pins it with values that
+  round differently the two ways.
+- **A union's `switch` with no `default` ends in `else`**: the checker proved the arms
+  exhaustive and only building a union sets its tag, so testing the last variant gave the
+  C++ compiler a branch that cannot be taken. Not an enum's, which C can give a value no
+  variant names. `a_union_switch_ends_in_else` pins both. `raytrace` 498 → 486 ms on
+  clang++ and 688 → 668 on g++.
+
+`raytrace` is now 1.07× its C++ half on both compilers, from 1.10×; the other programs did
+not move beyond their noise.
+
+## A module's private functions are `static` (T-0221; 2026-11-14)
+
+Compiler work, no language change. Every free function was declared in its module's header,
+so had external linkage, `pub` or not. clang++ inlines a function with one caller when it
+has internal linkage, as a C++ one in an anonymous namespace does, and otherwise judges it
+by size alone; LTO did not make up for it. Now a free function only its module's `.cpp` can
+call is declared at the top of that `.cpp` and defined there `[[maybe_unused]] static`.
+`Emitter::file_local_fns` decides it from the module's own code alone, since an incremental
+build re-emits only the modules an edit can reach (T-0197): not `pub`, generic, `extern`,
+`#[inline]` or attributed, not `main`, and named only by bodies emitted into that `.cpp`,
+which leaves out generics' bodies (instantiated where used), field defaults and `#[inline]`
+bodies (in the header), default arguments (written at each call), and constants and
+statics. A module declaring a macro is left alone, since an expansion elsewhere might name
+one of its functions, and so is `std`, whose C++ every program shares. Methods cannot be
+covered: a member of a class declared in the header has the class's linkage.
+
+`raytrace` went from 1.25× its C++ half on clang++ to 1.10× (565 ms to 500, C++ 454); g++
+was unmoved at 1.10×, since it keeps `intersect` out of line in both halves, and the other
+three programs moved within their noise. One test searched the `.cpp` for `void grow(` and
+now found the declaration first; it looks for the definition. What is left of the gap is
+T-0222, where four more experiments are recorded, none of which explained it.
+
+## A ray tracer against C++ (T-0174; 2026-11-14)
+
+A benchmark, no language change. `tests/bench_programs/raytrace` is the tracer of
+`examples/stb` without the PNG, twice: the Dazzle half on `std::math`'s `Vec3`, the C++ half
+on a `Vec3` struct with operators, `std::variant` and `std::optional`. Its SplitMix64 replaces
+`std`'s `Random`, and the checksum is over the image's bytes. The first program here that is
+mostly floating point, and the first where both halves must compute the same floats: they
+agree on every byte, with each expression written in the same order on both sides and both
+built with `-ffp-contract=off`. That flag comes from the program's new `cxx_flags.txt`, which
+`tools/bench_programs.py` and `whole_program_benchmarks_agree_with_their_cpp_halves` give both
+halves, the Dazzle one through `DZ_CXXFLAGS`. The script also builds a Dazzle half once
+uncounted before timing clean builds, so a program's own flags do not time a `std` compile.
+
+It is 1.25× its C++ half on clang++ and 1.11× on g++. `perf` was not allowed on the machine,
+so the gap was found by editing the generated C++, or the C++ half towards it, and timing
+each. A switch case copying its payload, `Material` and all, cost 22 ms; that is the
+language's rule (D-0043), so the benchmark borrows with `case Sphere(&s)`, as the C++ half's
+`get_if` does. Most of the rest on clang++ is `intersect` not being inlined: the C++ half's
+functions are in an anonymous namespace, and Dazzle's private ones have external linkage,
+which LTO did not make up for (`static` in the generated code, 575 ms to 531). An empty
+`Opt<Hit>` building a whole `Hit` costs g++ about 27 ms. Both are T-0221.
+
 ## A tree of `Box`es in a region skips its drop (T-0218; 2026-11-14)
 
 Compiler work, no language change. `expr` put each statement's tree in the region of its
@@ -296,7 +456,7 @@ moved its `Expr` four times, and every move reset its source.
 `become` fell to 14.7 million calls with the first two. Measured Dazzle against itself
 (the generated C++ with and without the reset, eleven alternating runs), the third is 11%
 on clang++ and 1% on g++. Against the C++ half, `bench_programs.py`, before and after all
-three: `expr` 2.10× → 1.50× on clang++ and 1.66× → 1.33× on g++. The machine was noisy, the
+three: `expr` 2.10× → 1.50× on clang++ and 1.66× → 1.31× on g++. The machine was noisy, the
 C++ half itself ranging from 134 to 181 ms between runs, so the ratio within one run is the
 figure to read.
 

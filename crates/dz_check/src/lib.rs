@@ -435,6 +435,17 @@ pub struct TypeTable {
     view_structs: std::collections::HashSet<SymbolId>,
 }
 
+thread_local! {
+    /// The types `copyable_guarded` is working out, while an `impl Copy`'s bounds are being
+    /// checked. `List<T>` is `impl<T: Copy> Copy`, so whether `union Json { Array { items:
+    /// List<Json> } }` copies asks whether `Json` does, through `impl_applies` and
+    /// `implements`, which know nothing of the question already being answered: it started
+    /// again from an empty stack, forever, and the compiler overflowed its own stack (T-0173).
+    /// Kept here rather than in the table, which is shared between threads and asked through
+    /// `&self`.
+    static COPY_STACK: std::cell::RefCell<Vec<SymbolId>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
 impl TypeTable {
     pub fn get(&self, id: SymbolId) -> Option<&ItemSig> {
         self.sigs.get(&id)
@@ -903,7 +914,10 @@ impl TypeTable {
     /// are all bit-copies, and a `^T` copies the pointer, not the pointee — `own ^T` is
     /// the spelling that says otherwise.
     pub fn copyable(&self, ty: &Ty) -> bool {
-        self.copyable_guarded(ty, &mut Vec::new())
+        // Asked again from inside `copyable_guarded`, through an `impl Copy`'s bounds, it
+        // carries on with that question's stack: see `COPY_STACK`.
+        let mut stack = COPY_STACK.with(|s| s.borrow().clone());
+        self.copyable_guarded(ty, &mut stack)
     }
 
     /// Is this an imported handle — a C struct whose header never defines it (spec §15.2)?
@@ -958,7 +972,12 @@ impl TypeTable {
                             // `impl<T: Copy> Copy for Buffer<T>` covers `Buffer<f32>` and
                             // not `Buffer<File>`, which is move-only (spec §6.1, §8.2).
                             match self.copy_impls.get(id) {
-                                Some(&i) => self.impl_applies(&self.impls[i], ty).is_some(),
+                                Some(&i) => {
+                                    let saved = COPY_STACK.with(|s| s.replace(stack.clone()));
+                                    let applies = self.impl_applies(&self.impls[i], ty).is_some();
+                                    COPY_STACK.with(|s| *s.borrow_mut() = saved);
+                                    applies
+                                }
                                 None => true,
                             }
                         } else if s.drop.is_some() || s.cpp_owned {

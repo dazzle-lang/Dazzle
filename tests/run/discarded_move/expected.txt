@@ -1,0 +1,13 @@
+drop 1
+after discarding 1
+took 2
+drop 2
+drop 0
+after giving 2 away
+drop 0
+drop 0
+after keeping 3
+drop 0
+drop 3
+drop 0
+drop 0

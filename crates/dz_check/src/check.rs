@@ -1116,6 +1116,9 @@ struct LoopFrame {
     /// A `break` or `continue` inside a nested loop names this one, so C++ needs a label.
     breaks: bool,
     continues: bool,
+    /// Some `break` leaves this loop, from anywhere in it: a `loop` none leaves never ends
+    /// but by `return` (spec §10.2, D-0102).
+    left: bool,
 }
 
 impl<'a, 'c> Body<'a, 'c> {
@@ -2216,8 +2219,9 @@ impl<'a, 'c> Body<'a, 'c> {
             StmtKind::While(w) => {
                 let c = self.expr(&w.cond, Some(&Ty::Bool));
                 self.require_bool(&c.ty, w.cond.span, "while");
-                let (body, label) = self.loop_body(w.label.as_ref(), |b| b.block(&w.body, None).id);
-                hir::StmtKind::While { cond: c.id, body, label }
+                let (body, label, left) =
+                    self.loop_body(w.label.as_ref(), |b| b.block(&w.body, None).id);
+                hir::StmtKind::While { cond: c.id, body, label, forever: w.is_loop && !left }
             }
             StmtKind::For(f) => self.for_stmt(f),
             StmtKind::Defer(inner) => hir::StmtKind::Defer(self.stmt(inner)),
@@ -2279,7 +2283,7 @@ impl<'a, 'c> Body<'a, 'c> {
             let shape = if consuming { hir::ForShape::Consuming } else { hir::ForShape::Single };
             (shape, vec![self.bind_for(b, &item)])
         };
-        let (body, label) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
+        let (body, label, _) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
         self.pop();
         hir::StmtKind::For { bindings, subject: subject.id, body, shape, label }
     }
@@ -2367,7 +2371,7 @@ impl<'a, 'c> Body<'a, 'c> {
         &mut self,
         label: Option<&Ident>,
         check: impl FnOnce(&mut Self) -> BlockId,
-    ) -> (BlockId, Option<hir::LoopLabel>) {
+    ) -> (BlockId, Option<hir::LoopLabel>, bool) {
         let id = self.next_loop;
         self.next_loop += 1;
         self.loops.push(LoopFrame {
@@ -2375,6 +2379,7 @@ impl<'a, 'c> Body<'a, 'c> {
             label: label.map(|l| l.name.clone()),
             breaks: false,
             continues: false,
+            left: false,
         });
         let body = check(self);
         let frame = self.loops.pop().expect("pushed above");
@@ -2384,7 +2389,7 @@ impl<'a, 'c> Body<'a, 'c> {
             breaks: frame.breaks,
             continues: frame.continues,
         });
-        (body, label)
+        (body, label, frame.left)
     }
 
     /// `break` / `continue`, optionally naming a loop (spec §10.2). `None` targets the
@@ -2401,7 +2406,14 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return None;
         }
-        let label = label?;
+        let Some(label) = label else {
+            if is_break {
+                if let Some(innermost) = self.loops.last_mut() {
+                    innermost.left = true;
+                }
+            }
+            return None;
+        };
         let Some(depth) = self.loops.iter().rposition(|f| f.label.as_deref() == Some(&label.name))
         else {
             let known: Vec<String> = self
@@ -2423,6 +2435,9 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return None;
         };
+        if is_break {
+            self.loops[depth].left = true;
+        }
         if depth == self.loops.len() - 1 {
             return None;
         }
@@ -3885,7 +3900,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 // well as `s == .Left` (spec §7.4) — a comparison has no reason to prefer
                 // one side, and without this the left operand of every comparison would be
                 // the one place a variant could not be written with a leading dot.
-                let (a, b) = if needs_context(lhs) && !needs_context(rhs) {
+                let (a, b) = if let Some(pair) = self.literal_on_left(lhs, rhs, None) {
+                    pair
+                } else if needs_context(lhs) && !needs_context(rhs) {
                     let b = self.expr(rhs, None);
                     let b = self.read_operand(b, rhs);
                     let a = self.expr(lhs, Some(&b.ty));
@@ -3965,10 +3982,15 @@ impl<'a, 'c> Body<'a, 'c> {
                 (Ty::Bool, a, b)
             }
             BitAnd | BitOr | BitXor | Shl | Shr => {
-                let a = self.expr(lhs, expected);
-                let a = self.read_operand(a, lhs);
-                let b = self.expr(rhs, Some(&a.ty));
-                let b = self.read_operand(b, rhs);
+                let (a, b) = match self.literal_on_left(lhs, rhs, expected) {
+                    Some(pair) => pair,
+                    None => {
+                        let a = self.expr(lhs, expected);
+                        let a = self.read_operand(a, lhs);
+                        let b = self.expr(rhs, Some(&a.ty));
+                        (a, self.read_operand(b, rhs))
+                    }
+                };
                 let mut ty = None;
                 for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_integral() {
@@ -3988,8 +4010,14 @@ impl<'a, 'c> Body<'a, 'c> {
                 (ty, a, b)
             }
             Add | Sub | Mul | Div | Rem => {
-                let a = self.expr(lhs, expected);
-                let a = self.read_operand(a, lhs);
+                let early = self.literal_on_left(lhs, rhs, expected);
+                let a = match &early {
+                    Some((a, _)) => a.clone(),
+                    None => {
+                        let a = self.expr(lhs, expected);
+                        self.read_operand(a, lhs)
+                    }
+                };
                 // `v1 + v2` and `v * scalar` on a user type go through the trait §11.2
                 // names for the operator (spec §11.2).
                 if self.needs_operator_trait(a.ty.peeled()) {
@@ -4020,8 +4048,13 @@ impl<'a, 'c> Body<'a, 'c> {
                         }
                     };
                 }
-                let b = self.expr(rhs, Some(&a.ty));
-                let b = self.read_operand(b, rhs);
+                let b = match early {
+                    Some((_, b)) => b,
+                    None => {
+                        let b = self.expr(rhs, Some(&a.ty));
+                        self.read_operand(b, rhs)
+                    }
+                };
                 let mut ty = None;
                 for (t, at) in [(&a.ty, lhs), (&b.ty, rhs)] {
                     if !t.is_wildcard() && !t.is_numeric() {
@@ -4063,6 +4096,34 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         };
         self.mk(e, ty, hir::ExprKind::Binary { op, lhs: a.id, rhs: b.id })
+    }
+
+    /// `0.5 * x`: a number written on the left of an operator, with nothing else to type it,
+    /// is checked after the right operand and takes that operand's type, as one written on
+    /// the right takes the left's (spec §2.5). Checked first and with no context, it stayed
+    /// `{float}` while the operator became `f32`, and settled on `f64` once checking was
+    /// done: the C++ computed `0.5 * x` in `double` and narrowed the result, which is not
+    /// `f32` arithmetic, and took `raytrace`'s sky colour through two conversions per ray
+    /// (T-0222). The right operand lends its type only when it is a number, so a mistake
+    /// such as `2.0 * v` for a vector `v` is reported as it always was.
+    ///
+    /// `None` when the left operand is not a written-out number, or the right one is too,
+    /// or `expected` already types it.
+    fn literal_on_left(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        expected: Option<&Ty>,
+    ) -> Option<(Checked, Checked)> {
+        if expected.is_some() || !literal_shaped(lhs) || literal_shaped(rhs) {
+            return None;
+        }
+        let b = self.expr(rhs, None);
+        let b = self.read_operand(b, rhs);
+        let want = matches!(b.ty, Ty::Int(_) | Ty::Float(_)).then(|| b.ty.clone());
+        let a = self.expr(lhs, want.as_ref());
+        let a = self.read_operand(a, lhs);
+        Some((a, b))
     }
 
     /// An integer division whose divisor is a constant zero, which would panic every time it
@@ -9186,6 +9247,24 @@ fn needs_context(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::DotInfer { .. } | ExprKind::None => true,
         ExprKind::ArrayLit(elems) => elems.is_empty(),
+        _ => false,
+    }
+}
+
+/// Is `e` a number written out, `0.5`, `-1` or `2.0 * 3.0`, which has no type of its own
+/// until its context gives it one (spec §2.5)? Decided from the syntax, so asking costs
+/// nothing: probing the left operand of every operator instead would check a long sum
+/// `a + b + c + …` once more at each level.
+fn literal_shaped(e: &Expr) -> bool {
+    use BinaryOp::*;
+    match &e.kind {
+        ExprKind::Int(_) | ExprKind::Float(_) => true,
+        ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::BitNot, operand } => literal_shaped(operand),
+        ExprKind::Binary {
+            op: Add | Sub | Mul | Div | Rem | BitAnd | BitOr | BitXor | Shl | Shr,
+            lhs,
+            rhs,
+        } => literal_shaped(lhs) && literal_shaped(rhs),
         _ => false,
     }
 }

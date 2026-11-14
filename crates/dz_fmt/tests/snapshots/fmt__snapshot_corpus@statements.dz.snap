@@ -1,6 +1,5 @@
 ---
 source: crates/dz_fmt/tests/fmt.rs
-assertion_line: 96
 expression: fmt(&source)
 input_file: tests/fmt/statements.dz
 ---
@@ -41,6 +40,20 @@ fn control_flow(x: i32) {
                 break outer
             }
             continue
+        }
+    }
+
+    loop {
+        if done() {
+            break
+        }
+    }
+
+    scan: loop {
+        for e in entities {
+            if e.id == target {
+                break scan
+            }
         }
     }
 

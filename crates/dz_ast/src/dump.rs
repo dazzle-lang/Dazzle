@@ -368,11 +368,15 @@ impl<'a> Dumper<'a> {
             StmtKind::Expr(e) => self.expr(e),
             StmtKind::While(w) => {
                 self.line(format_args!(
-                    "while{}",
+                    "{}{}",
+                    if w.is_loop { "loop" } else { "while" },
                     w.label.as_ref().map(|l| format!(" '{}", l.name)).unwrap_or_default()
                 ));
+                // A `loop`'s condition is the parser's own `true`, not something written.
                 self.nest(|d| {
-                    d.expr(&w.cond);
+                    if !w.is_loop {
+                        d.expr(&w.cond);
+                    }
                     d.block(&w.body);
                 });
             }

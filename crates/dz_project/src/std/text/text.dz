@@ -73,18 +73,17 @@ pub trait Text {
 
     /// Bytes `from..to`, as text: a panic when an end is past the end or inside a character,
     /// so the piece is always text. For positions `find` and `split` hand out.
+    ///
+    /// Written where it is called; the panic, whose formatting is most of the code, is a call
+    /// of its own (T-0225).
+    #[inline]
     fn cut_bytes(&self, from: usize, to: usize, loc: SourceLocation = #location) -> &str in self {
         let t = self.text()
-        return t.slice_bytes(from, to) or panic!(
-            "bytes {}..{} are past the end of {} bytes, or inside a character",
-            from,
-            to,
-            t.byte_len,
-            loc
-        )
+        return t.slice_bytes(from, to) or cut_bytes_failed(from, to, t.byte_len, loc)
     }
 
     /// Bytes `from..to`, or `null` where `cut_bytes` would panic.
+    #[inline]
     fn slice_bytes(&self, from: usize, to: usize) -> ^str in self {
         let bytes = self.text() as &[]u8
         if from > to || to > bytes.len || !is_utf8_boundary(bytes, from) || !is_utf8_boundary(bytes, to) {
@@ -318,6 +317,13 @@ pub trait Text {
         let v = self.parse_f64() or return none
         return v as f32
     }
+}
+
+/// `cut_bytes`'s panic, out of line so that `cut_bytes` stays small enough to be written
+/// where it is called. It never returns; the `const &str` is only what `cut_bytes` needs.
+fn cut_bytes_failed(from: usize, to: usize, len: usize, loc: SourceLocation) -> const &str {
+    panic!("bytes {}..{} are past the end of {} bytes, or inside a character", from, to, len, loc)
+    return ""
 }
 
 impl Text for &str {

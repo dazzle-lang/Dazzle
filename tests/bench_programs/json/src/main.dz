@@ -1,0 +1,695 @@
+// JSON: the Dazzle half of a whole-program benchmark (tests/bench_programs/README.md).
+// `main.cpp` beside this folder is the same program in C++, and both must print the same
+// checksum.
+//
+// It writes a JSON document of records, laid out as a person might write one, with fields in
+// another order than the struct's and one the program does not know; parses it into a tree;
+// turns the tree into a `List<Record>`; and writes the records back out as compact JSON
+// through reflection, with one serializer written once for every type (spec §13), as
+// `tests/run/reflect` does. The checksum is over the text written.
+//
+// Reading back goes through no reflection: filling a `String` or a `List<String>` found at
+// run time means building one at a raw address, which safe code cannot do, so `to_record`
+// is written by hand, as the C++ half's is (T-0173).
+//
+// Both halves write a float as the shortest text that reads back to it: `{}` in Dazzle
+// (D-0101), `std::to_chars` in C++. The numbers are generated from integers, so both halves
+// write the same input.
+//
+// What it exercises: building text with a `Formatter`, a parser over bytes reporting
+// through `!->`, a recursive tagged union holding `String`s and `List`s (a tree built and
+// freed), `parse_f64`, copying text out of the tree, and reflection's type table.
+//
+// Usage: json [records]
+
+/// SplitMix64, written out so the C++ half writes exactly the same text.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    pub fn below(&mut self, n: u64) -> u64 {
+        return self.next() % n
+    }
+}
+
+const WORDS: [16]&str = ["amber", "basalt", "cedar", "dune", "ember", "fjord", "garnet", "harbor", "iris", "jade", "kelp", "lumen", "moss", "nectar", "onyx", "pine"]
+
+/// One record of the document, as the program uses it.
+struct Record {
+    pub id:     u64
+    pub name:   String
+    pub tags:   List<String>
+    pub pos:    Vec3
+    pub active: bool `json:"is_active"`
+    pub score:  f64?
+}
+
+// --- the input -----------------------------------------------------------------------
+
+/// `v` / 10^`places`, with exactly `places` digits after the point: written from integers,
+/// so both halves write the same text whatever their float formatting does.
+fn write_fixed(f: &mut Formatter, v: i64, places: u32) {
+    let mut scale: i64 = 1
+    for _ in 0..places {
+        scale *= 10
+    }
+    if v < 0 {
+        f.write_char('-')
+    }
+    let a = if v < 0 {
+        -v
+    } else {
+        v
+    }
+    (a / scale).format(f)
+    f.write_char('.')
+    let frac = a % scale
+    let mut d = scale / 10
+    while d > 0 {
+        f.write_char(('0' as u8 + (frac / d % 10) as u8) as char)
+        d /= 10
+    }
+}
+
+fn write_word(f: &mut Formatter, rng: &mut Rng) {
+    f.write_str(WORDS[rng.below(16) as usize])
+}
+
+/// `count` records as a JSON array.
+fn generate(count: i64) -> String {
+    let mut rng = Rng(2718)
+    let mut out = String()
+    {
+        let mut f = Formatter::string(&mut out)
+        f.write_str("[\n")
+        for i in 0..count {
+            if i > 0 {
+                f.write_str(",\n")
+            }
+            f.write_str("  {\"name\": \"")
+            let words = 1 + rng.below(3)
+            for w in 0..words {
+                if w > 0 {
+                    f.write_char(' ')
+                }
+                write_word(&mut f, &mut rng)
+            }
+            // Now and then a quote and a backslash, which have to be escaped.
+            if rng.below(16) == 0 {
+                f.write_str(" \\\"the\\\\second\\\"")
+            }
+            f.write_str("\", \"id\": ")
+            (i as u64 * 7 + 3).format(&mut f)
+            f.write_str(", \"pos\": {\"x\": ")
+            write_fixed(&mut f, rng.below(200001) as i64 - 100000, 2)
+            f.write_str(", \"y\": ")
+            write_fixed(&mut f, rng.below(200001) as i64 - 100000, 2)
+            f.write_str(", \"z\": ")
+            write_fixed(&mut f, rng.below(200001) as i64 - 100000, 2)
+            f.write_str("}, \"tags\": [")
+            let tags = rng.below(5)
+            for t in 0..tags {
+                if t > 0 {
+                    f.write_str(", ")
+                }
+                f.write_char('"')
+                write_word(&mut f, &mut rng)
+                f.write_char('"')
+            }
+            f.write_str("], \"score\": ")
+            if rng.below(4) == 0 {
+                f.write_str("null")
+            } else {
+                write_fixed(&mut f, rng.below(100001) as i64, 3)
+            }
+            f.write_str(", \"is_active\": ")
+            f.write_str(if rng.below(2) == 0 {
+                "true"
+            } else {
+                "false"
+            })
+            // A field the program does not know, to be parsed and then ignored.
+            if rng.below(3) == 0 {
+                f.write_str(", \"meta\": {\"seen\": [")
+                let seen = 1 + rng.below(3)
+                for s in 0..seen {
+                    if s > 0 {
+                        f.write_str(", ")
+                    }
+                    rng.below(1000).format(&mut f)
+                }
+                f.write_str("], \"note\": \"")
+                write_word(&mut f, &mut rng)
+                f.write_str("\"}")
+            }
+            f.write_char('}')
+        }
+        f.write_str("\n]\n")
+    }
+    return out
+}
+
+// --- the tree, and the parser --------------------------------------------------------
+
+union Json {
+    Null {}
+    Bool { value: bool }
+    Number { value: f64 }
+    Text { value: String }
+    Array { items: List<Json> }
+    Object { members: List<Member> }
+}
+
+struct Member {
+    pub key:   String
+    pub value: Json
+}
+
+pub enum Failure : u32 {
+    Syntax = 1
+    Shape
+}
+
+/// A recursive-descent parser over the text, by bytes.
+view struct Parser {
+    m_text:  &str
+    m_bytes: &[]u8
+    m_at:    usize = 0
+
+    Parser(text: &str) {
+        m_text = text
+        m_bytes = text as &[]u8
+    }
+
+    fn skip_space(&mut self) {
+        while m_at < m_bytes.len {
+            let c = m_bytes[m_at]
+            if c != ' ' as u8 && c != '\n' as u8 && c != '\r' as u8 && c != '\t' as u8 {
+                return
+            }
+            m_at += 1
+        }
+    }
+
+    /// Past `c`, after any space, or an error.
+    fn expect(&mut self, c: u8) !-> void {
+        self.skip_space()
+        if m_at >= m_bytes.len || m_bytes[m_at] != c {
+            return error(Failure::Syntax, "expected `{}` at byte {}", c as char, m_at)
+        }
+        m_at += 1
+    }
+
+    /// Past the bytes of `word`, or an error.
+    fn word(&mut self, word: &str) !-> void {
+        let w = word as &[]u8
+        if m_at + w.len > m_bytes.len {
+            return error(Failure::Syntax, "unexpected end at byte {}", m_at)
+        }
+        for i in 0..w.len {
+            if m_bytes[m_at + i] != w[i] {
+                return error(Failure::Syntax, "expected `{}` at byte {}", word, m_at)
+            }
+        }
+        m_at += w.len
+    }
+
+    pub fn value(&mut self) !-> Json {
+        self.skip_space()
+        if m_at >= m_bytes.len {
+            return error(Failure::Syntax, "unexpected end of the text")
+        }
+        let c = m_bytes[m_at]
+        if c == '{' as u8 {
+            return self.object() or return
+        }
+        if c == '[' as u8 {
+            return self.array() or return
+        }
+        if c == '"' as u8 {
+            let s = self.string() or return
+            return Json::Text{ value: s }
+        }
+        if c == 't' as u8 {
+            self.word("true") or return
+            return Json::Bool{ value: true }
+        }
+        if c == 'f' as u8 {
+            self.word("false") or return
+            return Json::Bool{ value: false }
+        }
+        if c == 'n' as u8 {
+            self.word("null") or return
+            return Json::Null{}
+        }
+        return self.number() or return
+    }
+
+    fn number(&mut self) !-> Json {
+        let start = m_at
+        while m_at < m_bytes.len {
+            let c = m_bytes[m_at]
+            let digit = c >= '0' as u8 && c <= '9' as u8
+            if !digit && c != '-' as u8 && c != '+' as u8 && c != '.' as u8 && c != 'e' as u8 && c != 'E' as u8 {
+                break
+            }
+            m_at += 1
+        }
+        let v = m_text.cut_bytes(start, m_at).parse_f64() or return error(Failure::Syntax, "not a number at byte {}", start)
+        return Json::Number{ value: v }
+    }
+
+    /// A string's text, its escapes undone. The opening quote is next.
+    fn string(&mut self) !-> String {
+        m_at += 1
+        let mut out = String()
+        let mut run = m_at
+        while m_at < m_bytes.len {
+            let c = m_bytes[m_at]
+            if c == '"' as u8 {
+                out.push_str(m_text.cut_bytes(run, m_at))
+                m_at += 1
+                return out
+            }
+            if c != '\\' as u8 {
+                m_at += 1
+                continue
+            }
+            out.push_str(m_text.cut_bytes(run, m_at))
+            if m_at + 1 >= m_bytes.len {
+                break
+            }
+            let e = m_bytes[m_at + 1] as char
+            m_at += 2
+            switch e {
+                case '"', '\\', '/' {
+                    out.push(e)
+                }
+                case 'n' {
+                    out.push('\n')
+                }
+                case 't' {
+                    out.push('\t')
+                }
+                case 'r' {
+                    out.push('\r')
+                }
+                case 'b' {
+                    out.push('\u{8}')
+                }
+                case 'f' {
+                    out.push('\u{c}')
+                }
+                case 'u' {
+                    if m_at + 4 > m_bytes.len {
+                        return error(Failure::Syntax, "a short \\u escape at byte {}", m_at)
+                    }
+                    let mut code: u32 = 0
+                    for i in 0..4 as usize {
+                        let h = m_bytes[m_at + i]
+                        let d = if h >= '0' as u8 && h <= '9' as u8 {
+                            h - '0' as u8
+                        } else if h >= 'a' as u8 && h <= 'f' as u8 {
+                            h - 'a' as u8 + 10
+                        } else if h >= 'A' as u8 && h <= 'F' as u8 {
+                            h - 'A' as u8 + 10
+                        } else {
+                            return error(Failure::Syntax, "not a hex digit at byte {}", m_at + i)
+                        }
+                        code = code * 16 + d as u32
+                    }
+                    m_at += 4
+                    out.push(code as char)
+                }
+                default {
+                    return error(Failure::Syntax, "an unknown escape at byte {}", m_at - 1)
+                }
+            }
+            run = m_at
+        }
+        return error(Failure::Syntax, "a string with no end")
+    }
+
+    fn array(&mut self) !-> Json {
+        m_at += 1
+        let mut items = List<Json>()
+        self.skip_space()
+        if m_at < m_bytes.len && m_bytes[m_at] == ']' as u8 {
+            m_at += 1
+            return Json::Array{ items: move(items) }
+        }
+        let mut more = true
+        while more {
+            let v = self.value() or return
+            items.push(move(v))
+            self.skip_space()
+            more = m_at < m_bytes.len && m_bytes[m_at] == ',' as u8
+            if more {
+                m_at += 1
+            }
+        }
+        self.expect(']' as u8) or return
+        return Json::Array{ items: move(items) }
+    }
+
+    fn object(&mut self) !-> Json {
+        m_at += 1
+        let mut members = List<Member>()
+        self.skip_space()
+        if m_at < m_bytes.len && m_bytes[m_at] == '}' as u8 {
+            m_at += 1
+            return Json::Object{ members: move(members) }
+        }
+        let mut more = true
+        while more {
+            self.skip_space()
+            if m_at >= m_bytes.len || m_bytes[m_at] != '"' as u8 {
+                return error(Failure::Syntax, "expected a key at byte {}", m_at)
+            }
+            let key = self.string() or return
+            self.expect(':' as u8) or return
+            let v = self.value() or return
+            members.push(Member{ key: move(key), value: move(v) })
+            self.skip_space()
+            more = m_at < m_bytes.len && m_bytes[m_at] == ',' as u8
+            if more {
+                m_at += 1
+            }
+        }
+        self.expect('}' as u8) or return
+        return Json::Object{ members: move(members) }
+    }
+}
+
+// --- the tree to records, by hand ----------------------------------------------------
+
+fn number_of(j: &Json, what: &str) !-> f64 {
+    switch j {
+        case Number(&n) {
+            return n.value
+        }
+        default {
+            return error(Failure::Shape, "`{}` is not a number", what)
+        }
+    }
+}
+
+fn text_of(j: &Json, what: &str) !-> String {
+    switch j {
+        case Text(&t) {
+            return String(t.value.as_str())
+        }
+        default {
+            return error(Failure::Shape, "`{}` is not a string", what)
+        }
+    }
+}
+
+fn to_record(members: &List<Member>) !-> Record {
+    let mut id: u64 = 0
+    let mut name = String()
+    let mut tags = List<String>()
+    let mut pos = Vec3{}
+    let mut active = false
+    let mut score: f64? = none
+    for &m in members {
+        let key = m.key.as_str()
+        if key == "id" {
+            id = (number_of(&m.value, key) or return) as u64
+        } else if key == "name" {
+            name = text_of(&m.value, key) or return
+        } else if key == "tags" {
+            switch m.value {
+                case Array(&a) {
+                    for &t in a.items {
+                        let tag = text_of(&t, key) or return
+                        tags.push(move(tag))
+                    }
+                }
+                default {
+                    return error(Failure::Shape, "`tags` is not an array")
+                }
+            }
+        } else if key == "pos" {
+            switch m.value {
+                case Object(&o) {
+                    for &c in o.members {
+                        let v = (number_of(&c.value, c.key.as_str()) or return) as f32
+                        let axis = c.key.as_str()
+                        if axis == "x" {
+                            pos.x = v
+                        } else if axis == "y" {
+                            pos.y = v
+                        } else if axis == "z" {
+                            pos.z = v
+                        }
+                    }
+                }
+                default {
+                    return error(Failure::Shape, "`pos` is not an object")
+                }
+            }
+        } else if key == "is_active" {
+            switch m.value {
+                case Bool(&b) {
+                    active = b.value
+                }
+                default {
+                    return error(Failure::Shape, "`is_active` is not a bool")
+                }
+            }
+        } else if key == "score" {
+            switch m.value {
+                case Null(&_) {
+                    score = none
+                }
+                default {
+                    score = number_of(&m.value, key) or return
+                }
+            }
+        }
+    }
+    return Record{ id: id, name: move(name), tags: move(tags), pos: pos, active: active, score: score }
+}
+
+fn to_records(tree: &Json) !-> List<Record> {
+    let mut records = List<Record>()
+    switch tree {
+        case Array(&a) {
+            for &item in a.items {
+                switch item {
+                    case Object(&o) {
+                        let r = to_record(&o.members) or return
+                        records.push(move(r))
+                    }
+                    default {
+                        return error(Failure::Shape, "a record is not an object")
+                    }
+                }
+            }
+        }
+        default {
+            return error(Failure::Shape, "the document is not an array")
+        }
+    }
+    return records
+}
+
+// --- any value to JSON, through reflection -------------------------------------------
+
+/// `value` + `offset`, as a pointer to whatever lives there.
+fn at(value: ^u8, offset: usize) -> ^u8 {
+    return unsafe {
+        (value as usize + offset) as ^u8
+    }
+}
+
+/// `s` as a JSON string: quoted, with `"`, `\` and control characters escaped.
+fn write_text(f: &mut Formatter, s: &str) {
+    let bytes = s as &[]u8
+    f.write_char('"')
+    let mut run: usize = 0
+    for i in 0..bytes.len {
+        let c = bytes[i]
+        if c != '"' as u8 && c != '\\' as u8 && c >= 0x20 {
+            continue
+        }
+        f.write_str(s.cut_bytes(run, i))
+        if c == '"' as u8 {
+            f.write_str("\\\"")
+        } else if c == '\\' as u8 {
+            f.write_str("\\\\")
+        } else if c == '\n' as u8 {
+            f.write_str("\\n")
+        } else {
+            f.write_str("\\u00")
+            f.write_char(HEX[(c >> 4) as usize] as char)
+            f.write_char(HEX[(c & 15) as usize] as char)
+        }
+        run = i + 1
+    }
+    f.write_str(s.cut_bytes(run, bytes.len))
+    f.write_char('"')
+}
+
+const HEX: [16]u8 = ['0' as u8, '1' as u8, '2' as u8, '3' as u8, '4' as u8, '5' as u8, '6' as u8, '7' as u8, '8' as u8, '9' as u8, 'a' as u8, 'b' as u8, 'c' as u8, 'd' as u8, 'e' as u8, 'f' as u8]
+
+/// Every public field, by its tag's name when it has one.
+fn write_fields(f: &mut Formatter, value: ^u8, all: &[]FieldInfo) {
+    f.write_char('{')
+    let mut first = true
+    for &field in all {
+        if field.vis != Visibility::Public {
+            continue
+        }
+        if !first {
+            f.write_char(',')
+        }
+        first = false
+        f.write_char('"')
+        f.write_str(field.tag_value("json") or field.name)
+        f.write_str("\":")
+        write_value(f, at(value, field.offset), field.type_id)
+    }
+    f.write_char('}')
+}
+
+/// A `List<T>` as an array: its storage and length, from its own fields.
+fn write_list(f: &mut Formatter, value: ^u8, all: &[]FieldInfo) {
+    let mut data: usize = 0
+    let mut len: usize = 0
+    let mut elem = TypeId{ index: 0 }
+    for &field in all {
+        if field.name == "m_data" {
+            data = unsafe {
+                (at(value, field.offset) as ^usize)^
+            }
+            elem = typeinfo(field.type_id).elem
+        } else if field.name == "m_len" {
+            len = unsafe {
+                (at(value, field.offset) as ^usize)^
+            }
+        }
+    }
+    let step = typeinfo(elem).size
+    f.write_char('[')
+    for i in 0..len {
+        if i > 0 {
+            f.write_char(',')
+        }
+        write_value(f, unsafe {
+            (data + i * step) as ^u8
+        }, elem)
+    }
+    f.write_char(']')
+}
+
+/// The value of type `id` at `value`, as JSON.
+fn write_value(f: &mut Formatter, value: ^u8, id: TypeId) {
+    if id == typeid_of<String>() {
+        let s = unsafe {
+            value as ^String
+        } or unreachable
+        write_text(f, s.as_str())
+        return
+    }
+    let info = typeinfo(id)
+    switch info.kind {
+        case Struct {
+            if info.name.starts_with("List<") {
+                write_list(f, value, info.fields)
+            } else {
+                write_fields(f, value, info.fields)
+            }
+        }
+        case Bool {
+            f.write_str(if unsafe {
+                (value as ^bool)^
+            } {
+                "true"
+            } else {
+                "false"
+            })
+        }
+        case F32 {
+            unsafe {
+                (value as ^f32)^
+            }.format(f)
+        }
+        case F64 {
+            unsafe {
+                (value as ^f64)^
+            }.format(f)
+        }
+        case U64 {
+            unsafe {
+                (value as ^u64)^
+            }.format(f)
+        }
+        case Optional {
+            if unsafe {
+                (at(value, info.fields[1].offset) as ^bool)^
+            } {
+                write_value(f, at(value, info.fields[0].offset), info.elem)
+            } else {
+                f.write_str("null")
+            }
+        }
+        default {
+            f.write_str("null")
+        }
+    }
+}
+
+/// Any value as JSON: the one generic entry point, which is all the type table needs.
+fn to_json<view T>(value: &T) -> String {
+    let mut out = String()
+    {
+        let mut f = Formatter::string(&mut out)
+        let p: ^T = value
+        write_value(&mut f, unsafe {
+            p as ^u8
+        }, typeid_of<T>())
+    }
+    return out
+}
+
+fn main() {
+    let args = Process::args()
+    let count = if args.len() > 1 {
+        args[1].parse_i64() or 100000
+    } else {
+        100000
+    }
+
+    let text = generate(count)
+    let mut parser = Parser(text.as_str())
+    let tree = parser.value() or { e ->
+        eprintln!("{}", e.message)
+        return
+    }
+    let records = to_records(&tree) or { e ->
+        eprintln!("{}", e.message)
+        return
+    }
+    let out = to_json(&records)
+
+    // FNV-1a over every byte written.
+    let mut checksum: u64 = 1469598103934665603
+    for b in out.as_str() as &[]u8 {
+        checksum = (checksum ^^ b as u64) * 1099511628211
+    }
+    println!("{} bytes read, {} records, {} bytes written", text.byte_len(), records.len(), out.byte_len())
+    println!("checksum {}", checksum)
+}

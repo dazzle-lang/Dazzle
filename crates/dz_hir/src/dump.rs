@@ -159,8 +159,9 @@ impl<'a> Dumper<'a> {
                 });
             }
             StmtKind::Expr(e) => self.expr(e),
-            StmtKind::While { cond, body: b, label } => {
-                self.line(format_args!("while{}", label_str(&label)));
+            StmtKind::While { cond, body: b, label, forever } => {
+                let forever = if forever { " (forever)" } else { "" };
+                self.line(format_args!("while{}{forever}", label_str(&label)));
                 self.nest(|d| {
                     d.expr(cond);
                     d.block(b);

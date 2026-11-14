@@ -127,6 +127,10 @@ pub struct Formatter {
     }
 
     /// Append one character, encoded as UTF-8.
+    ///
+    /// Only the ASCII case is written where it is called: with the encoding in the same
+    /// body, clang++ kept the whole of it a call, one per character a JSON writer writes
+    /// (T-0225).
     #[inline]
     pub fn write_char(&mut self, c: char) {
         // ASCII into a `String`, outside a width: one byte, as `String::push` appends it.
@@ -134,6 +138,11 @@ pub struct Formatter {
             unsafe { m_out.push(c, m_loc) }
             return
         }
+        self.write_char_slowly(c)
+    }
+
+    /// [`write_char`] for any other character, or under a width, or to a stream.
+    fn write_char_slowly(&mut self, c: char) {
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
         self.write_str(unsafe { encoded[0..n] as &str })

@@ -1,0 +1,44 @@
+// A `loop` no `break` leaves never ends but by `return`, so a function that promises a value
+// may end with it (spec §10.2, D-0102). A `break` that leaves only a loop inside it, and
+// one naming an outer loop's label, do not leave it. Half of a pair with
+// loop_left_by_break.dz.
+// expect: (none)
+
+fn first_at_least(xs: &List<i32>, limit: i32) -> i32 {
+    let mut i: usize = 0
+    loop {
+        if xs[i] >= limit {
+            return xs[i]
+        }
+        i += 1
+    }
+}
+
+fn inner_break_only(n: i32) -> i32 {
+    let mut i = 0
+    loop {
+        while i < 100 {
+            break
+        }
+        i += 1
+        if i == n {
+            return i
+        }
+    }
+}
+
+fn labelled_outer(n: i32) -> i32 {
+    let mut i = 0
+    outer: loop {
+        inner: loop {
+            i += 1
+            if i > n {
+                break inner
+            }
+            if i == n {
+                continue outer
+            }
+        }
+        return i
+    }
+}

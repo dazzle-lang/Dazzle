@@ -18,6 +18,7 @@ every pass that it could avoid, each with the reason and the fix:
 |---|---|
 | a `List` indexed through the list, not a slice taken before the loop, and the call that kills it | `dz_flow::views` (T-0215) |
 | `for e in xs` copying an element that owns memory, where `&e` would not | the checker: the binding's type and the element's `copy` |
+| a `case V(p)` copying a payload where `case V(&p)` would borrow it, when the payload owns memory or is large; and the same for a `let` of a field or element | the checker: the binding's type and size. Found by `raytrace` (T-0174): `case Sphere(s)` copied a 40-byte `Sphere`, `Material` and all, for every shape every ray was tested against, 22 ms of 575 |
 | an allocation on the heap, and why it is not in a region | placement (`dz placements`, spec §14.6) |
 | a drop that runs although its region frees the memory | `dz_flow::release` (T-0118, T-0218) |
 | a call through a function value, `virtual`, or a trait object | the callee in the HIR |

@@ -77,8 +77,12 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
    `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
    day; its spelling is the user's decision).
-5. **Benchmarks.** Two whole programs against C++, `json` (T-0173) and `raytrace`
-   (T-0174); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
+5. **Benchmarks.** Two whole programs against C++, `json` (T-0173, done 2026-11-14: 1.16×
+   on clang++ and 1.31× on g++, with floats written in full, r130, and `loop`, r131, the
+   user's decisions on what it found; the rest is T-0225) and `raytrace`
+   (T-0174, done 2026-11-14: 1.07× its C++ half on both compilers, from 1.25× on clang++,
+   once private functions were `static` (T-0221), a literal on the left typed as the right
+   operand and a union's `switch` ended in `else`; the rest is T-0222); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
    query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
    over time (T-0075). The other programs get no Rust half.
 6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
@@ -219,11 +223,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
 - **[T-0165](tasks/T-0165-words-scope-regions-make-it-5.md)** "words: scope regions make it 5% slower with g++, where clang++ is 30% faster" · feature, ownership
 - **[T-0172](tasks/T-0172-ecs-benchmark-against-rust-c-query.md)** An ECS benchmark against Rust and C++: a query inside a query · feature, bench
-- **[T-0173](tasks/T-0173-json-benchmark-parsing-writing-structs-through.md)** A json benchmark: parsing, and writing structs through reflection · feature, bench
-- **[T-0174](tasks/T-0174-raytrace-benchmark-floating-point-vector-math.md)** A raytrace benchmark: floating-point and vector math · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0220](tasks/T-0220-call-sourcelocation-stored-stack-on-every.md)** A call's SourceLocation is stored to the stack on every pass, though only a cold path reads it · feature, codegen
+- **[T-0222](tasks/T-0222-empty-optional-builds-its-whole-payload.md)** "raytrace's gap: the shape of the generated code (struct literals, expression temporaries, optionals)" · feature, codegen
+- **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -238,7 +242,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (27 open)
+## none — not scheduled (30 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -267,3 +271,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
+- **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
+- **[T-0227](tasks/T-0227-move-on-path-that-ends-in.md)** A move on a path that ends in return is counted when a loop body runs again · feature, flow
+- **[T-0228](tasks/T-0228-one-word-allocator-handle-in-string.md)** A one-word allocator handle in String, List and the other containers · design, stdlib

@@ -1,6 +1,5 @@
 ---
 source: crates/dz_parse/tests/parse.rs
-assertion_line: 34
 expression: "parse_report(&name, &source)"
 input_file: tests/parse/statements.dz
 ---
@@ -91,6 +90,25 @@ fn control_flow(x: i32)
               block
                 break 'outer
             continue
+    loop
+      block
+        if
+          call
+            path done
+          block
+            break
+    loop 'scan
+      block
+        for e
+          path entities
+          block
+            if
+              binary ==
+                field .id
+                  path e
+                path target
+              block
+                break 'scan
     for i
       range
         int 0

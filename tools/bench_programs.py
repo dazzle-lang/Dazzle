@@ -69,6 +69,15 @@ def exe(name):
     return name + ".exe" if os.name == "nt" else name
 
 
+def program_flags(program):
+    """The flags one program gives both of its halves, from its `cxx_flags.txt`: `raytrace`'s
+    `-ffp-contract=off`, so that neither compiler fuses `a * b + c` into one rounding in one
+    half and not the other (T-0174). The Dazzle half gets them through `DZ_CXXFLAGS`, which
+    `crates/dz/tests/run.rs` reads from the same file."""
+    path = SUITE / program / "cxx_flags.txt"
+    return path.read_text(encoding="utf-8").split() if path.exists() else []
+
+
 def first_line(cmd):
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -201,7 +210,10 @@ def parse_timings(stderr):
 def dz_build(dz, project, cxx, mode):
     """One `dz build` of `project`: its wall time and the phases `--timings` reported."""
     cmd = [str(dz), "build", f"--{mode}", "--timings", "--cxx", cxx, str(project)]
-    wall, out = timed(cmd)
+    env = None
+    if flags := program_flags(project.name):
+        env = {**os.environ, "DZ_CXXFLAGS": " ".join([os.environ.get("DZ_CXXFLAGS", ""), *flags]).strip()}
+    wall, out = timed(cmd, env=env)
     if out.returncode != 0:
         sys.exit(f"dz build --{mode} failed for {project.name} with {cxx}:\n{out.stdout}{out.stderr}")
     return wall, parse_timings(out.stderr)
@@ -219,6 +231,10 @@ def build_dazzle(dz, program, cxx, mode, work, builds):
     project = BUILDS / program
     shutil.rmtree(project, ignore_errors=True)
     shutil.copytree(SUITE / program, project, ignore=shutil.ignore_patterns("build", "main.cpp"))
+    # One build not counted, so that what is timed from clean finds the runtime and `std`
+    # already compiled with this compiler, mode and flags, as the report says it does; a
+    # program's own flags (`program_flags`) would otherwise compile them in its first build.
+    dz_build(dz, project, cxx, mode)
     clean = []
     for _ in range(builds):
         shutil.rmtree(project / "build", ignore_errors=True)
@@ -246,7 +262,7 @@ def build_cpp(program, cxx, mode, work, builds):
     times of each kind."""
 
     def compile_(source, binary):
-        cmd = [cxx, *CXX_FLAGS, *FLAGS[mode], str(source), "-o", str(binary)]
+        cmd = [cxx, *CXX_FLAGS, *FLAGS[mode], *program_flags(program), str(source), "-o", str(binary)]
         seconds, out = timed(cmd)
         if out.returncode != 0:
             sys.exit(f"{cxx} failed on {program}/main.cpp:\n{out.stderr}")
@@ -413,7 +429,8 @@ def report(info, results, mode, runs):
     lines += [
         f"- Mode: `--{mode}`. C++ flags: `{flags}`; Dazzle's generated code gets the same "
         "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`, and with g++ in an optimised "
-        "build `--param max-inline-insns-auto=70` (T-0190).",
+        "build `--param max-inline-insns-auto=70` (T-0190). A program's `cxx_flags.txt` adds "
+        "flags to both of its halves: `raytrace` has `-ffp-contract=off` (T-0174).",
         f"- Dazzle: commit {info['commit']}",
         f"- Load average before / after: {info['load_before']} / {info['load_after']}",
     ]

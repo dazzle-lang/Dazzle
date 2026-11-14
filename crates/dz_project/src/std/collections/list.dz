@@ -477,8 +477,20 @@ pub struct List<T> {
 
     /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
     /// costs amortised constant time — with the elements moved into it.
+    ///
+    /// The first allocation is sized by the element, as Rust's `Vec` sizes it: 8 bytes, 4
+    /// elements up to a KiB, and 1 beyond. It used to be 8 elements of any size, so a JSON
+    /// tree's three-member object kept room for eight 88-byte members, and the `json`
+    /// benchmark's tree took 100 MiB more than its C++ half's (T-0173).
     fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
-        let doubled = if m_cap == 0 { 8 } else { m_cap * 2 }
+        let first: usize = if sizeof(T) == 1 {
+            8
+        } else if sizeof(T) <= 1024 {
+            4
+        } else {
+            1
+        }
+        let doubled = if m_cap == 0 { first } else { m_cap * 2 }
         self.move_to(if wanted > doubled { wanted } else { doubled }, loc)
     }
 

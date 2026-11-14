@@ -1752,6 +1752,7 @@ pub const KEYWORDS: &[&str] = &[
     "in",
     "kills",
     "let",
+    "loop",
     "macro",
     "module",
     "move",

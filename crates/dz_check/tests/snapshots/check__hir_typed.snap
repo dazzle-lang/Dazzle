@@ -5275,14 +5275,32 @@ body method List::grow_to -> void
   param _1 wanted: usize
   param _2 loc: SourceLocation
   block
-    let _3 doubled: usize
+    let _3 first: usize
+      if: usize
+        binary ==: bool
+          type-query T::size: usize
+          int 1: usize
+        block
+          int 8: usize
+        block
+          if: usize
+            binary <=: bool
+              type-query T::size: usize
+              int 1024: usize
+            block
+              int 4: usize
+            block
+              block-value: usize
+                block
+                  int 1: usize
+    let _4 doubled: usize
       if: usize
         binary ==: bool
           field #2: usize
             local _0 self: List<T>
           int 0: usize
         block
-          int 8: i32
+          local _3 first: usize
         block
           block-value: usize
             block
@@ -5295,13 +5313,13 @@ body method List::grow_to -> void
       if: usize
         binary >: bool
           local _1 wanted: usize
-          local _3 doubled: usize
+          local _4 doubled: usize
         block
           local _1 wanted: usize
         block
           block-value: usize
             block
-              local _3 doubled: usize
+              local _4 doubled: usize
       local _2 loc: SourceLocation
 body method List::move_to -> void
   param _0 self: List<T>
@@ -6855,6 +6873,7 @@ body impl#53 method format -> void
       local _1 f: &mut Formatter
       cast: f64
         local _0 self: f32
+      bool true: bool
 body impl#54 method format -> void
   param _0 self: f64
   param _1 f: &mut Formatter
@@ -6863,6 +6882,7 @@ body impl#54 method format -> void
       local _1 f: &mut Formatter
       cast: f64
         local _0 self: f64
+      bool false: bool
 body impl#55 method format -> void
   param _0 self: bool
   param _1 f: &mut Formatter
@@ -7080,43 +7100,46 @@ body fn write_digits -> void
 body fn write_float -> void
   param _0 f: &mut Formatter
   param _1 value: f64
+  param _2 single: bool
   block
-    let _2 buf: [64]u8
+    let _3 buf: [336]u8
       (uninitialised)
-    let _4 precision: i32
+    let _5 precision: i32
       if-let: i32
         call-method Formatter::precision: u32?
           local _0 f: &mut Formatter
-        bind _3 p
+        bind _4 p
         block
           cast: i32
-            local _3 p: u32
+            local _4 p: u32
         block
           block-value: i32
             block
               unary -: i32
                 int 1: i32
-    let _5 n: usize
+    let _6 n: usize
       call format_float: usize
         local _1 value: f64
-        local _4 precision: i32
+        local _5 precision: i32
+        local _2 single: bool
         slice: &mut []u8
-          local _2 buf: [64]u8
+          local _3 buf: [336]u8
           int 0: usize
-          int 64: usize
+          int 336: usize
     call-method Formatter::write_number: void
       local _0 f: &mut Formatter
       block-value: &str
         block
           cast: &str
             slice: &mut []u8
-              local _2 buf: [64]u8
+              local _3 buf: [336]u8
               int 0: usize
-              local _5 n: usize
+              local _6 n: usize
 body fn format_float -> usize
   param _0 value: f64
   param _1 precision: i32
-  param _2 out: &mut []u8
+  param _2 single: bool
+  param _3 out: &mut []u8
   block
     (empty)
 body fn cstr_text -> &str
@@ -7372,6 +7395,13 @@ body method Formatter::write_char -> void
               field #4: SourceLocation
                 local _0 self: Formatter
         return: !
+    call-method Formatter::write_char_slowly: void
+      local _0 self: Formatter
+      local _1 c: char
+body method Formatter::write_char_slowly -> void
+  param _0 self: Formatter
+  param _1 c: char
+  block
     let _2 encoded: [4]u8
       array: [4]u8
         int 0: u8
@@ -9418,7 +9448,7 @@ body method Mat4::perspective -> Mat4
   block
     let _5 f: f32
       binary /: f32
-        int 1: i32
+        float 1: f32
         call-method Float::tan: f32
           binary *: f32
             local _0 fov_y: f32
@@ -10623,7 +10653,7 @@ body method Mat4::inverse -> Mat4?
           none: Mat4?
     let _14 inv: f32
       binary /: f32
-        int 1: i32
+        float 1: f32
         local _13 det: f32
     return: !
       struct-lit Mat4: Mat4
@@ -11475,7 +11505,7 @@ body method Quat::slerp -> Quat
         call-method Float::sin: f32
           binary *: f32
             binary -: f32
-              int 1: i32
+              float 1: f32
               local _2 t: f32
             local _6 theta: f32
         local _7 sin_theta: f32
@@ -15203,7 +15233,7 @@ body method Random::unit_vec3 -> Vec3
     let _2 r: f32
       call-method Float::sqrt: f32
         binary -: f32
-          float 1: f64
+          float 1: f32
           binary *: f32
             local _0 z: f32
             local _0 z: f32
@@ -16638,7 +16668,7 @@ body fn encode_utf8 -> usize
             int 0: usize
           cast: u8
             binary |: u32
-              int 192: i32
+              int 192: u32
               binary >>: u32
                 local _2 cp: u32
                 int 6: u32
@@ -16648,7 +16678,7 @@ body fn encode_utf8 -> usize
             int 1: usize
           cast: u8
             binary |: u32
-              int 128: i32
+              int 128: u32
               binary &: u32
                 local _2 cp: u32
                 int 63: u32
@@ -16665,7 +16695,7 @@ body fn encode_utf8 -> usize
             int 0: usize
           cast: u8
             binary |: u32
-              int 224: i32
+              int 224: u32
               binary >>: u32
                 local _2 cp: u32
                 int 12: u32
@@ -16675,7 +16705,7 @@ body fn encode_utf8 -> usize
             int 1: usize
           cast: u8
             binary |: u32
-              int 128: i32
+              int 128: u32
               binary &: u32
                 binary >>: u32
                   local _2 cp: u32
@@ -16687,7 +16717,7 @@ body fn encode_utf8 -> usize
             int 2: usize
           cast: u8
             binary |: u32
-              int 128: i32
+              int 128: u32
               binary &: u32
                 local _2 cp: u32
                 int 63: u32
@@ -16699,7 +16729,7 @@ body fn encode_utf8 -> usize
         int 0: usize
       cast: u8
         binary |: u32
-          int 240: i32
+          int 240: u32
           binary >>: u32
             local _2 cp: u32
             int 18: u32
@@ -16709,7 +16739,7 @@ body fn encode_utf8 -> usize
         int 1: usize
       cast: u8
         binary |: u32
-          int 128: i32
+          int 128: u32
           binary &: u32
             binary >>: u32
               local _2 cp: u32
@@ -16721,7 +16751,7 @@ body fn encode_utf8 -> usize
         int 2: usize
       cast: u8
         binary |: u32
-          int 128: i32
+          int 128: u32
           binary &: u32
             binary >>: u32
               local _2 cp: u32
@@ -16733,7 +16763,7 @@ body fn encode_utf8 -> usize
         int 3: usize
       cast: u8
         binary |: u32
-          int 128: i32
+          int 128: u32
           binary &: u32
             local _2 cp: u32
             int 63: u32
@@ -16931,58 +16961,12 @@ body method Text::cut_bytes -> &str
           local _4 t: &str
           local _1 from: usize
           local _2 to: usize
-        block-value: !
-          block
-            formatted: !
-              bind _5 arg·
-                ref: &usize
-                  local _1 from: usize
-              bind _6 arg·
-                ref: &usize
-                  local _2 to: usize
-              bind _7 arg·
-                ref: &usize
-                  len: usize
-                    local _4 t: &str
-              bind _8 arg·
-                local _3 loc: SourceLocation
-              block
-                let _9 fmt·: Formatter
-                  call-assoc Formatter::message: Formatter
-                call-method Formatter::begin_arg: void
-                  local _9 fmt·: Formatter
-                  str "bytes ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _5 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _9 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _9 fmt·: Formatter
-                  str "..": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _6 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _9 fmt·: Formatter
-                call-method Formatter::begin_arg: void
-                  local _9 fmt·: Formatter
-                  str " are past the end of ": &str
-                  str "": &str
-                call-method Format::format: void
-                  deref: usize
-                    local _7 arg·: &usize
-                  ref mut: &mut Formatter
-                    local _9 fmt·: Formatter
-                call-method Formatter::finish: void
-                  local _9 fmt·: Formatter
-                  str " bytes, or inside a character": &str
-                builtin panic: !
-                  call-method Formatter::message_text: &str
-                    local _9 fmt·: Formatter
-                  local _8 arg·: SourceLocation
+        call cut_bytes_failed: &str
+          local _1 from: usize
+          local _2 to: usize
+          len: usize
+            local _4 t: &str
+          local _3 loc: SourceLocation
 body method Text::slice_bytes -> ^str
   param _0 self: Text
   param _1 from: usize
@@ -17689,6 +17673,65 @@ body method Text::parse_f32 -> f32?
     return: !
       cast: f32
         local _1 v: f64
+body fn cut_bytes_failed -> const &str
+  param _0 from: usize
+  param _1 to: usize
+  param _2 len: usize
+  param _3 loc: SourceLocation
+  block
+    block-value: !
+      block
+        formatted: !
+          bind _4 arg·
+            ref: &usize
+              local _0 from: usize
+          bind _5 arg·
+            ref: &usize
+              local _1 to: usize
+          bind _6 arg·
+            ref: &usize
+              local _2 len: usize
+          bind _7 arg·
+            local _3 loc: SourceLocation
+          block
+            let _8 fmt·: Formatter
+              call-assoc Formatter::message: Formatter
+            call-method Formatter::begin_arg: void
+              local _8 fmt·: Formatter
+              str "bytes ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _4 arg·: &usize
+              ref mut: &mut Formatter
+                local _8 fmt·: Formatter
+            call-method Formatter::begin_arg: void
+              local _8 fmt·: Formatter
+              str "..": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _5 arg·: &usize
+              ref mut: &mut Formatter
+                local _8 fmt·: Formatter
+            call-method Formatter::begin_arg: void
+              local _8 fmt·: Formatter
+              str " are past the end of ": &str
+              str "": &str
+            call-method Format::format: void
+              deref: usize
+                local _6 arg·: &usize
+              ref mut: &mut Formatter
+                local _8 fmt·: Formatter
+            call-method Formatter::finish: void
+              local _8 fmt·: Formatter
+              str " bytes, or inside a character": &str
+            builtin panic: !
+              call-method Formatter::message_text: &str
+                local _8 fmt·: Formatter
+              local _7 arg·: SourceLocation
+    return: !
+      str "": const &str
 body impl#137 method text -> &str
   param _0 self: &str
   block

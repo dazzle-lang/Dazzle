@@ -1,6 +1,6 @@
 literals 1.5 3 true true
 suffixes 4 4 127
-sqrt 1.41421 floor 2 ceil 3 round -3
+sqrt 1.4142135 floor 2 ceil 3 round -3
 clamp 3 lerp 2.5 min 1 max 2
 sin(pi/2) true atan2 true deg 180
 f64 true pow 1024 fract 0.75 sign -1
@@ -15,7 +15,7 @@ normalized 0.6 0.8 zero 0
 rotated true true
 cross 0 0 1
 ops 1.5 1.5 0 neg -1.5
-distance 2 lerp 0.5 eq true
+distance 1.9999999 lerp 0.5 eq true
 reflect 1 1
 grid 2 2 manhattan 7
 quat rotate true

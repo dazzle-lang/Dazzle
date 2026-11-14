@@ -433,10 +433,12 @@ impl<'a> Flow<'a> {
                 self.read(*target) || diverges
             }
             hir::StmtKind::Expr(e) => self.value(*e),
-            hir::StmtKind::While { cond, body, .. } => {
+            // A `loop` no `break` leaves ends only by `return`, so nothing after it runs and
+            // a function may end with it (spec §10.2, D-0102). A `while` may always end.
+            hir::StmtKind::While { cond, body, forever, .. } => {
                 self.read(*cond);
                 self.loop_body(*body, &[]);
-                false
+                *forever
             }
             hir::StmtKind::For { bindings, subject, body, shape, .. } => {
                 // A user iterator is copied or moved into the loop's own iterator, which

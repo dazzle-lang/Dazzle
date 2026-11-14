@@ -78,6 +78,8 @@ pub enum TokenKind {
     Or,
     Union,
     While,
+    /// `loop { … }`: a loop left only by `break` or `return` (spec §10.2, D-0102).
+    Loop,
     Unreachable,
     Unsafe,
     // Struct inheritance (spec §7.3, 18.32).
@@ -200,6 +202,7 @@ impl TokenKind {
             Or => "or",
             Union => "union",
             While => "while",
+            Loop => "loop",
             Unreachable => "unreachable",
             Unsafe => "unsafe",
             Virtual => "virtual",
@@ -297,6 +300,7 @@ impl TokenKind {
                 | Or
                 | Union
                 | While
+                | Loop
                 | Unreachable
                 | Unsafe
                 | Static
@@ -404,6 +408,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "or" => Or,
         "union" => Union,
         "while" => While,
+        "loop" => Loop,
         "unreachable" => Unreachable,
         "unsafe" => Unsafe,
         "virtual" => Virtual,

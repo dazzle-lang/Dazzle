@@ -42,6 +42,27 @@ outer: while true {
 Neither carries a value: a loop is a statement, so there is nothing for a value to become.
 A result is assigned to a variable declared before the loop. `[DECIDED — §18.28]`
 
+**`loop`** runs its body until a `break` leaves it or a `return` leaves the function, and
+takes a label as `while` and `for` do:
+
+```dz
+fn next_token(&mut self) -> Token {
+    loop {
+        let c = self.peek()
+        if c != ' ' {
+            return self.token_at(c)
+        }
+        self.advance()
+    }
+}
+```
+
+A `loop` that no `break` leaves — none written in it, and none naming its label from a loop
+inside it — never ends but by `return`: nothing after it runs, and a function that promises
+a value may end with it, as `next_token` does. A `while` may always end, whatever its
+condition, so a function ending in `while true` still needs a `return` after it (`DZ0405`).
+`[DECIDED — D-0102]`
+
 `[PROPOSED]`
 
 ## 10.3 `switch`

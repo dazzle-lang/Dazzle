@@ -1,0 +1,24 @@
+// A number written on the left of an operator takes its type from the right operand, as one
+// written on the right takes the left's (spec §2.5): with `x: f32`, `0.1 * x` is `f32`
+// arithmetic. Until T-0222 the literal stayed untyped while the operator became `f32`, then
+// settled on `f64`, so the C++ computed in `double` and narrowed: for x = 9 that is
+// 0.899999976, where `x * 0.1` is 0.900000036. A comparison had the same flaw, `0.9 == y`
+// comparing in `double`.
+
+fn main() {
+    let x: f32 = 9
+    let left = 0.1 * x
+    let right = x * 0.1
+    println!("0.1 * x == x * 0.1: {}", left == right)
+
+    // Negated, and arithmetic on literals, take the type too.
+    let scaled = -0.1 * x
+    println!("-0.1 * x == -(x * 0.1): {}", scaled == -right)
+    let twice = 0.05 * 2.0 * x
+    println!("0.05 * 2.0 * x == x * (0.05 * 2.0): {}", twice == x * (0.05 * 2.0))
+
+    // 0.9 in `f32` is 0.899999976, so it equals `y` only when compared as an `f32`.
+    let y: f32 = 0.9
+    println!("0.9 == y: {}", 0.9 == y)
+    println!("y == 0.9: {}", y == 0.9)
+}

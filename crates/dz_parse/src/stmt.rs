@@ -61,6 +61,7 @@ impl<'a> Parser<'a> {
         let kind = match self.peek() {
             TokenKind::Let => StmtKind::Let(self.parse_let()),
             TokenKind::While => StmtKind::While(self.parse_while(None)),
+            TokenKind::Loop => StmtKind::While(self.parse_loop(None)),
             TokenKind::For => StmtKind::For(self.parse_for(None)),
             TokenKind::Defer => {
                 self.bump();
@@ -73,15 +74,20 @@ impl<'a> Parser<'a> {
                     kind: StmtKind::Defer(Box::new(inner)),
                 };
             }
-            // `outer: while ...` / `outer: for ...` (spec §10.2)
+            // `outer: while ...` / `outer: loop ...` / `outer: for ...` (spec §10.2)
             TokenKind::Ident
                 if self.peek_at(1) == TokenKind::Colon
-                    && matches!(self.peek_at(2), TokenKind::While | TokenKind::For) =>
+                    && matches!(
+                        self.peek_at(2),
+                        TokenKind::While | TokenKind::Loop | TokenKind::For
+                    ) =>
             {
                 let label = self.parse_ident();
                 self.bump(); // `:`
                 if self.at(TokenKind::While) {
                     StmtKind::While(self.parse_while(label))
+                } else if self.at(TokenKind::Loop) {
+                    StmtKind::While(self.parse_loop(label))
                 } else {
                     StmtKind::For(self.parse_for(label))
                 }
@@ -254,7 +260,19 @@ impl<'a> Parser<'a> {
         self.bump(); // `while`
         let cond = self.parse_expr_no_struct();
         let body = self.parse_block();
-        WhileStmt { span: self.span_from(start), label, cond, body }
+        WhileStmt { span: self.span_from(start), label, cond, body, is_loop: false }
+    }
+
+    /// `loop { … }` (spec §10.2, D-0102): a `while` whose condition is a `true` spanning
+    /// the keyword, so every phase that walks a `while` walks it unchanged, and `is_loop`
+    /// for the two that must tell them apart: the formatter, and definite return.
+    fn parse_loop(&mut self, label: Option<Ident>) -> WhileStmt {
+        let start = label.as_ref().map(|l| l.span.start).unwrap_or_else(|| self.start());
+        let keyword = self.peek_token().span;
+        self.bump(); // `loop`
+        let cond = Expr { span: keyword, kind: ExprKind::Bool(true) };
+        let body = self.parse_block();
+        WhileStmt { span: self.span_from(start), label, cond, body, is_loop: true }
     }
 
     fn parse_for(&mut self, label: Option<Ident>) -> ForStmt {

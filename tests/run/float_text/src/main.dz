@@ -1,0 +1,38 @@
+// What `{}` writes for a float (spec §12.9, D-0101): the shortest digits that read back to
+// the same value, in plain decimal with no exponent, and no point when it is whole, as
+// Rust's `{}` writes it. An `f32` is written as an `f32`: `0.1f32` is `0.1`, not the widened
+// `0.10000000149011612`. `{:.N}` keeps its `N` digits after the point.
+//
+// `float_text_is_the_same_without_to_chars` (crates/dz/tests/run.rs) builds this program
+// again with the runtime's fallback for a C++ library without `std::to_chars` for floats,
+// and holds it to the same output.
+
+fn main() {
+    let zero = 0.0
+
+    println!("{}", 1.0)
+    println!("{}", -2.0)
+    println!("{}", 0.1)
+    println!("{}", 0.1 + 0.2)
+    println!("{}", 123.456789)
+    println!("{}", 1000000.0)
+    println!("{}", 0.0000001)
+    println!("{}", 1e21)
+    println!("{}", 1.7976931348623157e308)
+    println!("{}", 5e-324)
+    println!("{}", 1.0 / 3.0)
+    println!("{}", -zero)
+    println!("{}", 1.0 / zero)
+    println!("{}", -1.0 / zero)
+    println!("{}", zero / zero)
+
+    let a: f32 = 0.1
+    let b: f32 = 16777217
+    let c: f32 = 3.4028235e38
+    let d: f32 = 1e-45
+    let third: f32 = 1.0 / 3.0
+    println!("{} {} {} {} {}", a, b, c, d, third)
+
+    println!("{:.2} {:.0} {:.3}", 3.14159, 2.5, a)
+    println!("[{:8}] [{:8}]", 1.5, a)
+}

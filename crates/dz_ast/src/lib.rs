@@ -819,6 +819,9 @@ pub struct WhileStmt {
     pub label: Option<Ident>,
     pub cond: Expr,
     pub body: Block,
+    /// Written `loop { … }` (spec §10.2, D-0102): `cond` is then a `true` the parser made,
+    /// spanning the keyword, and a `loop` nothing breaks out of never ends but by `return`.
+    pub is_loop: bool,
 }
 
 #[derive(Clone, Debug)]

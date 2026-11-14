@@ -3116,7 +3116,7 @@ impl Analysis<'_> {
                 }
             }
             hir::StmtKind::Expr(e) => return self.expr(e),
-            hir::StmtKind::While { cond, body, label } => {
+            hir::StmtKind::While { cond, body, label, .. } => {
                 self.loop_body(Some(cond), body, label.map(|l| l.id), &[], None);
             }
             hir::StmtKind::For { bindings, subject, body, label, shape } => {

@@ -312,6 +312,9 @@ pub enum StmtKind {
         cond: ExprId,
         body: BlockId,
         label: Option<LoopLabel>,
+        /// A `loop` no `break` leaves (spec §10.2, D-0102): it ends only by `return`, so the
+        /// statement after it is never reached and a function can end with it.
+        forever: bool,
     },
     /// `for e in subject` (spec §10.4). The subject's type decides what iteration means,
     /// `shape` how the element reaches the bindings, and each binding's own type whether it

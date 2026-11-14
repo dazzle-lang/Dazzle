@@ -38,6 +38,20 @@ fn control_flow(x: i32) {
         }
     }
 
+    loop {
+        if done() {
+            break
+        }
+    }
+
+    scan: loop {
+        for e in entities {
+            if e.id == target {
+                break scan
+            }
+        }
+    }
+
     for i in 0..count {
         grid[i] = 0
     }

@@ -1,0 +1,53 @@
+// `loop { … }` (spec §10.2, D-0102): left by `break`, by `break` naming its label from a
+// loop inside it, or by `return`, and a function that promises a value may end with one
+// that only `return` leaves.
+
+/// Where the first of `words` longer than `n` characters is, scanned with a `loop` that ends
+/// only by `return`: no `return` after it is needed.
+fn first_longer(words: &List<String>, n: usize) -> i32 {
+    let mut i: usize = 0
+    loop {
+        if i == words.len() {
+            return -1
+        }
+        if words[i].len() > n {
+            return i as i32
+        }
+        i += 1
+    }
+}
+
+fn main() {
+    let mut words = List<String>()
+    words.push(String("a"))
+    words.push(String("tree"))
+    words.push(String("forest"))
+    println!("first longer than 3: {}", first_longer(&words, 3))
+    println!("first longer than 9: {}", first_longer(&words, 9))
+
+    let mut n = 0
+    loop {
+        n += 1
+        if n == 5 {
+            break
+        }
+        if n % 2 == 0 {
+            continue
+        }
+        println!("odd {}", n)
+    }
+
+    let mut found = -1
+    rows: loop {
+        for r in 0..4 {
+            for c in 0..4 {
+                if r * c == 6 {
+                    found = r * 10 + c
+                    break rows
+                }
+            }
+        }
+        break
+    }
+    println!("found {}", found)
+}

@@ -83,6 +83,7 @@ fn decode_utf8(bytes: &[]u8, at: usize) -> (char, usize) {
 
 /// Whether byte `at` begins a character: the start, the end, or anything but a
 /// continuation byte.
+#[inline]
 fn is_utf8_boundary(bytes: &[]u8, at: usize) -> bool {
     if at == 0 || at == bytes.len {
         return true

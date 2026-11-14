@@ -729,8 +729,14 @@ fn a_viewed_list_is_still_bounds_checked() {
         assert!(!String::from_utf8_lossy(&out.stdout).contains("unreached"), "{mode}");
     }
     let cpp = std::fs::read_to_string(dir.join("build/cpp/viewed.cpp")).unwrap();
+    // The definition, not the declaration the `.cpp` starts with when the function is
+    // `static` (T-0221): the line that opens its body.
     let body = |name: &str| {
-        let start = cpp.find(&format!("void {name}(")).expect(name);
+        let start = cpp
+            .match_indices(&format!("void {name}("))
+            .map(|(i, _)| i)
+            .find(|&i| cpp[i..].lines().next().is_some_and(|l| l.ends_with('{')))
+            .expect(name);
         let end = cpp[start..].find("\n}\n").map_or(cpp.len(), |e| start + e);
         cpp[start..end].to_owned()
     };
@@ -764,7 +770,8 @@ fn a_field_of_a_temporary_is_hoisted_as_a_value() {
         .output()
         .expect("failed to run dz");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "2 0.5 false");
+    // `sqrt(2)` squared in `f32` is 1.9999999, which `{}` writes in full (D-0101).
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "1.9999999 0.5 false");
     let cpp = std::fs::read_to_string(dir.join("build/cpp/hoisted.cpp")).unwrap();
     let hoisted = cpp.lines().find(|l| l.contains("lerp(y, 0.5f)")).expect("the lerp call");
     // Hoisted it is — the arguments before `x == y` are — but as the `float`, not a pointer.
@@ -1459,6 +1466,72 @@ fn timings_name_every_phase_on_standard_error() {
     assert!(!stdout.contains("timings"), "timings leaked onto standard output: {stdout}");
 }
 
+/// `{}` on a float writes the same text where the C++ library has no `std::to_chars` for
+/// floats (libc++ on macOS), whose runtime finds the shortest digits with `%e` instead
+/// (D-0101). `DZ_FLOAT_FALLBACK` forces that path here, and `tests/run/float_text` must
+/// print exactly its expected output, which `every_program_produces_its_expected_output`
+/// holds the usual path to.
+#[test]
+fn float_text_is_the_same_without_to_chars() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let corpus = repo_root().join("tests/run/float_text");
+    let manifest = std::fs::read_to_string(corpus.join("dazzle.toml")).unwrap();
+    let source = std::fs::read_to_string(corpus.join("src/main.dz")).unwrap();
+    let expected = std::fs::read_to_string(corpus.join("expected.txt")).unwrap();
+    let dir = scratch("dz_float_fallback", &manifest, &source);
+    let mut flags = std::env::var("DZ_CXXFLAGS").unwrap_or_default();
+    flags.push_str(" -DDZ_FLOAT_FALLBACK");
+    let out = Command::new(dz())
+        .args(["run", dir.to_str().unwrap()])
+        .env("DZ_CXXFLAGS", flags.trim())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), normalise(&expected));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A `switch` on a union with no `default` tests every arm but the last, which is the
+/// `else` (T-0222): the checker proved the arms exhaustive, and testing the tag again gave
+/// the C++ compiler a branch that cannot be taken, 3% of `raytrace`'s time. An enum's
+/// switch keeps its last test, since an enum from C can hold a value no variant names.
+#[test]
+fn a_union_switch_ends_in_else() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_switch_else",
+        "[module]\nname = \"switching\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "union Shape {\n    Circle { r: f32 }\n    Square { side: f32 }\n    Tri { b: f32, h: f32 }\n}\n\nenum Dir {\n    Left\n    Right\n}\n\nfn area(s: &Shape) -> f32 {\n    switch s {\n        case Circle(&c) {\n            return c.r * c.r * 3\n        }\n        case Square(&q) {\n            return q.side * q.side\n        }\n        case Tri(&t) {\n            return t.b * t.h / 2\n        }\n    }\n}\n\nfn sign(d: Dir) -> i32 {\n    switch d {\n        case Left {\n            return -1\n        }\n        case Right {\n            return 1\n        }\n    }\n}\n\nfn main() {\n    println!(\"{} {} {}\", area(&Shape::Tri{ b: 2, h: 3 }), area(&Shape::Square{ side: 2 }), sign(Dir::Right))\n}\n",
+    );
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(stdout.trim(), "3 4 1");
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/switching.cpp")).unwrap();
+    let body = |name: &str| {
+        let start = cpp
+            .match_indices(&format!(" {name}("))
+            .map(|(i, _)| i)
+            .find(|&i| cpp[i..].lines().next().is_some_and(|l| l.ends_with('{')))
+            .expect(name);
+        let end = cpp[start..].find("\n}\n").map_or(cpp.len(), |e| start + e);
+        cpp[start..end].to_owned()
+    };
+    let area = body("area");
+    assert!(area.contains("Kind::Square"), "{area}");
+    assert!(!area.contains("Kind::Tri"), "the last arm is tested:\n{area}");
+    assert!(area.contains("} else {"), "{area}");
+    let sign = body("sign");
+    assert!(sign.contains("Dir::Right"), "an enum's last arm is not tested:\n{sign}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The whole-program benchmarks (`tests/bench_programs`, T-0090): each program's Dazzle half
 /// and its C++ half must print the same checksum, on the small input in `quick_args.txt`.
 /// The timings belong to `tools/bench_programs.py`; this keeps the pairs honest, since a
@@ -1499,8 +1572,21 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();
         let args_text = std::fs::read_to_string(dir.join("quick_args.txt")).unwrap();
         let args: Vec<&str> = args_text.split_whitespace().collect();
-
-        let built = Command::new(dz()).args(["build", dir.to_str().unwrap()]).output().unwrap();
+        // Flags both halves get, as tools/bench_programs.py gives them: `raytrace`'s
+        // `-ffp-contract=off`, without which one compiler may fuse `a * b + c` in one half
+        // and not the other, where the target has a fused multiply-add (T-0174).
+        let flags_text = std::fs::read_to_string(dir.join("cxx_flags.txt")).unwrap_or_default();
+        let flags: Vec<&str> = flags_text.split_whitespace().collect();
+        let mut build = Command::new(dz());
+        build.args(["build", dir.to_str().unwrap()]);
+        if !flags.is_empty() {
+            let mut dz_flags = std::env::var("DZ_CXXFLAGS").unwrap_or_default();
+            for f in &flags {
+                dz_flags = format!("{dz_flags} {f}");
+            }
+            build.env("DZ_CXXFLAGS", dz_flags.trim());
+        }
+        let built = build.output().unwrap();
         assert!(built.status.success(), "{name}: {}", String::from_utf8_lossy(&built.stderr));
         let exe = dir.join("build/bin").join(if cfg!(windows) {
             format!("{name}.exe")
@@ -1516,6 +1602,7 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
         // it is configured for it. The timings, which do use it, are tools/bench_programs.py.
         let compiled = Command::new(&cxx)
             .args(["-std=c++17", "-O1"])
+            .args(&flags)
             .arg(dir.join("main.cpp"))
             .arg("-o")
             .arg(&cpp_exe)

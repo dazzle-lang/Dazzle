@@ -1,0 +1,273 @@
+// A ray tracer: the Dazzle half of a whole-program benchmark (tests/bench_programs/README.md).
+// `main.cpp` beside this folder is the same program in C++, and both must print the same
+// checksum.
+//
+// It is the tracer in `examples/stb` without the PNG: spheres, a checkered floor, soft
+// shadows, highlights and mirror reflections, rendered on the CPU, with its random numbers
+// from a SplitMix64 written out on both sides rather than `std`'s `Random`. The checksum is
+// over the image as bytes, as the PNG would hold it.
+//
+// What it exercises: `f32` arithmetic through `std::math`'s `Vec3` and its operator traits,
+// small structs passed and returned by value, `sqrt`, `pow`, `exp`, `floor`, `sin` and `cos`,
+// tagged unions switched on in the inner loop, optionals, and recursion.
+//
+// Usage: raytrace [width] [height] [grid]
+
+/// SplitMix64, written out so the C++ half draws exactly the same numbers.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    /// In `[0, 1)`: the top 24 bits, which an `f32` holds exactly.
+    pub fn next_f32(&mut self) -> f32 {
+        return (self.next() >> 40) as f32 / 16777216.0
+    }
+
+    /// A point on the unit sphere, as `std`'s `Random::unit_vec3` picks one.
+    pub fn unit_vec3(&mut self) -> Vec3 {
+        let z = self.next_f32() * 2 - 1
+        let angle = self.next_f32() * TAU
+        let r = (1 - z * z).sqrt()
+        return Vec3{ x: r * angle.cos(), y: r * angle.sin(), z: z }
+    }
+}
+
+/// The light is a sphere this wide rather than a point, so shadows have soft edges: each ray
+/// aims its shadow test at a different point on it.
+const LIGHT_RADIUS: f32 = 0.7
+
+/// How many mirrors a ray may bounce between before it gives up.
+const MAX_DEPTH: i32 = 5
+
+struct Ray {
+    pub origin: Vec3
+    pub dir:    Vec3
+}
+
+union Material {
+    Matte { color: Vec3 }
+    Mirror { tint: Vec3 }
+    Checker { a: Vec3, b: Vec3 }
+}
+
+union Shape {
+    Sphere { center: Vec3, radius: f32, material: Material }
+    Floor { y: f32, material: Material }
+}
+
+struct Hit {
+    pub t:        f32
+    pub point:    Vec3
+    pub normal:   Vec3
+    pub material: Material
+}
+
+/// Where `ray` first meets `shape`, if it does before `t_max`.
+fn intersect(shape: &Shape, ray: &Ray, t_max: f32) -> Hit? {
+    // `&s` borrows the payload, as the C++ half's `std::get_if` does; `s` would copy it,
+    // `Material` and all, for every shape every ray is tested against (D-0043).
+    switch shape {
+        case Sphere(&s) {
+            let oc = ray.origin - s.center
+            let b = oc.dot(ray.dir)
+            let c = oc.dot(oc) - s.radius * s.radius
+            let disc = b * b - c
+            if disc < 0 {
+                return none
+            }
+            let t = -b - disc.sqrt()
+            if t < 0.001 || t > t_max {
+                return none
+            }
+            let p = ray.origin + ray.dir * t
+            return Hit{ t: t, point: p, normal: (p - s.center) / s.radius, material: s.material }
+        }
+        case Floor(&f) {
+            if ray.dir.y > -0.0001 {
+                return none
+            }
+            let t = (f.y - ray.origin.y) / ray.dir.y
+            if t < 0.001 || t > t_max {
+                return none
+            }
+            let p = ray.origin + ray.dir * t
+            return Hit{ t: t, point: p, normal: Vec3{ x: 0, y: 1, z: 0 }, material: f.material }
+        }
+    }
+}
+
+struct Scene {
+    pub shapes: List<Shape>
+    pub light:  Vec3 = Vec3{ x: -4, y: 7, z: -3 }
+
+    fn closest(&self, ray: &Ray, t_max: f32) -> Hit? {
+        let mut best: Hit? = none
+        let mut limit = t_max
+        for &shape in shapes {
+            if let hit = intersect(&shape, ray, limit) {
+                limit = hit.t
+                best = hit
+            }
+        }
+        return best
+    }
+
+    fn sky(&self, dir: Vec3) -> Vec3 {
+        let t = 0.5 * (dir.y + 1)
+        return Vec3{ x: 1, y: 0.95, z: 0.9 }.lerp(Vec3{ x: 0.35, y: 0.55, z: 0.95 }, t)
+    }
+
+    /// Light arriving along `ray`.
+    pub fn trace(&self, ray: &Ray, depth: i32, rng: &mut Rng) -> Vec3 {
+        let hit = self.closest(ray, 1000) or return self.sky(ray.dir)
+
+        let base = switch hit.material {
+            case Mirror(&m) {
+                if depth >= MAX_DEPTH {
+                    return Vec3{}
+                }
+                let bounce = Ray{ origin: hit.point, dir: ray.dir.reflect(hit.normal) }
+                return self.trace(&bounce, depth + 1, rng) * m.tint
+            }
+            case Matte(&m) {
+                m.color
+            }
+            case Checker(&c) {
+                let odd = (hit.point.x.floor() + hit.point.z.floor()) as i32 % 2 != 0
+                if odd {
+                    c.a
+                } else {
+                    c.b
+                }
+            }
+        }
+
+        // Lambert shading and a Blinn-Phong highlight, with a shadow ray towards a point on
+        // the light.
+        let to_light = light + rng.unit_vec3() * LIGHT_RADIUS - hit.point
+        let l = to_light.normalized()
+        let shadow = Ray{ origin: hit.point, dir: l }
+        let blocked = self.closest(&shadow, to_light.length()) != none
+        let lit = if blocked {
+            0
+        } else {
+            hit.normal.dot(l).max(0)
+        }
+        let shine = if blocked {
+            0
+        } else {
+            hit.normal.dot((l - ray.dir).normalized()).max(0).pow(60) * 0.5
+        }
+        let fog = (-hit.t * 0.02).exp()
+        let color = base * (0.12 + 0.88 * lit) + Vec3{ x: shine, y: shine, z: shine }
+        return color * fog + self.sky(ray.dir) * (1 - fog)
+    }
+}
+
+fn build_scene() -> Scene {
+    let mut scene: Scene
+    scene.shapes.push(Shape::Floor{
+        y: 0,
+        material: Material::Checker{ a: Vec3{ x: 0.9, y: 0.9, z: 0.88 }, b: Vec3{ x: 0.2, y: 0.22, z: 0.28 } },
+    })
+    scene.shapes.push(Shape::Sphere{
+        center: Vec3{ x: 0, y: 1, z: 4 },
+        radius: 1,
+        material: Material::Mirror{ tint: Vec3{ x: 0.95, y: 0.85, z: 0.6 } },
+    })
+    scene.shapes.push(Shape::Sphere{
+        center: Vec3{ x: -2.2, y: 0.7, z: 5 },
+        radius: 0.7,
+        material: Material::Matte{ color: Vec3{ x: 0.9, y: 0.25, z: 0.2 } },
+    })
+    scene.shapes.push(Shape::Sphere{
+        center: Vec3{ x: 2.1, y: 0.6, z: 3.4 },
+        radius: 0.6,
+        material: Material::Matte{ color: Vec3{ x: 0.2, y: 0.6, z: 0.95 } },
+    })
+    scene.shapes.push(Shape::Sphere{
+        center: Vec3{ x: 0.9, y: 0.35, z: 2.3 },
+        radius: 0.35,
+        material: Material::Mirror{ tint: Vec3{ x: 0.9, y: 0.9, z: 0.9 } },
+    })
+    return scene
+}
+
+/// One colour channel, gamma-corrected, as a byte.
+fn to_byte(v: f32) -> u8 {
+    return (v.clamp(0, 1).pow(1.0 / 2.2) * 255 + 0.5) as u8
+}
+
+/// The image, three bytes a pixel. Each pixel takes `grid` × `grid` rays, one jittered within
+/// each cell of a grid across it.
+fn render(scene: &Scene, width: i32, height: i32, grid: i32, rng: &mut Rng) -> List<u8> {
+    let mut pixels: List<u8>
+    pixels.resize((width * height * 3) as usize)
+    let eye = Vec3{ x: 0, y: 1.4, z: -1.5 }
+    let aspect = width as f32 / height as f32
+    for y in 0..height {
+        for x in 0..width {
+            let mut sum: Vec3
+            for sy in 0..grid {
+                for sx in 0..grid {
+                    let px = x as f32 + (sx as f32 + rng.next_f32()) / grid as f32
+                    let py = y as f32 + (sy as f32 + rng.next_f32()) / grid as f32
+                    let u = px / width as f32 * 2 - 1
+                    let v = 1 - py / height as f32 * 2
+                    let dir = Vec3{ x: u * aspect * 0.6, y: v * 0.6 - 0.18, z: 1 }.normalized()
+                    sum = sum + scene.trace(&Ray{ origin: eye, dir: dir }, 0, rng)
+                }
+            }
+            let c = sum / (grid * grid) as f32
+            let i = ((y * width + x) * 3) as usize
+            pixels[i] = to_byte(c.x)
+            pixels[i + 1] = to_byte(c.y)
+            pixels[i + 2] = to_byte(c.z)
+        }
+    }
+    return pixels
+}
+
+fn main() {
+    let args = Process::args()
+    let width = if args.len() > 1 {
+        args[1].parse_i64() or 960
+    } else {
+        960
+    }
+    let height = if args.len() > 2 {
+        args[2].parse_i64() or 540
+    } else {
+        540
+    }
+    let grid = if args.len() > 3 {
+        args[3].parse_i64() or 4
+    } else {
+        4
+    }
+
+    let scene = build_scene()
+    let mut rng = Rng(2024)
+    let pixels = render(&scene, width as i32, height as i32, grid as i32, &mut rng)
+
+    // FNV-1a over every byte, and the mean brightness as a sanity line a reader can check.
+    let mut checksum: u64 = 1469598103934665603
+    let mut total: u64 = 0
+    for b in pixels {
+        checksum = (checksum ^^ b as u64) * 1099511628211
+        total += b as u64
+    }
+    println!("{}x{}, {} rays a pixel, mean byte {}", width, height, grid * grid, total / pixels.len() as u64)
+    println!("checksum {}", checksum)
+}

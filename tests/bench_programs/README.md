@@ -2,13 +2,15 @@
 
 `tests/bench` compares Dazzle and C++ one construct at a time: an indexed load, a
 destructor, a virtual call. That shows the constructs compile to the same thing. It does not
-show what a *program* costs. These do: three programs a C++ programmer would recognise as
+show what a *program* costs. These do: five programs a C++ programmer would recognise as
 real work, each written twice, idiomatically, and timed end to end (T-0090).
 
 | Program | What it does | What it leans on |
 |---|---|---|
 | `astar` | 200 A* searches across a 400×400 grid with 30% walls | a generic binary heap bounded by `Ord`; `HashMap` keyed by a struct with its own `Hash`; two maps, a heap and a path allocated and dropped per search; bounds-checked grid reads; optionals |
 | `expr` | generates 100,000 `let` statements (8 MB of text), tokenizes them, parses each into a tree and evaluates it; about one in eight fails on purpose | `String` building, `str` views as tokens and map keys, a tagged union of `Box`es (a tree that frees itself), recursion, `!->` errors propagated with `or return` |
+| `json` | generates 100,000 records as a JSON document (17 MB), parses it into a tree, turns the tree into a `List<Record>`, and writes the records back out compactly (13 MB) | a parser over bytes reporting through `!->`, a recursive tagged union of `String`s and `List`s built and freed, `parse_f64` and float formatting, copying text out of the tree, and a writer written once against reflection's type table (the C++ half writes `to_json` by hand) |
+| `raytrace` | renders the ray tracer of `examples/stb`, without the PNG, at 960×540 with 16 rays a pixel: spheres, a checkered floor, soft shadows and mirrors | `f32` arithmetic through `std::math`'s `Vec3` and its operator traits, small structs passed and returned by value, `sqrt`, `pow`, `exp`, `sin` and `cos`, tagged unions switched on in the inner loop, `Hit?` returned from every intersection test, recursion |
 | `words` | generates 2,000,000 words of text (13 MB) and counts every distinct word, then sorts the counts | `split_whitespace`, a reused `String` buffer, hashing and comparing text, looking a `String` key up by `str`, copying `String`s, `sort_by` |
 
 Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, and
@@ -45,6 +47,15 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   whole result, not just its size: the path cells in order, every statement's value, every
   word with its count in sorted order. Orders that could tie are made total, so the two
   halves agree even though their heaps and sorts are different algorithms.
+  `raytrace`'s checksum is over the image's bytes, as a PNG would hold them, and the two
+  halves agree on every byte: each float expression is the one the other half writes, in
+  the same order, with the same `<cmath>` functions (`sqrtf`, `powf`, `expf`, `sinf`,
+  `cosf`, `floorf`), and both are built with `-ffp-contract=off`. Without it a compiler
+  may fuse `a * b + c` into one rounding where the target has a fused multiply-add, and
+  Dazzle's generated code splits some expressions into statements where the C++ half does
+  not, so the halves could fuse differently. On x86-64 without `-march` there is no such
+  instruction and the flag changes nothing; built for `x86-64-v3`, both halves fused alike
+  and still agreed, but on a different image.
   `tools/bench_programs.py` refuses to report a pair whose checksums differ, and the test
   suite holds every pair to it on a small input (`quick_args.txt`, run by
   `whole_program_benchmarks_agree_with_their_cpp_halves` in `crates/dz/tests/run.rs`).
@@ -53,7 +64,9 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   flags: `-std=c++17 -O2 -fno-exceptions -fno-rtti`. Dazzle's generated code also gets
   `-fwrapv`, because integer arithmetic wraps in Dazzle (spec §5.1), and
   `-fno-finite-loops -fno-strict-aliasing`, which define two more things C++ leaves
-  undefined (§16.5); those are Dazzle's cost to carry, so the C++ does not get them. Without exceptions, C++ reports a failure as a value,
+  undefined (§16.5); those are Dazzle's cost to carry, so the C++ does not get them. A
+  program's `cxx_flags.txt` holds flags both of its halves get, the Dazzle half through
+  `DZ_CXXFLAGS`: `raytrace`'s `-ffp-contract=off`. Without exceptions, C++ reports a failure as a value,
   as Dazzle does; `expr` has the small `Result` type a codebase built that way writes in place
   of C++23's `std::expected`.
 - **Timed from outside, as a user would.** Each run is a whole process, generation and
@@ -102,6 +115,25 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   this benchmark, `let tokens = tokenize(...) or { ... }` copied the whole token list twice.
   That is fixed: it now moves, and peak memory went from 298 MiB to 140, below C++'s 151.
 - **`astar`** is 1.3× on g++ and 1.55× on clang. It has not been broken down yet.
+- **`raytrace`** (added 2026-11-14, T-0174) was 1.25× its C++ half on clang++ and 1.11× on
+  g++. Most of the clang++ gap was one function: `intersect`, private and called from one
+  place, was inlined in the C++ half, whose functions are in an anonymous namespace, and not
+  in Dazzle's, where it had external linkage. Such functions are now `static` in the
+  generated C++ ([T-0221](../../docs/tasks/T-0221-module-private-functions-have-external-linkage.md)),
+  and it was 1.10× on both. With a number on the left of an operator typed as the right
+  operand (`0.5 * x` was computed in `double`) and a union's `switch` ending in `else`, it is
+  1.07×. A hand-written version of its four hot functions on the same types shows what is
+  left is the shape of the generated code:
+  [T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md).
+- **`json`** (added 2026-11-14, T-0173) is 1.16× its C++ half on clang++ and 1.31× on g++,
+  the furthest behind. It was 1.70× and 1.91× when added. On the way: `{}` writes a float's
+  shortest digits through `std::to_chars` (r130, D-0101), where it was `snprintf("%g")`; a
+  moved-from local that nothing can see is not reset, and `let v = f() or return` names the
+  value where it is; `List` starts small. What is left is mostly memory, the containers'
+  two-word allocator handle ([T-0228](../../docs/tasks/T-0228-one-word-allocator-handle-in-string.md),
+  [T-0225](../../docs/tasks/T-0225-what-keeps-json-behind-its-c.md)). Its writer goes through
+  reflection and its reader is written by hand on both sides, since safe code cannot build a
+  `String` at a raw address.
 - **Build time: 1.7–2.9 s for Dazzle against 0.3–0.5 s for C++.** Dazzle's own phases,
   from reading the manifests to emitting the C++, take about 35 ms of it. Importing
   `stdlib.h` with libclang, which the standard library does for every program, takes

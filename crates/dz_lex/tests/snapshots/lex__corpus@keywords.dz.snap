@@ -47,7 +47,8 @@ input_file: tests/lex/keywords.dz
    5:1   unreachable
    5:13  union
    5:19  while
-   5:24  Terminator
+   5:25  loop
+   5:29  Terminator
    6:1   Ident `async`
    6:7   Ident `await`
    6:13  impl
