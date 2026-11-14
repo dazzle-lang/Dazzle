@@ -1,0 +1,29 @@
+/// Steps through a deque front to back, handing out a reference to each element: `for &v
+/// in d`.
+pub view struct DequeIter<T> {
+    m_deque: &Deque<T>
+    m_index: usize = 0
+
+    /// What the deque holds, so an element outlives the iterator it came from (spec §6.7).
+    tie @items = m_deque
+
+    DequeIter(deque: &Deque<T>) {
+        m_deque = deque
+    }
+}
+
+impl<T> Iterate for DequeIter<T> {
+    type Item = &T
+
+    fn valid(&self) -> bool {
+        return m_index < m_deque.len()
+    }
+
+    fn get(&self) -> &T in self@items {
+        return &m_deque[m_index]
+    }
+
+    fn advance(&mut self) {
+        m_index += 1
+    }
+}

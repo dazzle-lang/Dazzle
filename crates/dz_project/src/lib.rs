@@ -1077,6 +1077,8 @@ pub const STD_LIBC: &str = "libc";
 /// (§3.1). A test holds this list to the files under `src/std`.
 pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/collections/binary_heap.dz", include_str!("std/collections/binary_heap.dz")),
+    ("<std>/collections/deque.dz", include_str!("std/collections/deque.dz")),
+    ("<std>/collections/deque_iter.dz", include_str!("std/collections/deque_iter.dz")),
     ("<std>/collections/extend.dz", include_str!("std/collections/extend.dz")),
     ("<std>/collections/hash_map.dz", include_str!("std/collections/hash_map.dz")),
     ("<std>/collections/hash_map_iter.dz", include_str!("std/collections/hash_map_iter.dz")),

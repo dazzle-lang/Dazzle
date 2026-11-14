@@ -199,6 +199,25 @@ open.push(Reverse<Node>{ value: start })
 let node = (open.pop() or return).value      // the smallest
 ```
 
+**`Deque<T>`** is a double-ended queue, in `std`: a growable ring buffer, so taking from
+the front costs what taking from the back does, where a `List` moves every element.
+`Deque<T>(capacity)`; `push_back(v)` and `push_front(v)`; `pop_back()` and `pop_front()`,
+each a `T?`; `front()` and `back()`, each a `^T`, and `front_mut()` and `back_mut()`, a `^mut
+T`, `null` when the queue is empty (§9.1); `d[i]`, the `i`th element from the front,
+checked against the length; `len`, `is_empty`, `capacity`, `clear`, `reserve`, and `for &v
+in d`, front to back. Its elements wrap round its buffer, which `tie [*] = m_data[*]`
+already covers, since `[*]` on a pointer field names the whole array (§6.7). It is
+move-only unless `T` is copyable; a copy's elements start at the front of its own buffer.
+
+```dz
+let mut frontier = Deque<Cell>()
+frontier.push_back(start)
+while true {                                       // a breadth-first search
+    let c = frontier.pop_front() or break
+    ...
+}
+```
+
 **`SlotMap<T>`** holds values that are added and removed in any order and named by a
 **`Key<T>`**, in `std`. It is what to use where a struct would keep a reference to
 something it does not own — an entity, a node, a connection — which a field cannot be

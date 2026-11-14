@@ -2,10 +2,24 @@
 id: T-0176
 title: Deque: a double-ended queue in std
 milestone: M12
-status: open
+status: done
 kind: feature
 area: stdlib
 ---
+
+**Done** (2026-11-14, r126). The ring buffer needed no new form of tie: §6.7 says `[*]` on
+a pointer field names the whole array it points at, so `tie [*] = m_data[*]` covers
+elements that wrap round it, as `List`'s covers a prefix. Iteration is `DequeIter`, an
+index from the front through `Index`, since a ring has no one slice to hand to `SliceIter`.
+
+## Where the code is
+
+| What | Where |
+|---|---|
+| the deque | `crates/dz_project/src/std/collections/deque.dz` |
+| `for &v in d` | `crates/dz_project/src/std/collections/deque_iter.dz` |
+| listed in `std` | `crates/dz_project/src/lib.rs`, `STD_SOURCES` |
+| test | `tests/run/deque` |
 
 Planned for 0.2 by the user on 2026-11-09.
 

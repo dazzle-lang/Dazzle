@@ -1,0 +1,123 @@
+// std's Deque (T-0176): both ends, wrapping round the ring, growing while wrapped.
+
+fn show(d: &Deque<i32>) -> String {
+    let mut out = String()
+    for &v in d {
+        out.push_str(format!("{} ", v))
+    }
+    return out
+}
+
+fn main() {
+    let mut d = Deque<i32>()
+    println!("empty: {} {} {}", d.is_empty(), d.len(), d.capacity())
+    println!("pops on empty: {} {}", d.pop_front() == none, d.pop_back() == none)
+    println!("ends on empty: {} {}", d.front() == null, d.back() == null)
+
+    d.push_back(2)
+    d.push_back(3)
+    d.push_front(1)
+    d.push_front(0)
+    let f = d.front() or unreachable
+    let b = d.back() or unreachable
+    println!("both ends: [{}] front {} back {} d[2] {}", show(&d), f, b, d[2])
+
+    // The front went below slot 0, so the elements wrap round the end of the buffer.
+    d[0] = 10
+    let fm = d.front_mut() or unreachable
+    fm += 5
+    let bm = d.back_mut() or unreachable
+    bm = 30
+    println!("written: [{}]", show(&d))
+    println!("popped: {} {}", d.pop_front() or -1, d.pop_back() or -1)
+    println!("left: [{}] len {}", show(&d), d.len())
+
+    // Fill to the capacity while wrapped, then one more: the growth keeps the order.
+    let mut w = Deque<i32>(8)
+    for i in 0..6 {
+        w.push_back(i)
+    }
+    for _ in 0..4 {
+        let _ = w.pop_front()
+    }
+    for i in 6..12 {
+        w.push_back(i)
+    }
+    println!("wrapped, full: [{}] cap {}", show(&w), w.capacity())
+    w.push_back(12)
+    w.push_front(3)
+    println!("grown: [{}] cap at least 16 {}", show(&w), w.capacity() >= 16)
+
+    // A queue: pushed at the back, taken from the front, many times round the ring.
+    let mut q = Deque<i32>(4)
+    let mut sum: i64 = 0
+    for i in 0..1000 {
+        q.push_back(i)
+        if q.len() > 3 {
+            sum += (q.pop_front() or 0) as i64
+        }
+    }
+    println!("queue: sum {} len {} cap {}", sum, q.len(), q.capacity())
+
+    // Move-only elements in and out of both ends, and the rest dropped with the deque.
+    let mut words = Deque<String>()
+    for w in ["b", "c", "d"] {
+        words.push_back(String::from(w))
+    }
+    words.push_front(String::from("a"))
+    let first = words.pop_front() or unreachable
+    let last = words.pop_back() or unreachable
+    words.push_back(String::from("e"))
+    let mut rest = String()
+    for &s in words {
+        rest.push_str(s)
+    }
+    println!("words: {} {} {}", first, last, rest)
+
+    // A copy is its own.
+    let mut original = Deque<i32>()
+    original.push_back(1)
+    original.push_front(0)
+    let mut copied = original
+    copied.push_back(2)
+    original.clear()
+    println!("copy: [{}] original [{}] {}", show(&copied), show(&original), original.is_empty())
+
+    // A breadth-first search on a 5 by 5 grid with a wall: steps to each corner.
+    //   . . . . .
+    //   . # # # .
+    //   . . . # .
+    //   . # . # .
+    //   . # . . .
+    let o = false
+    let x = true
+    let walls = [o, o, o, o, o, o, x, x, x, o, o, o, o, x, o, o, x, o, x, o, o, x, o, o, o]
+    let mut dist = List<i32>()
+    for _ in 0..25 {
+        dist.push(-1)
+    }
+    let mut frontier = Deque<i32>()
+    dist[0] = 0
+    frontier.push_back(0)
+    while true {
+        let at = frontier.pop_front() or break
+        let x = at % 5
+        let y = at / 5
+        let steps_x = [1, -1, 0, 0]
+        let steps_y = [0, 0, 1, -1]
+        for k in 0..4 {
+            let nx = x + steps_x[k]
+            let ny = y + steps_y[k]
+            if nx < 0 || ny < 0 || nx >= 5 || ny >= 5 {
+                continue
+            }
+            let next = ny * 5 + nx
+            if walls[next as usize] || dist[next as usize] >= 0 {
+                continue
+            }
+            dist[next as usize] = dist[at as usize] + 1
+            frontier.push_back(next)
+        }
+    }
+    println!("bfs: {} {} {}", dist[4], dist[20], dist[24])
+}

@@ -1,0 +1,294 @@
+/// A double-ended queue: a growable ring buffer of `T`, in memory from wherever the
+/// compiler places the queue (spec §14.6).
+///
+/// `push_back`, `push_front`, `pop_back` and `pop_front` take constant time, amortised for
+/// the pushes, where a `List` moves every element to take one off the front. `d[i]` reads
+/// and writes the `i`th element from the front, checked against the length, and `for &v in
+/// d` visits them front to back. Move-only unless `T` is copyable.
+pub struct Deque<T> {
+    m_data: own ^mut T = null
+    /// Where the front element is: the elements run from here, round the end of the buffer
+    /// and back to its start.
+    m_head:      usize = 0
+    m_len:       usize = 0
+    m_cap:       usize = 0
+    m_allocator: ^mut Allocator = Allocators::Global
+
+    /// The ring of elements: it moves when the queue grows. Its elements are the whole
+    /// array `m_data` points at, however they wrap round it.
+    tie @items = m_data
+    tie [*] = m_data[*]
+
+    /// An empty queue, with room for `capacity` elements already allocated when it is
+    /// given.
+    Deque(capacity: usize = 0, loc: SourceLocation = #location) {
+        m_allocator = unsafe {
+            #placement
+        }
+        if capacity > 0 {
+            self.grow_to(capacity, loc)
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        return m_len
+    }
+
+    pub fn capacity(&self) -> usize {
+        return m_cap
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return m_len == 0
+    }
+
+    /// The front element, or `null` when the queue is empty: `let next = queue.front() or
+    /// return`.
+    pub fn front(&self) -> ^T in self@items {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe {
+            &m_data[m_head]
+        }
+    }
+
+    pub fn front_mut(&mut self) -> ^mut T in self@items {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe {
+            &mut m_data[m_head]
+        }
+    }
+
+    /// The back element, or `null` when the queue is empty.
+    pub fn back(&self) -> ^T in self@items {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe {
+            &m_data[self.slot(m_len - 1)]
+        }
+    }
+
+    pub fn back_mut(&mut self) -> ^mut T in self@items {
+        if m_len == 0 {
+            return null
+        }
+        return unsafe {
+            &mut m_data[self.slot(m_len - 1)]
+        }
+    }
+
+    /// Add `v` after the back element, growing when there is no room.
+    pub fn push_back(
+        &mut self,
+        v: T,
+        loc: SourceLocation = #location
+    ) kills self@items sends v to self {
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        unsafe {
+            construct(m_data[self.slot(m_len)], move(v))
+        }
+        m_len += 1
+    }
+
+    /// Add `v` before the front element, growing when there is no room.
+    pub fn push_front(
+        &mut self,
+        v: T,
+        loc: SourceLocation = #location
+    ) kills self@items sends v to self {
+        if m_len == m_cap {
+            self.grow_to(m_len + 1, loc)
+        }
+        m_head = if m_head == 0 {
+            m_cap - 1
+        } else {
+            m_head - 1
+        }
+        unsafe {
+            construct(m_data[m_head], move(v))
+        }
+        m_len += 1
+    }
+
+    /// Take the front element out, or `none` when there is none.
+    pub fn pop_front(&mut self) -> T? in self@home kills self@items, self[*] {
+        if m_len == 0 {
+            return none
+        }
+        let v = unsafe {
+            move_out(m_data[m_head])
+        }
+        m_head = self.slot(1)
+        m_len -= 1
+        return move(v)
+    }
+
+    /// Take the back element out, or `none` when there is none.
+    pub fn pop_back(&mut self) -> T? in self@home kills self@items, self[*] {
+        if m_len == 0 {
+            return none
+        }
+        m_len -= 1
+        return unsafe {
+            move_out(m_data[self.slot(m_len)])
+        }
+    }
+
+    /// Drop every element and keep the allocation.
+    pub fn clear(&mut self) kills self@items, self[*] {
+        while m_len > 0 {
+            m_len -= 1
+            unsafe {
+                destroy(m_data[self.slot(m_len)])
+            }
+        }
+        m_head = 0
+    }
+
+    /// Room for at least `additional` more elements without growing again.
+    pub fn reserve(&mut self, additional: usize, loc: SourceLocation = #location) kills self@items {
+        if m_len + additional > m_cap {
+            self.grow_to(m_len + additional, loc)
+        }
+    }
+
+    /// Where the `i`th element from the front is in the buffer. `i` is at most the
+    /// capacity, so one subtraction wraps it.
+    fn slot(&self, i: usize) -> usize {
+        let at = m_head + i
+        return if at >= m_cap {
+            at - m_cap
+        } else {
+            at
+        }
+    }
+
+    /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
+    /// costs amortised constant time — with the elements moved into it in order, the front
+    /// first.
+    fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
+        let doubled = if m_cap == 0 {
+            8
+        } else {
+            m_cap * 2
+        }
+        let cap = if wanted > doubled {
+            wanted
+        } else {
+            doubled
+        }
+        let a = unsafe {
+            m_allocator or panic!("a Deque with no allocator cannot grow")
+        }
+        let fresh = unsafe {
+            a.alloc(cap * sizeof(T), alignof(T), loc) as ^mut T
+        }
+        for i in 0..m_len {
+            unsafe {
+                construct(fresh[i], move_out(m_data[self.slot(i)]))
+            }
+        }
+        if m_data != null {
+            a.free(unsafe {
+                m_data as ^mut u8
+            }, m_cap * sizeof(T), alignof(T), loc)
+        }
+        m_data = fresh
+        m_cap = cap
+        m_head = 0
+    }
+}
+
+impl<T> Drop for Deque<T> {
+    fn drop(&mut self) {
+        if m_data == null {
+            return
+        }
+        if !T::is_trivially_copyable {
+            for i in 0..m_len {
+                unsafe {
+                    destroy(m_data[self.slot(i)])
+                }
+            }
+        }
+        let a = unsafe {
+            m_allocator or return
+        }
+        a.free(unsafe {
+            m_data as ^mut u8
+        }, m_cap * sizeof(T), alignof(T))
+    }
+}
+
+impl<T: Copy> Copy for Deque<T> {
+    fn copy(&mut self, other: &Self) {
+        // Wherever the compiler places the copy, never where the original is, as a `List`'s
+        // copy is (§14.6). The copy's elements start at the front of its buffer.
+        m_allocator = unsafe {
+            #placement
+        }
+        if other.m_len == 0 {
+            return
+        }
+        let a = unsafe {
+            m_allocator or panic!("a Deque with no allocator cannot be copied")
+        }
+        m_data = unsafe {
+            a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T
+        }
+        m_cap = other.m_len
+        for i in 0..other.m_len {
+            unsafe {
+                construct(m_data[i], other.m_data[other.slot(i)])
+            }
+        }
+        m_len = other.m_len
+    }
+}
+
+// Out of line, as `List`'s are, so `index` stays small enough to inline (T-0157).
+fn deque_index_out_of_bounds(i: usize, len: usize) {
+    panic!("index {} is out of bounds for a Deque of length {}", i, len)
+}
+
+/// `d[i]`, the `i`th element from the front.
+impl<T> Index<usize> for Deque<T> {
+    type Output = T
+
+    fn index(&self, i: usize) -> &T in self@items {
+        if i >= m_len {
+            deque_index_out_of_bounds(i, m_len)
+        }
+        return unsafe {
+            &m_data[self.slot(i)]
+        }
+    }
+}
+
+impl<T> IndexMut<usize> for Deque<T> {
+    type Output = T
+
+    fn index_mut(&mut self, i: usize) -> &mut T in self@items {
+        if i >= m_len {
+            deque_index_out_of_bounds(i, m_len)
+        }
+        return unsafe {
+            &mut m_data[self.slot(i)]
+        }
+    }
+}
+
+/// `for &v in d`, front to back.
+impl<T> Iterable for Deque<T> {
+    type Iter = DequeIter<T>
+
+    fn iter(&self) -> DequeIter<T> {
+        return DequeIter<T>(&self)
+    }
+}
