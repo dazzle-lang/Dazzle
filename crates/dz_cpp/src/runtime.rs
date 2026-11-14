@@ -206,6 +206,10 @@ struct Array {
 
 struct Error {
     uint32_t code{};
+    // Not a Dazzle field: which of `error(...)`'s slots this error's message is in, and
+    // which use of it, so a read can tell it was overwritten (T-0053). It sits in the
+    // padding after `code`, so an `Error` is still 32 bytes (spec §9.2).
+    uint32_t stamp{};
     str message{};
     const SourceLocation* location{};
 };
@@ -1995,40 +1999,72 @@ inline void write_format(S& s, str fmt, T first, Rest... rest) {
     write_format(s, str(fmt.ptr + next, fmt.len - next), rest...);
 }
 
-/// Storage for formatted messages. Owed by M12: a real answer needs the stdlib's `String`.
-/// Spec §9.2 requires that `error(...)` never allocates
-/// and that the message outlive the call that built it; a small ring of static buffers is
-/// the cheapest thing that does both. It is not unbounded — the fifth live message
-/// overwrites the first — which is the trade this makes explicit rather than hiding.
-inline char* message_buffer() {
-    static char buffers[4][256];
-    static unsigned next = 0;
-    return buffers[next++ % 4];
+/// Where `error(...)` keeps what an `Error` points at, its message and its location. Spec
+/// §9.2 requires that `error(...)` never allocates and that both outlive the call that built
+/// them; a small ring of static slots is the cheapest thing that does both. It is not
+/// unbounded: the fifth error takes the first one's slot (T-0053, kept by the user's choice
+/// of 2026-09-13). Each slot remembers which error last took it, as the error remembers its
+/// stamp, so reading an older one is caught rather than answered with another's text.
+constexpr uint32_t error_slots = 4;
+
+struct ErrorRing {
+    char text[error_slots][256];
+    SourceLocation where[error_slots];
+    uint32_t stamps[error_slots];
+    uint32_t taken;
+};
+
+inline ErrorRing& error_ring() {
+    static ErrorRing ring{};
+    return ring;
 }
 
-template <class... Ts> inline str format(str fmt, Ts... args) {
-    BufSink s{message_buffer(), 256, 0};
-    write_format(s, fmt, args...);
-    return str(s.buf, s.n);
-}
-
-/// `error(code, "…", args…)` (spec §9.1). The location is copied into static storage so
-/// the `^SourceLocation` an `Error` carries is never dangling.
-inline const SourceLocation* intern_location(SourceLocation where) {
-    static SourceLocation slots[8];
-    static unsigned next = 0;
-    SourceLocation* p = &slots[next++ % 8];
-    *p = where;
-    return p;
-}
-
+/// `error(code, "…", args…)` (spec §9.1). Stamps count from 1, so an `Error` with stamp 0
+/// was not built here and is never checked.
 template <class... Ts>
 inline Error make_error(uint32_t code, SourceLocation where, str fmt, Ts... args) {
+    ErrorRing& ring = error_ring();
+    const uint32_t slot = ring.taken % error_slots;
+    ring.taken += 1;
+    BufSink s{ring.text[slot], 256, 0};
+    write_format(s, fmt, args...);
+    ring.where[slot] = where;
+    ring.stamps[slot] = ring.taken;
     Error e;
     e.code = code;
-    e.message = format(fmt, args...);
-    e.location = intern_location(where);
+    e.stamp = ring.taken;
+    e.message = str(s.buf, s.n);
+    e.location = &ring.where[slot];
     return e;
+}
+
+/// `e` itself, once what it points at is known to be its own still: reading the message or
+/// location of an error whose slot a newer one took panics, outside a shipping build
+/// (T-0053, spec §9.2), where it would show the newer error's. Only while it still points
+/// into that slot: a message the program assigned since is its own.
+template <class E>
+DZ_INLINE E&& checked_error(E&& e, bool message, SourceLocation at) {
+#ifndef NDEBUG
+    const Error& x = e;
+    if (x.stamp != 0) {
+        ErrorRing& ring = error_ring();
+        const uint32_t slot = (x.stamp - 1) % error_slots;
+        // As integers: `<` between pointers into different arrays is unspecified.
+        const uintptr_t p = reinterpret_cast<uintptr_t>(x.message.ptr);
+        const uintptr_t text = reinterpret_cast<uintptr_t>(ring.text[slot]);
+        const bool points =
+            message ? p >= text && p < text + 256 : x.location == &ring.where[slot];
+        if (points && ring.stamps[slot] != x.stamp) {
+            panic("this error's message was overwritten: error(...) keeps the last four "
+                  "errors' messages and locations, and this one is older (spec §9.2)",
+                  at);
+        }
+    }
+#else
+    (void)message;
+    (void)at;
+#endif
+    return static_cast<E&&>(e);
 }
 
 }  // namespace rt

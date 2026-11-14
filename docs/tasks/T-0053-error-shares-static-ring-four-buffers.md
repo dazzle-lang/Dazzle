@@ -2,11 +2,20 @@
 id: T-0053
 title: `error(…)` shares a static ring of four buffers
 milestone: M12
-status: open
+status: done
 kind: deferral
 area: codegen
 where: `dz_cpp/src/runtime.rs`, `message_buffer`
 ---
+
+**Done 2026-11-14, r123**: the cheap half, the user's choice. The ring is still four
+slots, now holding each error's location beside its message (`ErrorRing`), and each slot
+the stamp of the error that took it last; an `Error` carries its stamp in the padding after
+`code`, so it is still 32 bytes. Reading `message` or `location` goes through
+`checked_error`, which panics outside a shipping build (`NDEBUG`) when the slot was taken
+by a newer error and the field still points into it, so a message the program assigned is
+never checked. An assignment's target skips the check (`Emitter::writing`). §9.2 now states
+the limit. Test: `tests/run/error_ring`.
 
 **What it does.** `error(…)` (§9.1) builds a failure's message. §9.2 demands two things of
 it at once: **no allocation** — a failure must be reportable when the allocators are the

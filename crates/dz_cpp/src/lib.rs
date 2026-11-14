@@ -249,6 +249,7 @@ pub fn emit_selected(
             body: None,
             names: Vec::new(),
             hiding: HashSet::new(),
+            writing: None,
             mono,
             struct_asts: &struct_asts,
             union_asts: &union_asts,
@@ -431,6 +432,7 @@ pub fn emit_selected(
             body: None,
             names: Vec::new(),
             hiding: HashSet::new(),
+            writing: None,
             mono,
             struct_asts: &struct_asts,
             union_asts: &union_asts,
@@ -700,6 +702,9 @@ struct Emitter<'a> {
     /// same spelling: its locals, and the members of the class a method is in. A name of
     /// this module among them is written qualified (T-0121, [`Emitter::qualify`]).
     hiding: HashSet<String>,
+    /// The place an assignment is writing, while it is emitted: an error's message written
+    /// is not read, so it skips `checked_error` (T-0053).
+    writing: Option<ExprId>,
     /// Which instantiations each module emits, with a concrete copy of every body
     /// (spec §8.4).
     mono: &'a dz_mono::Mono,
@@ -4820,7 +4825,10 @@ impl<'a> Emitter<'a> {
     /// A place expression, for the left of an assignment. Identical to [`Emitter::expr`]
     /// except that it must not be wrapped in anything that would make it an rvalue.
     fn place_expr(&mut self, e: ExprId) -> String {
-        self.expr(e)
+        let saved = self.writing.replace(e);
+        let place = self.expr(e);
+        self.writing = saved;
+        place
     }
 
     /// An expression of Dazzle type `&T` or `^T`, emitted as a C++ `T*`.
@@ -4992,14 +5000,24 @@ impl<'a> Emitter<'a> {
                 let name = self.field_name(*base, *index);
                 // `Error.location` is a `&SourceLocation` in Dazzle and a pointer into static
                 // storage in the shim, so reading it yields the referent (spec §9.2).
-                let deref =
-                    matches!(body.ty(*base).peeled(), Ty::Builtin(dz_hir::ty::BuiltinTy::Error))
-                        && name == "location";
+                let error =
+                    matches!(body.ty(*base).peeled(), Ty::Builtin(dz_hir::ty::BuiltinTy::Error));
+                let deref = error && name == "location";
                 // A view struct's reference field is a pointer member (`member_ty`), read
                 // through here, so it is the C++ reference everything else expects.
                 let field_ty = body.ty(e).clone();
                 let deref = deref || self.ref_member(&field_ty);
                 let b = self.expr(*base);
+                // What an error points at is in one of `error(...)`'s four slots, which a
+                // newer error may have taken: read through a check (T-0053, spec §9.2).
+                // An assignment's target is written, not read, so it goes unchecked.
+                let b = if error && name != "code" && self.writing != Some(e) {
+                    let at = self.source_location(body.expr(e).span);
+                    let message = name == "message";
+                    format!("::dz::rt::checked_error(::dz::rt::obj({b}), {message}, {at})")
+                } else {
+                    b
+                };
                 if deref {
                     format!("(*::dz::rt::obj({b}).{name})")
                 } else {

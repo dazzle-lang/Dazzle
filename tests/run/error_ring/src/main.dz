@@ -1,0 +1,23 @@
+// `error(...)` keeps its messages and locations in four static slots (spec §9.2, T-0053):
+// the four newest errors read as built, a message the program replaced is its own, and
+// reading the oldest of five panics instead of printing the newest one's text.
+
+fn fail(n: i32) !-> i32 {
+    return error("failure {}", n)
+}
+
+fn main() {
+    let mut errs = List<Error>()
+    for i in 0..5 {
+        fail(i) or { e ->
+            errs.push(e)
+        }
+    }
+    for i in 1usize..5 {
+        println!("{} at line {}", errs[i].message, errs[i].location.line)
+    }
+    let mut replaced: Error = errs[0]
+    replaced.message = "replaced"
+    println!("{} {}", replaced.message, replaced.code)
+    println!("{}", errs[0].message)
+}

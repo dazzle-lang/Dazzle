@@ -66,6 +66,15 @@ you, for free. It is the one reference the language stores in a struct: §18.3 b
 because a stored reference could outlive what it points at, and a location lives in static
 storage for the whole run of the program. User structs still cannot. `[DECIDED — §18.30]`
 
+**`error(...)` keeps four errors' messages at once.** Since it never allocates, the text it
+formats and the location it records go into one of four static slots, and the fifth error
+built takes the oldest one's slot. So an `Error` held while four newer ones are built no longer
+has its own message or location: reading either panics, in every build but a shipping one,
+which reads whatever the slot now holds. A message the program assigned (`e.message =
+"…"`) is its own and is never checked; `code` is always the error's. Code that collects
+errors to report later copies what it needs out of each, `String::from(e.message)` say, as
+it goes.
+
 **`Error` and `SourceLocation` are provided by the language, not by the stdlib.** Both names
 are in scope everywhere with no import, like `bool` and `i32`, because `or { e -> … }` binds
 one and there is nowhere for an import to come from. They are the only two structs with that
