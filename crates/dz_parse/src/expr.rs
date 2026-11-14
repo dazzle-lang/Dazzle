@@ -9,8 +9,8 @@ use crate::Parser;
 /// Left and right binding powers. Higher binds tighter; `(bp, bp + 1)` is left-associative.
 ///
 /// Mirrors spec §11.1 read from the bottom up: `or` is loosest, `* / %` tightest of the
-/// infix operators. Postfix (`.`, `()`, `[]`, `^`) and `as` bind tighter still and are
-/// handled in the postfix loop rather than here.
+/// infix operators. Postfix (`.`, `()`, `[]`, `^`), the prefix operators and `as` bind
+/// tighter still, in that order, and are handled before the infix loop rather than here.
 fn infix_bp(k: TokenKind) -> Option<(u8, u8)> {
     use TokenKind::*;
     Some(match k {
@@ -72,6 +72,7 @@ impl<'a> Parser<'a> {
         let start = self.start();
         let mut lhs = self.parse_prefix();
         lhs = self.parse_postfix(lhs);
+        lhs = self.parse_casts(lhs);
 
         loop {
             let op_kind = self.peek();
@@ -258,7 +259,24 @@ impl<'a> Parser<'a> {
         Expr { span: self.span_from(start), kind }
     }
 
-    /// Operand of a prefix operator: binds tighter than any infix operator.
+    /// `as`, below the prefix operators and above every infix one (spec §11.1): `-x as u8` is
+    /// `(-x) as u8` and `a * b as f32` is `a * (b as f32)`. A prefix operator's operand is
+    /// parsed without it, so the cast takes the whole prefix expression (T-0161). Casts chain
+    /// left to right, `x as u8 as i32`; nothing postfix follows one without parentheses.
+    fn parse_casts(&mut self, mut lhs: Expr) -> Expr {
+        let start = lhs.span.start;
+        while self.at(TokenKind::As) {
+            self.bump();
+            let ty = self.parse_type();
+            lhs = Expr {
+                span: self.span_from(start),
+                kind: ExprKind::Cast { expr: Box::new(lhs), ty },
+            };
+        }
+        lhs
+    }
+
+    /// Operand of a prefix operator: binds tighter than any infix operator, and than `as`.
     fn parse_unary_operand(&mut self) -> Expr {
         let e = self.parse_prefix();
         self.parse_postfix(e)
@@ -317,14 +335,6 @@ impl<'a> Parser<'a> {
                     self.bump();
                     lhs =
                         Expr { span: self.span_from(start), kind: ExprKind::Deref(Box::new(lhs)) };
-                }
-                TokenKind::As => {
-                    self.bump();
-                    let ty = self.parse_type();
-                    lhs = Expr {
-                        span: self.span_from(start),
-                        kind: ExprKind::Cast { expr: Box::new(lhs), ty },
-                    };
                 }
                 _ => break,
             }

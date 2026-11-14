@@ -78,6 +78,22 @@ fn arithmetic_precedence_matches_the_spec_table() {
 }
 
 #[test]
+fn prefix_operators_bind_tighter_than_as() {
+    // Spec §11.1: prefix at level 2, `as` at 3, so the cast takes the whole prefix
+    // expression (T-0161). `-5.5 as u8` saturates to 0 as `(-5.5) as u8`, where `-(5.5 as
+    // u8)` would wrap to 251.
+    assert_eq!(expr_shape("-x as u8"), "cast u8 unary - path x");
+    assert_eq!(expr_shape("!a as i32"), "cast i32 unary ! path a");
+    assert_eq!(expr_shape("~m as u16"), "cast u16 unary ~ path m");
+    assert_eq!(expr_shape("&x as ^u8"), "cast ^u8 ref path x");
+    // Postfix still binds tighter than either, and casts chain left to right.
+    assert_eq!(expr_shape("-p^ as f32"), "cast f32 unary - deref path p");
+    assert_eq!(expr_shape("-a.b as f32"), "cast f32 unary - field .b path a");
+    assert_eq!(expr_shape("x as u8 as i32"), "cast i32 cast u8 path x");
+    assert_eq!(expr_shape("a + -b as i64"), "binary + path a cast i64 unary - path b");
+}
+
+#[test]
 fn logical_binds_looser_than_comparison() {
     assert_eq!(
         expr_shape("a == b && c != d"),

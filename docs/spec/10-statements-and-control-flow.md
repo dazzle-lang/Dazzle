@@ -202,7 +202,7 @@ n as ^mut u8        // an address back to a pointer — `unsafe` (§5.2)
 
 A float converted to an integer drops its fraction, toward zero. One outside the integer's
 range **saturates**, at the type's `MIN` or `MAX`, and NaN becomes 0: `1e20 as i32` is
-`2147483647`, `(-1.5) as u8` is `0`. C++ leaves both undefined. `[DECIDED — D-0094 point 5]`
+`2147483647`, `-1.5 as u8` is `0`. C++ leaves both undefined. `[DECIDED — D-0094 point 5]`
 
 An integer converted to a narrower one keeps its low bits, in two's complement: `300 as i8`
 is `44`, `-129 as i8` is `127`. C++17 leaves the signed case to the compiler, and every

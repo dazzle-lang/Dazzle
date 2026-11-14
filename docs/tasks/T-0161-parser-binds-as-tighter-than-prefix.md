@@ -2,10 +2,16 @@
 id: T-0161
 title: The parser binds as tighter than prefix -, against §11.1's table
 milestone: none
-status: open
+status: done
 kind: bug
 area: language
 ---
+
+**Done 2026-11-14, r124**, the user's choice of option A. `as` is parsed by
+`parse_casts`, after a prefix expression and its postfix operators and before the infix
+loop, so `-x as u8` is `(-x) as u8`. Of every `.dz` file in the repository only
+`tests/run/math` parses differently (`-2.5 as f32`, `-7 as i32`), to the same values. The
+formatter already followed §11.1. Test: `prefix_operators_bind_tighter_than_as`.
 
 Found building T-0129 (2026-11-03).
 

@@ -231,7 +231,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (29 open)
+## none — not scheduled (28 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -258,7 +258,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
-- **[T-0161](tasks/T-0161-parser-binds-as-tighter-than-prefix.md)** The parser binds as tighter than prefix -, against §11.1's table · bug, language
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
