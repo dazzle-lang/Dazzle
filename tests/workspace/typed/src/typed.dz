@@ -43,6 +43,11 @@ pub struct Counter {
         return m_count
     }
 
+    // A getter named for what it reads, beside a field that is not (§7.3, T-0205).
+    pub fn count(&self) -> u32 {
+        return m_count
+    }
+
     pub fn bump(&mut self) {
         m_count += 1
         shared += 1

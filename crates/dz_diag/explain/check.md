@@ -1591,3 +1591,40 @@ fn main() {
     println!("{}", names.len())
 }
 ```
+
+## DZ0585
+
+A field and a method of one type may not share a name (spec §7.3). Inside a method a field is
+in scope unqualified, so a bare `shape` would name the field and the method alike; and the
+C++ a type becomes has one name for one member. Rename one of them: a getter is usually
+`get_shape()`, or the field `m_shape`.
+
+```dz
+struct Holder {
+    pub shape: i32 = 1
+
+    pub fn shape(&self) -> i32 {
+        return shape
+    }
+}
+
+fn main() {
+    let h = Holder{}
+    println!("{}", h.shape())
+}
+```
+
+```dz
+struct Holder {
+    m_shape: i32 = 1
+
+    pub fn shape(&self) -> i32 {
+        return m_shape
+    }
+}
+
+fn main() {
+    let h = Holder{}
+    println!("{}", h.shape())
+}
+```

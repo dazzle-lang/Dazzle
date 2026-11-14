@@ -2,10 +2,16 @@
 id: T-0205
 title: A field and a method with the same name compile to invalid C++
 milestone: none
-status: open
+status: done
 kind: bug
 area: codegen
 ---
+
+**Done 2026-11-14, r122**, the user's choice of option 1. A field and a method or
+associated function of one type with the same name is `DZ0585`, at the second declared, in
+one type or across a base (`flatten_one`). §7.3 says so; `dz explain DZ0585` has a wrong and a
+right program. Tests: `SameName` in `typeerrors/`, `Counter::count` beside `m_count` in
+`typed/`.
 
 Found on 2026-11-12 while writing T-0178's test. The checker accepts a struct with a field
 and a method of the same name, and the C++ it emits does not compile, which invariant 7

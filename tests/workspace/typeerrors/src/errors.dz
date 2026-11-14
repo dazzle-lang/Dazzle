@@ -1687,3 +1687,13 @@ fn cleared_home(rooms: &mut List<String>) kills rooms@home {
 fn kept_in_view(letter: String, rooms: &List<String>) sends letter to rooms {
     println!("{} {}", letter, rooms.len())
 }
+
+// A field and a method may not share a name, in one type or across a base (spec §7.3,
+// T-0205): a bare `shape` in a method would name either.
+struct SameName {
+    pub shape: i32 = 1
+
+    pub fn shape(&self) -> i32 {
+        return 1
+    }
+}

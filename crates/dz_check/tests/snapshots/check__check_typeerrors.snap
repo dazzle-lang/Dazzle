@@ -2128,3 +2128,11 @@ error[DZ0583]: `kept_in_view` sends to `rooms`, which it cannot change
      │                                                                       ^^^^^ taken as `&List<String>`
      │
      = help: a function sends what it was given by value, or takes through a `&mut` parameter or `&mut self`, into a `&mut` parameter, `&mut self` or a static (D-0097)
+
+error[DZ0585]: method `shape` has the name of a field of the same type
+     ┌─ typeerrors/src/errors.dz:1696:12
+     │
+1696 │     pub fn shape(&self) -> i32 {
+     │            ^^^^^ a second `shape` in one type
+     │
+     = help: a field and a method may not share a name: inside a method a bare `shape` would name either; rename one, a getter `shape()` say to `get_shape()` or the field to `m_shape` (spec §7.3)

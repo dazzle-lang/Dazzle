@@ -449,6 +449,9 @@ pub const SENDS_NEEDS_MUT: &str = "DZ0583";
 /// A function stored where a function type's `sends` allows less than its own (D-0097):
 /// a call through the type places its arguments by the type's clause (T-0202).
 pub const FN_SENDS_TOO_MUCH: &str = "DZ0584";
+/// A field and a function member of one type with the same name: inside a method a bare
+/// name would mean either, and C++ allows only one (spec §7.3, T-0205).
+pub const FIELD_METHOD_SAME_NAME: &str = "DZ0585";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

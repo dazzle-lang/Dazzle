@@ -16602,6 +16602,12 @@ body method Counter::get -> u32
     return: !
       field #0: u32
         local _0 self: Counter
+body method Counter::count -> u32
+  param _0 self: Counter
+  block
+    return: !
+      field #0: u32
+        local _0 self: Counter
 body method Counter::bump -> void
   param _0 self: Counter
   block

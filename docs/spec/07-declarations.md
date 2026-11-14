@@ -160,7 +160,9 @@ A method's receiver is its first parameter: `&self` to read the value, `&mut sel
 mutate it. The receiver is the only place a method says it mutates — there is no `mut fn`,
 which would say it a second time and could disagree (§18.34). Inside a
 method, fields are in scope unqualified (`position`), and `self.position` is also valid —
-and required when a local shadows a field.
+and required when a local shadows a field. So a field and a method (or an associated
+function) of one type may not share a name, which a bare `position` would leave ambiguous
+(DZ0585); a getter is `get_position()`, or the field `m_position`.
 
 **A function with no receiver is an associated function**: it belongs to the type, not to a
 value of it, and is called through the type — `Quat::identity()`, `Buffer<f32>::with_capacity(8)`.

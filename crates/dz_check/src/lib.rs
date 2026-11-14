@@ -2774,6 +2774,22 @@ impl<'a> Ctx<'a> {
 
     /// A view stored where it may outlive what it views (spec §6.7, D-0093): `place` is
     /// what holds it, "a static" or "a union's payload".
+    /// A field and a function member of one type with the same name (spec §7.3, T-0205):
+    /// `what` is the second, at `span`, and `other` what it clashes with.
+    fn field_method_clash(&mut self, name: &str, span: Span, what: &str, other: &str) {
+        self.error_help(
+            codes::FIELD_METHOD_SAME_NAME,
+            span,
+            format!("{what} `{name}` has the name of {other}"),
+            format!("a second `{name}` in one type"),
+            format!(
+                "a field and a method may not share a name: inside a method a bare `{name}` \
+                 would name either; rename one, a getter `{name}()` say to `get_{name}()` or \
+                 the field to `m_{name}` (spec §7.3)"
+            ),
+        );
+    }
+
     fn check_view_storage(&mut self, ty: &Ty, span: Span, place: &str) {
         if !self.table.stored_as_view(ty) {
             return;
@@ -3167,6 +3183,42 @@ impl<'a> Ctx<'a> {
                 );
             }
         }
+
+        // Nor may a field and a method share a name across the chain, one inherited and the
+        // other this type's own (T-0205): a bare name in a method would mean either.
+        let mut base_methods: Vec<String> = Vec::new();
+        let mut up = Some(base);
+        while let Some(b) = up {
+            let Some(ItemSig::Struct(s)) = self.table.get(b) else { break };
+            base_methods.extend(s.overloads.keys().cloned());
+            up = s.base;
+        }
+        // In declaration order, so the diagnostics are too; a second method of one name is
+        // keyed `name#1` and was told already, by its first.
+        let own_methods: Vec<(String, Span)> = match self.table.get(sym) {
+            Some(ItemSig::Struct(s)) => s
+                .method_keys
+                .iter()
+                .filter(|k| !k.contains('#'))
+                .filter_map(|k| Some((k.clone(), s.methods.get(k)?.span)))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let base_name = self.res.symbol(base).name.clone();
+        let saved_file = std::mem::replace(&mut self.file, self.res.symbol(sym).file);
+        for (name, span) in &own_methods {
+            if base_fields.iter().any(|f| &f.name == name) {
+                let other = format!("a field inherited from `{base_name}`");
+                self.field_method_clash(name, *span, "method", &other);
+            }
+        }
+        for (name, span) in &own {
+            if base_methods.contains(name) {
+                let other = format!("a method inherited from `{base_name}`");
+                self.field_method_clash(name, *span, "field", &other);
+            }
+        }
+        self.file = saved_file;
 
         if let Some(ItemSig::Struct(s)) = self.table.sigs.get_mut(&sym) {
             s.inherited = base_fields.len();
@@ -3641,6 +3693,14 @@ impl<'a> Ctx<'a> {
                             "duplicate field",
                         );
                     }
+                    if sig.overloads.contains_key(&field.name) {
+                        self.field_method_clash(
+                            &field.name,
+                            f.name.span,
+                            "field",
+                            "a method of the same type",
+                        );
+                    }
                     sig.fields.push(field);
                 }
                 MemberKind::Fn(f) => {
@@ -3653,6 +3713,14 @@ impl<'a> Ctx<'a> {
                     }
                     let name = f.name.name.clone();
                     let taken = sig.overloads.get(&name).map_or(0, Vec::len);
+                    if taken == 0 && sig.fields.iter().any(|x| x.name == name) {
+                        self.field_method_clash(
+                            &name,
+                            f.name.span,
+                            "method",
+                            "a field of the same type",
+                        );
+                    }
                     let key = if taken == 0 { name.clone() } else { format!("{name}#{taken}") };
                     sig.overloads.entry(name).or_default().push(key.clone());
                     sig.method_keys.push(key.clone());
