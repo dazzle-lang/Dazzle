@@ -248,6 +248,7 @@ pub fn emit_selected(
             standard,
             body: None,
             names: Vec::new(),
+            hiding: HashSet::new(),
             mono,
             struct_asts: &struct_asts,
             union_asts: &union_asts,
@@ -429,6 +430,7 @@ pub fn emit_selected(
             standard,
             body: None,
             names: Vec::new(),
+            hiding: HashSet::new(),
             mono,
             struct_asts: &struct_asts,
             union_asts: &union_asts,
@@ -694,6 +696,10 @@ struct Emitter<'a> {
     /// One C++ name per local, by [`LocalId`]. Dazzle allows a `let` to shadow another in
     /// the same block and C++ does not, so the names are made unique once per body.
     names: Vec<String>,
+    /// The C++ names that, in the body being emitted, hide a namespace-scope name of the
+    /// same spelling: its locals, and the members of the class a method is in. A name of
+    /// this module among them is written qualified (T-0121, [`Emitter::qualify`]).
+    hiding: HashSet<String>,
     /// Which instantiations each module emits, with a concrete copy of every body
     /// (spec §8.4).
     mono: &'a dz_mono::Mono,
@@ -3779,6 +3785,27 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Add to `into` the members of the class a body of `owner`'s is emitted inside, its
+    /// bases' included: inside a method, a field `total` hides the free function `total`
+    /// as a local does (T-0121). A body emitted outside any class adds nothing.
+    fn members_hiding(&self, owner: &hir::BodyOwner, into: &mut HashSet<String>) {
+        let mut class = match owner {
+            hir::BodyOwner::Method { owner, .. }
+            | hir::BodyOwner::Ctor { owner, .. }
+            | hir::BodyOwner::Copy(owner)
+            | hir::BodyOwner::Drop(owner)
+            | hir::BodyOwner::AssocConst { owner, .. }
+            | hir::BodyOwner::FieldDefault { owner, .. } => Some(*owner),
+            _ => None,
+        };
+        while let Some(sym) = class {
+            let Some(sig) = self.table.struct_sig(sym) else { break };
+            into.extend(sig.fields.iter().map(|f| sanitize(&f.name)));
+            into.extend(sig.overloads.keys().map(|m| sanitize(m)));
+            class = sig.base;
+        }
+    }
+
     /// Run `f` with `body` installed as the current body, capturing what it emits.
     fn in_body<R>(&mut self, body: &'a hir::Body, f: impl FnOnce(&mut Self) -> R) -> (String, R) {
         let saved_body = self.body.replace(body);
@@ -3792,6 +3819,9 @@ impl<'a> Emitter<'a> {
                 }
             }
         }
+        let mut hiding: HashSet<String> = names.iter().cloned().collect();
+        self.members_hiding(&body.owner, &mut hiding);
+        let saved_hiding = std::mem::replace(&mut self.hiding, hiding);
         let saved_names = std::mem::replace(&mut self.names, names);
         let saved_file = std::mem::replace(&mut self.file, body.file);
         let placement = self.placements.and_then(|p| p.body(&body.owner));
@@ -3802,6 +3832,7 @@ impl<'a> Emitter<'a> {
         let saved_unsafe = std::mem::replace(&mut self.unsafe_depth, depth);
         let result = self.capture(f);
         self.body = saved_body;
+        self.hiding = saved_hiding;
         self.names = saved_names;
         self.file = saved_file;
         self.placement = saved_placement;
@@ -3978,8 +4009,13 @@ impl<'a> Emitter<'a> {
         if let Some(cpp) = self.res.cpp_path(sym) {
             return cpp.to_owned();
         }
-        if s.module == self.module && !self.qualify_all {
-            sanitize(&s.name)
+        let bare = sanitize(&s.name);
+        // A local of the body being emitted hides a namespace-scope name in C++, though in
+        // Dazzle a call or a path still reaches the item (T-0121): `let mut total = 0` and
+        // then `total(&xs)`. Qualified, the item is reached past the local.
+        let hidden = self.body.is_some() && self.hiding.contains(&bare);
+        if s.module == self.module && !self.qualify_all && !hidden {
+            bare
         } else {
             format!(
                 "{}::{}",

@@ -1990,6 +1990,7 @@ const WARNING_CLEAN: &[&str] = &[
     "regions",
     "inline",
     "moves",
+    "names",
 ];
 
 #[test]

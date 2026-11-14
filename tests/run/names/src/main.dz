@@ -1,0 +1,53 @@
+// Names C++ would read differently from Dazzle (T-0121): a local or a member named like a
+// free function, a constant or a static, which in C++ hides it.
+
+const LIMIT: i32 = 10
+
+static calls: i32 = 0
+
+fn total(xs: &List<i32>) -> i32 {
+    calls += 1
+    let mut n = 0
+    for x in xs {
+        n += x
+    }
+    return n
+}
+
+struct Tally {
+    pub total: i32 = 0
+    pub LIMIT: i32 = 1
+
+    pub fn add(&mut self, xs: &List<i32>) {
+        total += total(xs) + LIMIT
+    }
+}
+
+struct Wider : Tally {
+    pub fn again(&mut self, xs: &List<i32>) {
+        total += total(xs)
+    }
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(3)
+    xs.push(4)
+
+    // A local named like the function, the constant and the static, each still reached,
+    // even in the local's own initialiser, where C++ would read the local being declared.
+    let mut total = 0
+    total += 1
+    let sum = total(&xs)
+    let LIMIT = LIMIT - 8
+    let calls = calls + 5
+    println!("{} {} {} {}", total, sum, LIMIT, calls)
+
+    let mut t = Tally{}
+    t.add(&xs)
+    println!("{}", t.total)
+
+    let mut w = Wider{}
+    w.again(&xs)
+    println!("{}", w.total)
+}

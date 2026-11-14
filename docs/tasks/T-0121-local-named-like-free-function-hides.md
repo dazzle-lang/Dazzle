@@ -2,10 +2,17 @@
 id: T-0121
 title: A local named like a free function hides it in the generated C++
 milestone: M12
-status: open
+status: done
 kind: bug
 area: codegen
 ---
+
+**Done 2026-11-14.** `Emitter::qualify` writes a name of this module qualified when the
+body being emitted has a local, or its class a member (bases included), of the same C++
+name: `Emitter::hiding`, filled in `in_body` from `local_names` and `members_hiding`. It
+covers functions, constants, statics and types alike, and a local's own initialiser (`let
+LIMIT = LIMIT - 8`). A field named like a free function hid it the same way and is fixed
+with it. Test: `tests/run/names`, on the warning-clean list.
 
 Found 2026-11-01 while extending `tests/run/regions` (T-0117). A program that checks
 clean is rejected by the C++ compiler, which is a compiler bug (invariant 7):
