@@ -14,14 +14,17 @@ pub view struct SliceIter<T> {
 impl<T> Iterate for SliceIter<T> {
     type Item = &T
 
+    #[inline]
     fn valid(&self) -> bool {
         return m_index < m_slice.len
     }
 
+    #[inline]
     fn get(&self) -> &T in self@items {
         return &m_slice[m_index]
     }
 
+    #[inline]
     fn advance(&mut self) {
         m_index += 1
     }

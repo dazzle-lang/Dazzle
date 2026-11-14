@@ -201,6 +201,8 @@ pub fn emit_selected(
         }
     }
 
+    let inline_fns = inline_fns(files.values().flatten());
+
     // The root module's setting governs the whole build, since one C++ invocation
     // compiles every translation unit.
     let standard = cpp_standard_version(&ws.module(ws.root).build.cpp_standard);
@@ -264,7 +266,9 @@ pub fn emit_selected(
             guards_made: 0,
             header_ns: module.id,
             def_prefix: "",
-            inline_fns: HashSet::new(),
+            inline_fns: &inline_fns,
+            loop_views: Default::default(),
+            views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
             qualify_all: false,
@@ -447,7 +451,9 @@ pub fn emit_selected(
             guards_made: 0,
             header_ns: res.prelude,
             def_prefix: "",
-            inline_fns: HashSet::new(),
+            inline_fns: &inline_fns,
+            loop_views: Default::default(),
+            views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
             qualify_all: false,
@@ -742,9 +748,16 @@ struct Emitter<'a> {
     /// What an out-of-class definition's head starts with. Empty since T-0185, when an
     /// instance's definitions moved from headers, `inline`, to the one file that defines them.
     def_prefix: &'static str,
-    /// The functions and methods of this module written `#[inline]`, by file and name span,
-    /// which is the span their checked body carries (spec §12.8).
-    inline_fns: HashSet<(FileId, Span)>,
+    /// The functions and methods written `#[inline]`, in every module, by file and name span,
+    /// which is the span their checked body carries (spec §12.8). Every module's, not this
+    /// one's: an instance of another module's generic is emitted here, and `std`'s
+    /// `List::index` was compiled out of line in every program until it was.
+    inline_fns: &'a HashSet<(FileId, Span)>,
+    /// The current body's loops that index a `List` through a view taken before them
+    /// (T-0215), and the views of the loops being emitted: each list's local, and the C++
+    /// name of its slice.
+    loop_views: dz_flow::views::LoopViews,
+    views: Vec<(LocalId, String)>,
     /// Their definitions, and those of the module's associated constants, written into the
     /// header after everything else in it rather than into the module's own file, so every
     /// translation unit that calls them can inline them.
@@ -937,7 +950,6 @@ impl<'a> Emitter<'a> {
 
     fn module(&mut self, files: &[ParsedFile]) {
         self.reject_trait_objects();
-        self.inline_fns = inline_fns(files);
         let mut own_types: Vec<(FileId, &Item, SymbolId)> = Vec::new();
         let mut functions: Vec<(FileId, &Item)> = Vec::new();
         for pf in files {
@@ -3651,9 +3663,11 @@ impl<'a> Emitter<'a> {
         self.emit_body_here(owner, head);
     }
 
-    /// Whether `owner`'s declaration is written `#[inline]`.
+    /// Whether `owner`'s body goes in the header: its declaration is written `#[inline]`, or
+    /// it is a constructor that only stores its parameters (see [`only_stores_params`]).
     fn is_inline(&self, owner: &BodyOwner) -> bool {
-        self.find_body(owner).is_some_and(|b| self.inline_fns.contains(&(b.file, b.span)))
+        self.find_body(owner)
+            .is_some_and(|b| self.inline_fns.contains(&(b.file, b.span)) || only_stores_params(b))
     }
 
     fn emit_body_here(&mut self, owner: &BodyOwner, head: &str) {
@@ -3885,7 +3899,12 @@ impl<'a> Emitter<'a> {
         let saved_regions = std::mem::replace(&mut self.regions, regions);
         let depth = u32::from(self.owner_is_unsafe(&body.owner));
         let saved_unsafe = std::mem::replace(&mut self.unsafe_depth, depth);
+        let views = dz_flow::views::loop_views(body, self.table, self.res);
+        let saved_loop_views = std::mem::replace(&mut self.loop_views, views);
+        let saved_views = std::mem::take(&mut self.views);
         let result = self.capture(f);
+        self.loop_views = saved_loop_views;
+        self.views = saved_views;
         self.body = saved_body;
         self.hiding = saved_hiding;
         self.names = saved_names;
@@ -4175,6 +4194,52 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// A loop that indexes `List`s through slices taken before it (T-0215,
+    /// [`dz_flow::views`]): each slice is made from the list's own array and length, in a
+    /// block around the loop, and the loop is emitted as ever, with `xs[i]` and `xs.len()`
+    /// on those lists reading the slice ([`Self::view_call`]). The slice is built from the
+    /// fields rather than by `as_mut_slice()`, which an instance defines only when the
+    /// program calls it (T-0199).
+    fn loop_with_views(&mut self, id: StmtId) {
+        let hoisted = self.loop_views.at(id).to_vec();
+        self.line("{");
+        self.indent += 1;
+        let before = self.views.len();
+        for h in hoisted {
+            let ty = self.cur().local(h.local).ty.clone();
+            let Ty::Named { args, .. } = ty.peeled_refs() else { continue };
+            let Some(elem) = args.first() else { continue };
+            let elem = self.cpp_ty(elem);
+            let elem = if h.mutable { elem } else { format!("const {elem}") };
+            let list = format!("::dz::rt::obj({})", self.names[h.local.index()]);
+            let view = self.fresh("view");
+            self.line(&format!("::dz::rt::Slice<{elem}> {view}({list}.m_data, {list}.m_len);"));
+            self.views.push((h.local, view));
+        }
+        self.stmt_inner(id);
+        self.views.truncate(before);
+        self.indent -= 1;
+        self.line("}");
+    }
+
+    /// `xs[i]` or `xs.len()` on a list a loop is reading through a slice: the same checked
+    /// index into the slice, which holds the same array and length.
+    fn view_call(&mut self, callee: &hir::Callee, args: &[ExprId], span: Span) -> Option<String> {
+        if self.views.is_empty() {
+            return None;
+        }
+        let (local, call) = dz_flow::views::view_call(self.cur(), self.table, self.res, callee)?;
+        let view = self.views.iter().rev().find(|(l, _)| *l == local)?.1.clone();
+        Some(match call {
+            dz_flow::views::ViewCall::Len => format!("{view}.len"),
+            dz_flow::views::ViewCall::Index => {
+                let index = self.expr(*args.first()?);
+                let loc = self.source_location(span);
+                format!("::dz::rt::index({view}, {index}, {loc})")
+            }
+        })
+    }
+
     fn stmt_inner(&mut self, id: StmtId) {
         let body = self.cur();
         let s = body.stmt(id);
@@ -4249,6 +4314,18 @@ impl<'a> Emitter<'a> {
                     let lty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
                     let unused = self.unused_attr(l.index());
+                    // A part its region frees whole is moved into storage C++ never
+                    // destroys, as a `let`'s value is (T-0118, T-0218).
+                    if self.placement.is_some_and(|p| p.skips_drop(*l)) {
+                        let storage = format!("_dz_kept{}", l.index());
+                        self.line(&format!(
+                            "alignas({lty}) unsigned char {storage}[sizeof({lty})];"
+                        ));
+                        self.line(&format!(
+                            "{unused}{lty}& {name} = *::new (static_cast<void*>({storage})) {lty}(::dz::rt::mv({tmp}.v{i}));"
+                        ));
+                        continue;
+                    }
                     // The temporary is never read again, so an element that owns
                     // anything is moved out of it: `(str, Expr)` from a parser, where
                     // copying `Expr` is deleted, or a `String`, where it would allocate.
@@ -4313,6 +4390,15 @@ impl<'a> Emitter<'a> {
                 }
             }
             hir::StmtKind::Expr(e) => self.stmt_expr(*e),
+            hir::StmtKind::While { .. } | hir::StmtKind::For { .. }
+                if !self.loop_views.at(id).is_empty()
+                    && !self
+                        .views
+                        .iter()
+                        .any(|(l, _)| self.loop_views.at(id).iter().any(|h| h.local == *l)) =>
+            {
+                self.loop_with_views(id);
+            }
             hir::StmtKind::While { cond, body: block, label } => {
                 let (pre, cond_text) = self.capture(|e| e.expr(*cond));
                 if pre.trim().is_empty() {
@@ -4403,7 +4489,27 @@ impl<'a> Emitter<'a> {
                 None => self.fresh("i"),
             };
             let cmp = if *inclusive { "<=" } else { "<" };
-            self.line(&format!("for ({elem} {name} = {lo}; {name} {cmp} {hi}; ++{name}) {{"));
+            // The end is evaluated once, after the start, before the first pass (spec §10.4,
+            // D-0099), so it is held in a variable declared with the counter. A literal or a
+            // constant is written in place, since reading it again changes nothing and the
+            // loop reads as it was written.
+            let fixed = end.map_or(true, |e| {
+                matches!(
+                    self.cur().expr(e).kind,
+                    hir::ExprKind::Int(_)
+                        | hir::ExprKind::Const(_)
+                        | hir::ExprKind::AssocConst { .. }
+                )
+            });
+            let (init, bound) = if fixed {
+                (String::new(), hi)
+            } else {
+                let end_var = self.fresh("end");
+                (format!(", {end_var} = {hi}"), end_var)
+            };
+            self.line(&format!(
+                "for ({elem} {name} = {lo}{init}; {name} {cmp} {bound}; ++{name}) {{"
+            ));
             self.indent += 1;
             self.loop_body_into(block, label);
             self.indent -= 1;
@@ -5610,6 +5716,9 @@ impl<'a> Emitter<'a> {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
             }
+        }
+        if let Some(viewed) = self.view_call(callee, args, span) {
+            return viewed;
         }
         let defaults = self.callee_defaults(callee, args, &node_ty);
         // The receiver, or the function value, is evaluated first (spec §7.2, 18.49). C++17
@@ -6844,6 +6953,43 @@ fn mentions_self(t: &Ty) -> bool {
     }
 }
 
+/// Whether `body` is a constructor that does nothing but store its parameters into fields,
+/// `SliceIter(slice) { m_slice = slice }`: what C++ would write inside the class. Such a
+/// body goes in the header, as `#[inline]` would put it, which a constructor cannot be
+/// written (spec §12.8): compiled in another file, an iterator's constructor took the
+/// iterator's address out of sight of the loop it starts, and clang++ then kept the
+/// iterator in memory and did not vectorize the loop (T-0214). Where a body is compiled
+/// never changes what it does.
+fn only_stores_params(body: &hir::Body) -> bool {
+    use hir::ExprKind as K;
+    if !matches!(body.owner, BodyOwner::Ctor { .. }) {
+        return false;
+    }
+    let is_self = |e: hir::ExprId| match body.expr(e).kind {
+        K::Local(l) => body.local(l).name == "self",
+        K::Deref(inner) => {
+            matches!(body.expr(inner).kind, K::Local(l) if body.local(l).name == "self")
+        }
+        _ => false,
+    };
+    let param = |e: hir::ExprId| {
+        let e = match body.expr(e).kind {
+            K::Move(inner) => inner,
+            _ => e,
+        };
+        matches!(body.expr(e).kind, K::Local(l) if body.params.contains(&l))
+    };
+    let stmts = &body.block(body.root).stmts;
+    !stmts.is_empty()
+        && stmts.iter().all(|s| match body.stmt(*s).kind {
+            hir::StmtKind::Assign { target, value, .. } => {
+                matches!(body.expr(target).kind, K::Field { base, .. } if is_self(base))
+                    && param(value)
+            }
+            _ => false,
+        })
+}
+
 /// The parameters of a constructor that C++ takes by `&&` and the body uses in place
 /// (T-0097): a value that owns memory and cannot be copied, named once, by a `move` that
 /// every path through the body reaches before any `return`. `Box(value: T)` is the case:
@@ -6984,7 +7130,7 @@ const RESULT_PLACEMENT: &str = "_dz_result";
 /// renaming every repeat would be a steady tax for a rare collision.
 /// The functions and methods written `#[inline]` in `files`, by file and name span: the
 /// span the checker gives each one's body (spec §12.8).
-fn inline_fns(files: &[ParsedFile]) -> HashSet<(FileId, Span)> {
+fn inline_fns<'f>(files: impl IntoIterator<Item = &'f ParsedFile>) -> HashSet<(FileId, Span)> {
     fn marked(attrs: &[dz_ast::Attr]) -> bool {
         attrs.iter().any(|a| a.name.name == "inline")
     }

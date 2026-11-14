@@ -1,0 +1,33 @@
+// A `for` range's bounds are evaluated once, before the first pass (spec §10.4, D-0099).
+// The end used to be evaluated again before every pass, so the first loop never ended and
+// the second called `next()` three times.
+
+struct Counter {
+    pub calls: i32 = 0
+
+    pub fn next(&mut self) -> i32 {
+        self.calls += 1
+        return 3
+    }
+}
+
+fn main() {
+    // Two passes, for the two elements there were when the loop began.
+    let mut xs = List<i32>()
+    xs.push(1)
+    xs.push(2)
+    for i in 0..xs.len() {
+        xs.push(xs[i] * 10)
+    }
+
+    // `next()` runs once, and the loop three times.
+    let mut c = Counter{}
+    let mut passes = 0
+    for _ in 0..c.next() {
+        passes += 1
+    }
+    for _ in 0..=2 {
+        passes += 1
+    }
+    println!("{} {} {} {}", xs.len(), xs[3], passes, c.calls)
+}

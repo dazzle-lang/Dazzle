@@ -32,7 +32,9 @@ use dz_hir::ty::Ty;
 use dz_hir::{self as hir, BlockId, Body, BodyOwner, Callee, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::{Resolution, SymbolId};
 
-use crate::placement::{callee_owner, format_text, self_field, Decision, Placements};
+use crate::placement::{
+    boxes_argument, callee_owner, format_text, self_field, Decision, Placements,
+};
 
 /// What is known about drops, worked out once per type and kept.
 pub struct Drops<'a> {
@@ -64,14 +66,22 @@ impl Memo {
     }
 
     /// The memoised answer for `ty`, or `compute`'s. While it is being computed, `ty` is
-    /// taken to answer `false`: a type reached again through itself, which only ever keeps
-    /// a drop.
+    /// taken to answer `true`, so a type reached again through itself, a tree of
+    /// `Box<Expr>`, is judged by its other parts (T-0218): both questions asked here hold
+    /// of a value when they hold of every part, and every value is finite, so the largest
+    /// answer is the right one. When the answer is `false` after all, every answer worked
+    /// out since, which may have leaned on the `true`, is forgotten and worked out again
+    /// when asked; a `false` never leans on anything.
     fn answer(&self, ty: &Ty, compute: impl FnOnce() -> bool) -> bool {
         if let Some(known) = self.get(ty) {
             return known;
         }
-        self.set(ty, false);
+        let mark = self.0.borrow().len();
+        self.set(ty, true);
         let answer = compute();
+        if !answer {
+            self.0.borrow_mut().truncate(mark);
+        }
         self.set(ty, answer);
         answer
     }
@@ -198,7 +208,69 @@ impl<'a> Drops<'a> {
         if ty.has_params() || !self.owns(ty) || !self.only_frees(ty) {
             return false;
         }
-        self.releasable.answer(ty, || self.leaf(ty) || self.composite(ty))
+        self.releasable
+            .answer(ty, || self.leaf(ty) || self.composite(ty) || self.union(ty) || self.boxed(ty))
+    }
+
+    /// A union whose owning payloads are each releasable, and whose own methods replace
+    /// neither `self` nor a payload ([`Self::sealed`]): its drop drops the variant it holds,
+    /// and nothing else (T-0218).
+    fn union(&self, ty: &Ty) -> bool {
+        let Ty::Named { sym, args } = ty else { return false };
+        let Some(ItemSig::Union { variants, .. }) = self.table.get(*sym) else { return false };
+        variants.iter().all(|v| {
+            self.table
+                .payload_types(*sym, args, v)
+                .iter()
+                .all(|t| !self.owns(t) || self.releasable(t))
+        }) && self.sealed(*sym)
+    }
+
+    /// A `Box<T>` of a `T` that owns nothing or is releasable, and that no struct derives from: its allocation is from where it
+    /// was placed, and what it holds is what it was given, which [`Whole`] checks at the
+    /// `Box(…)` that made it (T-0218). A `T` something derives from could hold the derived
+    /// value, whose own parts are not `T`'s, so that keeps its drop.
+    fn boxed(&self, ty: &Ty) -> bool {
+        let Ty::Named { sym, args } = ty else { return false };
+        if Some(*sym) != self.boxed {
+            return false;
+        }
+        let [inner] = args.as_slice() else { return false };
+        (!self.owns(inner) || self.releasable(inner)) && self.boxed_only_frees(inner)
+    }
+
+    /// Whether a value of `ty` holds a union or a `Box` among the parts it owns: one whose
+    /// parts can be replaced through a `&mut` reaching inside, a `switch`'s `&mut` binding or
+    /// a `Box`'s contents, which [`replaced`] does not follow, so [`skipped_drops`] skips
+    /// its drop only for a local that is not `mut` (T-0218).
+    fn reaches_inside(&self, ty: &Ty) -> bool {
+        fn walk(d: &Drops<'_>, ty: &Ty, seen: &mut Vec<Ty>) -> bool {
+            if !d.owns(ty) || seen.contains(ty) {
+                return false;
+            }
+            seen.push(ty.clone());
+            match ty {
+                Ty::Optional(inner) | Ty::Fallible(inner) | Ty::Array { elem: inner, .. } => {
+                    walk(d, inner, seen)
+                }
+                Ty::Tuple(parts) => parts.iter().any(|t| walk(d, t, seen)),
+                Ty::Named { sym, args } => {
+                    if Some(*sym) == d.boxed {
+                        return true;
+                    }
+                    match d.table.get(*sym) {
+                        Some(ItemSig::Union { .. }) => true,
+                        Some(ItemSig::Struct(s)) => {
+                            let fields = d.table.field_types(*sym, args, &s.fields);
+                            fields.iter().chain(args).any(|t| walk(d, t, seen))
+                        }
+                        _ => false,
+                    }
+                }
+                _ => false,
+            }
+        }
+        walk(self, ty, &mut Vec::new())
     }
 
     /// A container of values that own memory: a struct with a drop of its own that only
@@ -493,7 +565,7 @@ fn field_name(table: &TypeTable, base: &Ty, index: usize) -> Option<String> {
 ///   handed on (the receiver of its own methods aside), no `construct` into it.
 pub fn skipped_drops(hir: &Hir, table: &TypeTable, res: &Resolution, placements: &mut Placements) {
     let d = Drops::new(hir, table, res);
-    let whole = whole_functions(hir, table, res, placements, &d);
+    let whole = whole_functions(hir, table, placements, &d);
     let adders = foreign_adders(hir, table, res, placements.staying());
     for (_, body) in hir.bodies() {
         let Some(placed) = placements.body(&body.owner) else { continue };
@@ -502,37 +574,53 @@ pub fn skipped_drops(hir: &Hir, table: &TypeTable, res: &Resolution, placements:
         let mut skipped = Vec::new();
         let mut sites = Vec::new();
         for s in (0..body.stmts.len() as u32).map(StmtId) {
-            let hir::StmtKind::Let { local: Some(x), init: Some(init) } = body.stmt(s).kind else {
-                continue;
+            // A `let`, or a tuple `let` of the parts of one value (T-0218):
+            // `let (name, tree) = parser.statement() or { … }`.
+            let (bound, init): (Vec<LocalId>, ExprId) = match &body.stmt(s).kind {
+                hir::StmtKind::Let { local: Some(x), init: Some(init) } => (vec![*x], *init),
+                hir::StmtKind::LetTuple { locals, init } => {
+                    (locals.iter().flatten().copied().collect(), *init)
+                }
+                _ => continue,
             };
             let mut held = Vec::new();
-            let built = built_in_region(&d, body, &decision, &whole, init, None, &mut held);
-            if !built || replaced(&d, body, x) {
+            if !built_in_region(&d, body, &decision, &whole, init, None, &mut held) {
                 continue;
             }
-            let ty = &body.local(x).ty;
-            let region = held.first().and_then(|e| match decision.get(e) {
-                Some(Decision::Region { block, .. }) => Some(*block),
-                _ => None,
-            });
-            // A container of values that own memory, `List<String>`, when everything put
-            // into it was built whole in the same region (T-0145).
-            let filled = |block| {
-                let staying = placements.staying();
-                let cx = Contents {
-                    d: &d,
-                    body,
-                    decision: &decision,
-                    whole: &whole,
-                    adders: &adders,
-                    staying,
-                    block,
+            for x in bound {
+                if replaced(&d, body, x) {
+                    continue;
+                }
+                let ty = &body.local(x).ty;
+                // A union's payload or a `Box`'s contents can be replaced through a `&mut`
+                // that `replaced` does not see, so such a value must be in a local nothing can
+                // take `&mut` of.
+                if d.reaches_inside(ty) && body.local(x).mutable {
+                    continue;
+                }
+                let region = held.first().and_then(|e| match decision.get(e) {
+                    Some(Decision::Region { block, .. }) => Some(*block),
+                    _ => None,
+                });
+                // A container of values that own memory, `List<String>`, when everything put
+                // into it was built whole in the same region (T-0145).
+                let filled = |block| {
+                    let staying = placements.staying();
+                    let cx = Contents {
+                        d: &d,
+                        body,
+                        decision: &decision,
+                        whole: &whole,
+                        adders: &adders,
+                        staying,
+                        block,
+                    };
+                    cx.whole_inside(x)
                 };
-                cx.whole_inside(x)
-            };
-            if d.releasable(ty) || (d.holder(ty) && region.is_some_and(filled)) {
-                skipped.push(x);
-                sites.extend(held);
+                if d.releasable(ty) || (d.holder(ty) && region.is_some_and(filled)) {
+                    skipped.push(x);
+                    sites.extend(held.iter().copied());
+                }
             }
         }
         if !skipped.is_empty() {
@@ -552,47 +640,188 @@ fn built_in_region(
     region: Option<BlockId>,
     held: &mut Vec<ExprId>,
 ) -> bool {
-    match &body.expr(e).kind {
-        hir::ExprKind::Call { callee, .. } => {
-            let Some(Decision::Region { block, .. }) = decision.get(&e) else { return false };
-            if region.is_some_and(|r| r != *block) {
-                return false;
+    let mut w = Whole {
+        d,
+        body,
+        decision,
+        whole,
+        region: Some(region),
+        held: Vec::new(),
+        visiting: Vec::new(),
+    };
+    let built = w.value(e, false);
+    held.extend(w.held);
+    built
+}
+
+/// The walk that says whether a value is built whole where its sites put it (T-0118,
+/// T-0218): everything it owns made by sites placed there, by functions that build their
+/// result whole ([`whole_functions`]), and put together by literals, `or`, and locals bound
+/// and assigned only such values. In a region (`region` is `Some`), every site must be in
+/// the same block's region, the first one found deciding which; for a function's result
+/// (`None`), every site must be placed in the result.
+///
+/// A local passed without `move` is copied, and a copy is built on the heap (T-0140), so it
+/// is never whole; `return x` is a move.
+struct Whole<'w, 'a> {
+    d: &'w Drops<'a>,
+    body: &'w Body,
+    decision: &'w HashMap<ExprId, &'w Decision>,
+    whole: &'w HashSet<BodyOwner>,
+    region: Option<Option<BlockId>>,
+    held: Vec<ExprId>,
+    /// The locals being followed: met again through a value assigned to itself, `lhs =
+    /// Binary{ lhs: Box(move(lhs)), … }`, a local holds a value it was bound or assigned
+    /// before, which is whole by the induction the walk is.
+    visiting: Vec<LocalId>,
+}
+
+impl Whole<'_, '_> {
+    /// Whether the site `e` is placed where this walk wants it.
+    fn placed(&mut self, e: ExprId) -> bool {
+        match (self.decision.get(&e), &mut self.region) {
+            (Some(Decision::Region { block, .. }), Some(at)) => {
+                if at.is_some_and(|r| r != *block) {
+                    return false;
+                }
+                *at = Some(*block);
+                true
             }
-            let Some((_, owner)) = callee_owner(d.res, callee) else { return false };
-            held.push(e);
-            whole.contains(&owner)
+            (Some(Decision::Result { .. }), None) => true,
+            _ => false,
         }
-        hir::ExprKind::StructLit { fields, .. } => {
-            let region = region.or_else(|| {
-                fields.iter().flatten().find_map(|f| match decision.get(f) {
-                    Some(Decision::Region { block, .. }) => Some(*block),
-                    _ => None,
-                })
-            });
-            let Some(region) = region else { return false };
-            let types = match body.ty(e) {
-                Ty::Named { sym, args } => d
-                    .table
-                    .struct_sig(*sym)
-                    .map(|s| d.table.field_types(*sym, args, &s.fields))
-                    .unwrap_or_default(),
-                _ => return false,
-            };
-            fields.iter().zip(types).all(|(f, t)| match f {
-                // A field left to its default is built on the heap (a field's default).
-                None => !d.owns(&t),
-                Some(f) if !d.owns(body.ty(*f)) => true,
-                Some(f) => built_in_region(d, body, decision, whole, *f, Some(region), held),
+    }
+
+    /// Whether `e` is built whole; `moved` when it is taken by move, so a local there is not
+    /// a copy.
+    fn value(&mut self, e: ExprId, moved: bool) -> bool {
+        use hir::ExprKind as K;
+        let body = self.body;
+        if !self.d.owns(body.ty(e)) {
+            return true;
+        }
+        match &body.expr(e).kind {
+            K::Move(inner) => self.value(*inner, true),
+            K::Cast { operand, explicit: false } => self.value(*operand, moved),
+            K::NoneOpt => true,
+            K::Call { callee, args } => {
+                if !self.placed(e) {
+                    return false;
+                }
+                let Some((_, owner)) = callee_owner(self.d.res, callee) else { return false };
+                if !self.whole.contains(&owner) {
+                    return false;
+                }
+                self.held.push(e);
+                // A `Box`'s allocation is its own, but what it holds is what it was given.
+                !boxes_argument(self.d.res, callee)
+                    || args.first().is_some_and(|a| self.value(*a, false))
+            }
+            K::StructLit { fields, .. } => {
+                let types = match body.ty(e) {
+                    Ty::Named { sym, args } => self
+                        .d
+                        .table
+                        .struct_sig(*sym)
+                        .map(|s| self.d.table.field_types(*sym, args, &s.fields))
+                        .unwrap_or_default(),
+                    _ => return false,
+                };
+                self.parts(fields, &types)
+            }
+            K::UnionVariant { owner, index, payload } => {
+                let types = match (self.d.table.get(*owner), body.ty(e)) {
+                    (Some(dz_check::ItemSig::Union { variants, .. }), Ty::Named { args, .. }) => {
+                        match variants.get(*index) {
+                            Some(v) => self.d.table.payload_types(*owner, args, v),
+                            None => return false,
+                        }
+                    }
+                    _ => return false,
+                };
+                self.parts(payload, &types)
+            }
+            K::Tuple(parts) => parts.iter().all(|p| self.value(*p, false)),
+            // `format!`'s value is its text (T-0147): the `String` its lowering builds and
+            // moves out, which only its `Formatter` writes, through a private `^mut String`
+            // that it only appends to, so the text is wholly where its site was placed.
+            K::Formatted { .. } => match format_text(body, e) {
+                Some(text) => self.value(text, moved),
+                None => false,
+            },
+            // `f() or …`: the value is the operand's, or what the clause gives, if it gives
+            // anything.
+            K::Or { operand, clause } => self.value(*operand, moved) && self.clause(clause),
+            K::Local(l) => moved && self.local(*l),
+            _ => false,
+        }
+    }
+
+    /// A literal's parts against their types: one left to its default is built on the heap
+    /// (a field's default), so it must own nothing.
+    fn parts(&mut self, values: &[Option<ExprId>], types: &[Ty]) -> bool {
+        values.len() == types.len()
+            && values.iter().zip(types).all(|(v, t)| match v {
+                None => !self.d.owns(t),
+                Some(v) => self.value(*v, false),
             })
+    }
+
+    /// What an `or` clause gives in place of the operand: nothing when it diverges (`or
+    /// return`, `or { … continue }`), or a value that must be whole too.
+    fn clause(&mut self, clause: &hir::OrClause) -> bool {
+        let body = self.body;
+        match clause {
+            hir::OrClause::Ignore | hir::OrClause::Unreachable => true,
+            hir::OrClause::Value(v) => matches!(body.ty(*v), Ty::Never) || self.value(*v, false),
+            hir::OrClause::Block { body: b, .. } => {
+                let Some(last) = body.block(*b).stmts.last() else { return false };
+                match body.stmt(*last).kind {
+                    hir::StmtKind::Expr(x) => {
+                        matches!(body.ty(x), Ty::Never) || self.value(x, false)
+                    }
+                    _ => false,
+                }
+            }
         }
-        // `format!`'s value is its text (T-0147): the `String` its lowering builds and moves
-        // out, which only its `Formatter` writes, through a private `^mut String` that it
-        // only appends to, so the text is wholly where its site was placed.
-        hir::ExprKind::Formatted { .. } => match format_text(body, e) {
-            Some(text) => built_in_region(d, body, decision, whole, text, region, held),
-            None => false,
-        },
-        _ => false,
+    }
+
+    /// Whether the local `l` only ever holds whole values: every `let` binding it and every
+    /// assignment to it is one, and nothing else may replace it or an owning part of it
+    /// ([`replaced`]). A parameter, or a local bound by a pattern, holds what it was given.
+    fn local(&mut self, l: LocalId) -> bool {
+        if self.visiting.contains(&l) {
+            return true;
+        }
+        let body = self.body;
+        if replaced_otherwise(self.d, body, l) {
+            return false;
+        }
+        self.visiting.push(l);
+        let mut bound = false;
+        let mut ok = true;
+        for s in (0..body.stmts.len() as u32).map(StmtId) {
+            match body.stmt(s).kind {
+                hir::StmtKind::Let { local: Some(x), init: Some(i) } if x == l => {
+                    bound = true;
+                    ok &= self.value(i, false);
+                }
+                hir::StmtKind::Let { local: Some(x), init: None } if x == l => {
+                    // Declared with its default, which is built on the heap.
+                    ok = false;
+                }
+                hir::StmtKind::Assign { target, value, op: hir::AssignOp::Assign, .. } if matches!(body.expr(target).kind, hir::ExprKind::Local(x) if x == l) =>
+                {
+                    ok &= self.value(value, false);
+                }
+                _ => {}
+            }
+            if !ok {
+                break;
+            }
+        }
+        self.visiting.pop();
+        bound && ok
     }
 }
 
@@ -602,6 +831,16 @@ fn built_in_region(
 /// was placed (§14.6), and a struct's own are [`Drops::sealed`]. Neither is a `for` over a
 /// container's elements, which own nothing.
 fn replaced(d: &Drops<'_>, body: &Body, x: LocalId) -> bool {
+    replacing(d, body, x, false)
+}
+
+/// [`replaced`], but for a plain assignment to the whole local, `x = v`, which the caller
+/// follows itself ([`Whole::local`]).
+fn replaced_otherwise(d: &Drops<'_>, body: &Body, x: LocalId) -> bool {
+    replacing(d, body, x, true)
+}
+
+fn replacing(d: &Drops<'_>, body: &Body, x: LocalId, whole_assign_followed: bool) -> bool {
     // The place each use of `x` is the root of, and what holds that place.
     let mut parent: HashMap<ExprId, ExprId> = HashMap::new();
     for i in 0..body.exprs.len() as u32 {
@@ -646,7 +885,12 @@ fn replaced(d: &Drops<'_>, body: &Body, x: LocalId) -> bool {
         }
         if let Some(s) = stmt_of.get(&top) {
             match body.stmt(*s).kind {
-                hir::StmtKind::Assign { .. } => return true,
+                hir::StmtKind::Assign { op, .. } => {
+                    if !(whole_assign_followed && top == u && op == hir::AssignOp::Assign) {
+                        return true;
+                    }
+                    continue;
+                }
                 hir::StmtKind::For { .. } => continue,
                 _ => {}
             }
@@ -734,14 +978,15 @@ fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
 /// - a struct's constructor, for a struct with no drop of its own and no base, that sets
 ///   each owning field, in its outermost block and wherever else it sets it, to a site
 ///   built in its placement by a function of this kind;
-/// - any other function whose every `return` hands back something that owns nothing, or
-///   such a site, or a local `let` bound to one and never replaced.
+/// - any other function whose every `return` hands back something that owns nothing, or a
+///   value built whole in its result placement ([`Whole`]): such a site, a literal of
+///   them, or a local only ever bound and assigned them.
 ///
-/// The smallest set closed under these rules, so a function reaching itself is not in it.
+/// The largest set closed under these rules, so functions that build their results from
+/// each other's, as a recursive-descent parser does, are in it together (T-0218).
 fn whole_functions(
     hir: &Hir,
     table: &TypeTable,
-    res: &Resolution,
     placements: &Placements,
     d: &Drops<'_>,
 ) -> HashSet<BodyOwner> {
@@ -756,10 +1001,17 @@ fn whole_functions(
                 || matches!(b.owner, BodyOwner::Ctor { .. })
         })
         .collect();
+    // A greatest fixpoint: every candidate is taken to build its result whole, and one that
+    // does not, given the others, is dropped, until none is (T-0218). So a parser's
+    // functions, each building its tree from the others' results, are whole together.
+    // Every value a call returns was built at some finite depth of calls, the deepest from
+    // sites alone, so by induction on that depth each is whole when every function is.
+    // Without cycles this is the same answer the least fixpoint gave.
+    whole.extend(candidates.iter().map(|b| b.owner.clone()));
     loop {
-        let before = whole.len();
+        let mut dropped = Vec::new();
         for body in &candidates {
-            if whole.contains(&body.owner) {
+            if !whole.contains(&body.owner) {
                 continue;
             }
             let decision: HashMap<ExprId, &Decision> = placements
@@ -767,35 +1019,36 @@ fn whole_functions(
                 .map(|p| p.sites.iter().map(|s| (s.call, &s.decision)).collect())
                 .unwrap_or_default();
             let site = |e: ExprId| {
-                // `return format!(…)` hands back the text, built as `built_in_region` says.
-                let e = format_text(body, e).unwrap_or(e);
-                matches!(decision.get(&e), Some(Decision::Result { .. }))
-                    && match &body.expr(e).kind {
-                        hir::ExprKind::Call { callee, .. } => callee_owner(res, callee)
-                            .is_some_and(|(_, owner)| whole.contains(&owner)),
-                        _ => false,
-                    }
+                let mut w = Whole {
+                    d,
+                    body,
+                    decision: &decision,
+                    whole: &whole,
+                    region: None,
+                    held: Vec::new(),
+                    visiting: Vec::new(),
+                };
+                w.value(e, false)
             };
             let ok = match &body.owner {
-                BodyOwner::Ctor { owner, .. } => {
-                    let Some(s) = table.struct_sig(*owner) else { continue };
-                    if s.drop.is_some() {
-                        // A container: its memory is what it took from `#placement`.
-                        reads_placement(body)
-                    } else if s.base.is_some() {
-                        false
-                    } else {
-                        ctor_builds_fields(d, body, s, site)
-                    }
-                }
-                _ => returns_whole(d, body, site),
+                BodyOwner::Ctor { owner, .. } => match table.struct_sig(*owner) {
+                    // A container: its memory is what it took from `#placement`.
+                    Some(s) if s.drop.is_some() => reads_placement(body),
+                    Some(s) if s.base.is_some() => false,
+                    Some(s) => ctor_builds_fields(d, body, s, site),
+                    None => false,
+                },
+                _ => returns_whole(d, body, &decision, &whole),
             };
-            if ok {
-                whole.insert(body.owner.clone());
+            if !ok {
+                dropped.push(body.owner.clone());
             }
         }
-        if whole.len() == before {
+        if dropped.is_empty() {
             return whole;
+        }
+        for owner in dropped {
+            whole.remove(&owner);
         }
     }
 }
@@ -868,22 +1121,14 @@ fn replaces_self_by_ref(d: &Drops<'_>, body: &Body) -> bool {
     })
 }
 
-/// Whether every `return` in `body` hands back what owns nothing, or a site `site` accepts,
-/// or a local bound to one and never replaced.
-fn returns_whole(d: &Drops<'_>, body: &Body, site: impl Fn(ExprId) -> bool) -> bool {
-    let peel = |mut e: ExprId| loop {
-        match body.expr(e).kind {
-            hir::ExprKind::Move(inner)
-            | hir::ExprKind::Cast { operand: inner, explicit: false } => e = inner,
-            _ => return e,
-        }
-    };
-    let bound = |l: LocalId| {
-        (0..body.stmts.len() as u32).map(StmtId).any(|s| {
-            matches!(body.stmt(s).kind, hir::StmtKind::Let { local: Some(x), init: Some(i) }
-                if x == l && site(i))
-        }) && !replaced(d, body, l)
-    };
+/// Whether every `return` in `body` hands back what owns nothing, or a value built whole in
+/// the body's result placement ([`Whole`]).
+fn returns_whole(
+    d: &Drops<'_>,
+    body: &Body,
+    decision: &HashMap<ExprId, &Decision>,
+    whole: &HashSet<BodyOwner>,
+) -> bool {
     body.exprs.iter().all(|node| {
         let hir::ExprKind::Return(Some(v)) = node.kind else { return true };
         if !d.owns(body.ty(v)) {
@@ -894,13 +1139,17 @@ fn returns_whole(d: &Drops<'_>, body: &Body, site: impl Fn(ExprId) -> bool) -> b
         if d.holder(body.ty(v).peeled()) {
             return false;
         }
-        let v = peel(v);
-        match body.expr(v).kind {
-            // `return none` from a `-> String?` hands back nothing at all.
-            hir::ExprKind::NoneOpt => true,
-            hir::ExprKind::Local(l) => bound(l),
-            _ => site(v),
-        }
+        let mut w = Whole {
+            d,
+            body,
+            decision,
+            whole,
+            region: None,
+            held: Vec::new(),
+            visiting: Vec::new(),
+        };
+        // `return x` moves `x`, as C++ does a local it returns.
+        w.value(v, true)
     })
 }
 

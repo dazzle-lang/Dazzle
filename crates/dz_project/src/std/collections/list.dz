@@ -24,6 +24,7 @@ pub struct List<T> {
         }
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         return m_len
     }
@@ -32,15 +33,18 @@ pub struct List<T> {
         return m_cap
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         return m_len == 0
     }
 
     /// Every element, in order. Valid until the list next grows or is dropped.
+    #[inline]
     pub fn as_slice(&self) -> &[]T in self@items {
         return unsafe { m_data[0..m_len] }
     }
 
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut []T in self@items {
         return unsafe { m_data[0..m_len] }
     }
@@ -551,9 +555,14 @@ fn list_swap_out_of_bounds(i: usize, j: usize, len: usize) {
     panic!("List::swap of {} and {} for a length of {}", i, j, len)
 }
 
+// `index`, `index_mut`, `len`, `as_slice` and the iterators are `#[inline]`: an instance's
+// bodies are otherwise compiled in one file of the program, apart from the loop calling
+// them, and link-time optimisation inlines them too late for clang++ to vectorize the loop.
+// `for &x in xs` over a `List<i32>` ran eight times slower than over a slice (T-0214).
 impl<T> Index<usize> for List<T> {
     type Output = T
 
+    #[inline]
     fn index(&self, i: usize) -> &T in self@items {
         if i >= m_len {
             list_index_out_of_bounds(i, m_len)
@@ -566,6 +575,7 @@ impl<T> Index<usize> for List<T> {
 impl<T> Iterable for List<T> {
     type Iter = SliceIter<T>
 
+    #[inline]
     fn iter(&self) -> SliceIter<T> {
         return SliceIter<T>(self.as_slice())
     }
@@ -575,6 +585,7 @@ impl<T> Iterable for List<T> {
 impl<T> IterableMut for List<T> {
     type IterMut = SliceIterMut<T>
 
+    #[inline]
     fn iter_mut(&mut self) -> SliceIterMut<T> {
         return SliceIterMut<T>(self.as_mut_slice())
     }
@@ -583,6 +594,7 @@ impl<T> IterableMut for List<T> {
 impl<T> IndexMut<usize> for List<T> {
     type Output = T
 
+    #[inline]
     fn index_mut(&mut self, i: usize) -> &mut T in self@items {
         if i >= m_len {
             list_index_out_of_bounds(i, m_len)

@@ -125,14 +125,27 @@ fn write_digits(f: &mut Formatter, value: u64, base: u64, negative: bool) {
     let mut buf: [21]u8
     let mut at: usize = 21
     let mut n = value
-    let ten = if f.upper() { 'A' as u8 } else { 'a' as u8 }
-    while true {
-        at -= 1
-        let d = (n % base) as u8
-        buf[at] = if d < 10 { '0' as u8 + d } else { ten + d - 10 }
-        n = n / base
-        if n == 0 {
-            break
+    if base == 10 {
+        // Its own loop, dividing by a constant: the C++ compiler turns that into a multiply,
+        // where `n / base` is a hardware division, two of them a digit (T-0217).
+        while true {
+            at -= 1
+            buf[at] = '0' as u8 + (n % 10) as u8
+            n = n / 10
+            if n == 0 {
+                break
+            }
+        }
+    } else {
+        let ten = if f.upper() { 'A' as u8 } else { 'a' as u8 }
+        while true {
+            at -= 1
+            let d = (n % base) as u8
+            buf[at] = if d < 10 { '0' as u8 + d } else { ten + d - 10 }
+            n = n / base
+            if n == 0 {
+                break
+            }
         }
     }
     if negative {

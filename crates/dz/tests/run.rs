@@ -647,6 +647,85 @@ fn an_inline_body_is_in_the_header() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An instance of another module's generic keeps that module's `#[inline]`: `List<i32>` is
+/// emitted by the program, `List::index` is written `#[inline]` in `std`, and its body goes
+/// in the program's header with the loop that calls it. It went in the program's
+/// `.inst.cpp`, apart from the loop, and clang++ then left a sum over a `List` unvectorized,
+/// eight times slower than the same sum over a slice (T-0214). A constructor that only
+/// stores its parameters goes in the header too, which `SliceIter`'s, started by every
+/// `for &x in list`, needs; one that does more stays out of line.
+#[test]
+fn another_modules_inline_reaches_its_instances() {
+    let dir = scratch(
+        "dz_inline_instances",
+        "[module]\nname = \"inst\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "struct Stored {\n    m_a: i32 = 0\n\n    Stored(a: i32) {\n        m_a = a\n    }\n\n    pub fn a(&self) -> i32 {\n        return m_a\n    }\n}\n\nstruct Doubled {\n    m_a: i32 = 0\n\n    Doubled(a: i32) {\n        m_a = a * 2\n    }\n\n    pub fn a(&self) -> i32 {\n        return m_a\n    }\n}\n\nfn sum(xs: &List<i32>) -> i32 {\n    let mut t = 0\n    for i in 0..xs.len() {\n        t += xs[i]\n    }\n    for &x in xs {\n        t += x\n    }\n    return t\n}\n\nfn main() {\n    let mut xs = List<i32>()\n    xs.push(3)\n    println!(\"{} {} {}\", sum(&xs), Stored(1).a(), Doubled(1).a())\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().expect("failed to run dz");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let header = std::fs::read_to_string(dir.join("build/cpp/inst.h")).unwrap();
+    let source = std::fs::read_to_string(dir.join("build/cpp/inst.cpp")).unwrap();
+    let instances = std::fs::read_to_string(dir.join("build/cpp/inst.inst.cpp")).unwrap();
+    for body in [
+        "inline const int32_t& Index_usize__std_List_L_i32_R__index(",
+        "inline size_t List__i32::len() const {",
+        "inline SliceIter__i32::SliceIter__i32(",
+        "inline bool Iterate__std_SliceIter_L_i32_R__valid(",
+        "inline Stored::Stored(int32_t a) {",
+    ] {
+        assert!(header.contains(body), "not in the header: {body}\n{header}");
+    }
+    assert!(!instances.contains("Index_usize__std_List_L_i32_R__index(["), "{instances}");
+    assert!(!instances.contains("SliceIter__i32::SliceIter__i32("), "{instances}");
+    // A method of the instance not written `#[inline]` is still defined once, out of line.
+    assert!(instances.contains("List__i32::push("), "{instances}");
+    assert!(source.contains("Doubled::Doubled(int32_t a) {"), "{source}");
+    assert!(!header.contains("Doubled::Doubled(int32_t a) {"), "{header}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A loop that kills nothing indexes its lists through slices taken before it (T-0215), and
+/// every index is still checked: `dst` is shorter than `src`, and the write past its end
+/// panics, naming the line, in every build, as `List`'s own check would have. A loop that
+/// grows its list keeps indexing the list itself.
+#[test]
+fn a_viewed_list_is_still_bounds_checked() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_viewed_bounds",
+        "[module]\nname = \"viewed\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn scale(dst: &mut List<i32>, src: &List<i32>) {\n    for i in 0..src.len() {\n        dst[i] = src[i] * 3\n    }\n}\n\nfn grow(xs: &mut List<i32>) kills xs@items {\n    let n = xs.len()\n    for i in 0..n {\n        xs.push(xs[i])\n    }\n}\n\nfn main() {\n    let mut src = List<i32>()\n    let mut dst = List<i32>()\n    for i in 0..3 {\n        src.push(i)\n        dst.push(0)\n    }\n    grow(&mut src)\n    scale(&mut dst, &src)\n    println!(\"unreached {}\", dst[0])\n}\n",
+    );
+    for mode in ["--debug", "--release"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        let stderr = normalise(&String::from_utf8_lossy(&out.stderr));
+        assert!(!out.status.success(), "{mode}: expected a panic\n{stderr}");
+        assert!(stderr.contains("index 3 is out of bounds for length 3"), "{mode}: {stderr}");
+        assert!(stderr.contains("main.dz:3"), "{mode}: not at the line of `dst[i]`\n{stderr}");
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("unreached"), "{mode}");
+    }
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/viewed.cpp")).unwrap();
+    let body = |name: &str| {
+        let start = cpp.find(&format!("void {name}(")).expect(name);
+        let end = cpp[start..].find("\n}\n").map_or(cpp.len(), |e| start + e);
+        cpp[start..end].to_owned()
+    };
+    let scale = body("scale");
+    assert!(scale.contains("::dz::rt::Slice<int32_t> _dz_view"), "{scale}");
+    assert!(scale.contains("::dz::rt::Slice<const int32_t> _dz_view"), "{scale}");
+    assert!(!scale.contains("index_mut("), "{scale}");
+    let grow = body("grow");
+    assert!(!grow.contains("_dz_view"), "{grow}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A field of a temporary is not a place (spec §12.9). When an earlier argument makes a
 /// formatting call hoist its arguments into variables, `v.lerp(w, t).x` has to be hoisted
 /// as its value: hoisted as an address it pointed into a `Vec3` that died with the

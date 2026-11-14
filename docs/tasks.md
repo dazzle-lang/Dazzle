@@ -208,7 +208,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 
-## M15 — `dz bench`, and the C++ comparison (9 open)
+## M15 — `dz bench`, and the C++ comparison (10 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -219,6 +219,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0190](tasks/T-0190-each-module-defines-instance-methods-it.md)** Each module defines the instance methods it calls, as C++ instantiates a template's members · feature, codegen
+- **[T-0220](tasks/T-0220-call-sourcelocation-stored-stack-on-every.md)** A call's SourceLocation is stored to the stack on every pass, though only a cold path reads it · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -233,7 +234,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (26 open)
+## none — not scheduled (27 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -261,3 +262,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
+- **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling

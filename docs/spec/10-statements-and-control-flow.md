@@ -105,6 +105,11 @@ for i, &e in entities.indexed() { ... } // a pass count, then the element
 for id, &btn, &mut state in query { ... } // a tuple element, taken apart
 ```
 
+**A range's bounds are evaluated once**, before the first pass, the start and then the end
+(§7.2): `for i in 0..xs.len()` runs as many passes as `xs` had elements when the loop
+began, whatever the body pushes, and `for i in 0..next()` calls `next()` once. A bound
+that should be read again on every pass is a `while` loop's condition. `[DECIDED — D-0099]`
+
 **How a binding holds its element** is written on the binding, as C++ writes `auto`,
 `const auto&` and `auto&` — not on the sequence. `[DECIDED — §18.42]`
 

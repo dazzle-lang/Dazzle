@@ -1791,6 +1791,130 @@ fn main() {
     assert_eq!(labels[0], "region: `skipped`; drop skipped");
 }
 
+/// A tree of `Box`es built whole in a region skips its drop (T-0218): a union whose payloads
+/// are boxes of itself, built by functions that build their results from each other's (a
+/// greatest fixpoint), from a local grown from itself, through `or`, and taken apart by a
+/// tuple `let`. It keeps its drop when a box holds a value from elsewhere, when its local is
+/// `mut`, so a `&mut` could reach inside, and when what a box holds may be a derived type.
+#[test]
+fn a_tree_of_boxes_skips_its_drop_when_built_whole() {
+    let a = analyse(
+        r#"
+union Node {
+    Leaf { value: i32 }
+    Pair { l: Box<Node>, r: Box<Node> }
+}
+
+fn size(n: &Node) -> i32 {
+    switch n {
+        case Leaf(&leaf) {
+            return leaf.value * 0 + 1
+        }
+        case Pair(&p) {
+            return size(p.l or unreachable) + size(p.r or unreachable)
+        }
+    }
+}
+
+fn leaf(v: i32) -> Node {
+    return Node::Leaf{ value: v }
+}
+
+// Recursive, and through each other.
+fn even(depth: i32) -> Node {
+    if depth == 0 {
+        return leaf(0)
+    }
+    let l = odd(depth - 1)
+    let r = odd(depth - 1)
+    return Node::Pair{ l: Box<Node>(move(l)), r: Box<Node>(move(r)) }
+}
+
+fn odd(depth: i32) -> Node {
+    if depth == 0 {
+        return leaf(1)
+    }
+    return even(depth - 1)
+}
+
+// Grown from itself, as a parser's left-associative loop is.
+fn chain(n: i32) -> Node {
+    let mut acc = leaf(0)
+    for i in 0..n {
+        acc = Node::Pair{ l: Box<Node>(move(acc)), r: Box<Node>(leaf(i)) }
+    }
+    return move(acc)
+}
+
+fn grown(n: i32) !-> Node {
+    if n < 0 {
+        return error(1, "negative")
+    }
+    return even(n)
+}
+
+fn named(n: i32) !-> (i32, Node) {
+    let t = grown(n) or return
+    return (n, move(t))
+}
+
+fn skipped() -> i32 {
+    let t = even(3)
+    let c = chain(4)
+    let b = Box<Node>(odd(2))
+    let (k, n) = named(2) or {
+        return 0
+    }
+    // A box of plain data is its allocation alone.
+    let plain = Box<Plain>(Plain{ n: 1 })
+    return size(&t) + size(&c) + size(b or unreachable) + k + size(&n) + (plain or unreachable).n
+}
+
+struct Shape {
+    pub n: i32 = 0
+}
+
+struct Plain {
+    pub n: i32 = 0
+}
+
+struct Circle : Shape {
+    pub r: List<i32>
+}
+
+fn wrap(given: Node) -> i32 {
+    // What the box holds was built by the caller, wherever that was.
+    let b = Box<Node>(move(given))
+    return size(b or unreachable)
+}
+
+fn kept() -> i32 {
+    // `mut`: a `&mut` could put a box from elsewhere inside it.
+    let mut t = even(2)
+    // A `Box<Shape>` may hold a `Circle`, whose list is not a `Shape`'s.
+    let s = Box<Shape>(Shape{})
+    return size(&t) + wrap(leaf(1)) + (s or unreachable).n
+}
+
+fn main() {
+    println!("{} {}", skipped(), kept())
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let skipped = |name: &str| -> Vec<String> {
+        sites(&a, p, name).iter().filter(|s| s.drop_skipped).map(|s| s.callee.clone()).collect()
+    };
+    assert_eq!(
+        skipped("skipped"),
+        ["even", "chain", "Box<Node>", "odd", "named", "Box<Plain>"],
+        "{:?}",
+        decisions(&a, p, "skipped")
+    );
+    assert_eq!(skipped("kept"), [] as [&str; 0], "{:?}", decisions(&a, p, "kept"));
+    assert_eq!(skipped("wrap"), [] as [&str; 0], "{:?}", decisions(&a, p, "wrap"));
+}
+
 /// `format!`'s value is the text it builds, so it is a site built whole wherever that text
 /// was placed (T-0147): held in a `let`, stored into a container, or returned by a function
 /// a caller then holds. Replacing the text afterwards keeps its drop, as for any value.

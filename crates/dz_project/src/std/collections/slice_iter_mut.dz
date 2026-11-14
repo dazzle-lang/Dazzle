@@ -14,14 +14,17 @@ pub view struct SliceIterMut<T> {
 impl<T> Iterate for SliceIterMut<T> {
     type Item = &mut T
 
+    #[inline]
     fn valid(&self) -> bool {
         return m_index < m_slice.len
     }
 
+    #[inline]
     fn get(&self) -> &mut T in self@items {
         return &mut m_slice[m_index]
     }
 
+    #[inline]
     fn advance(&mut self) {
         m_index += 1
     }

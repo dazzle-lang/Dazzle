@@ -34,6 +34,7 @@ pub mod placement;
 pub mod release;
 pub(crate) mod storing;
 pub mod ties;
+pub mod views;
 
 /// Check every body in the program.
 ///

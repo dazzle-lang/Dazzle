@@ -74,7 +74,21 @@ pub struct Formatter {
     }
 
     /// Append `s`.
+    ///
+    /// Into a `String`, outside a width, it is the `String`'s own `push_str`, written where
+    /// it is called: `format!` and a `Format` implementation append a piece at a time, and
+    /// a call for each cost `expr`'s generator a fifth of its time (T-0217).
+    #[inline]
     pub fn write_str(&mut self, s: &str) {
+        if m_stream < 0 && !m_counting {
+            unsafe { m_out.push_str(s, m_loc) }
+            return
+        }
+        self.write_str_slowly(s)
+    }
+
+    /// [`write_str`] under a width, to a stream, or into a panic's message.
+    fn write_str_slowly(&mut self, s: &str) {
         if m_counting {
             if m_held_len > 0 {
                 // Something follows the number, so it was not the whole argument.
@@ -115,6 +129,11 @@ pub struct Formatter {
     /// Append one character, encoded as UTF-8.
     #[inline]
     pub fn write_char(&mut self, c: char) {
+        // ASCII into a `String`, outside a width: one byte, as `String::push` appends it.
+        if m_stream < 0 && !m_counting && (c as u32) < 0x80 {
+            unsafe { m_out.push(c, m_loc) }
+            return
+        }
         let mut encoded: [4]u8 = [0, 0, 0, 0]
         let n = encode_utf8(c, &mut encoded)
         self.write_str(unsafe { encoded[0..n] as &str })

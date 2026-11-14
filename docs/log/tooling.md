@@ -199,6 +199,66 @@ making it too large to inline; that path is `push_encoded` now. `bench_programs.
 alternating runs, Dazzle / C++: `words` 0.77× on clang++ and 0.97× on g++; `astar` 0.92× and
 1.08×; `expr` 1.47× and 1.22×. Between runs on this machine a ratio moves by about a tenth.
 
+## A tree of `Box`es in a region skips its drop (T-0218; 2026-11-14)
+
+Compiler work, no language change. `expr` put each statement's tree in the region of its
+pass but dropped it node by node anyway: a union of `Box`es was never releasable, a type
+reaching itself was answered "no" while being worked out, the parser's mutually recursive
+functions never counted as building their results whole (a least fixpoint), and the tree
+arrived through a tuple `let` with `or`, which was not followed. Now the memo and
+`whole_functions` take the largest answer, unions and `Box`es of releasable types are
+releasable, one walk (`Whole`) follows sites, literals, `or` and locals grown from
+themselves, and a `Box(…)` is whole only when what it holds is. A value holding a union or a
+`Box` skips its drop only in a local that is not `mut`. `expr` went from 1.10× its C++ half
+to 1.05× on clang++ and 0.96× to 0.92× on g++; the rest of the gap is moved-from
+destructors (T-0097).
+
+## `Formatter` appends in place, and decimal digits divide by a constant (T-0217; 2026-11-14)
+
+Library work, no language change. Timing `expr`'s phases against its C++ half showed its
+generator at 41 ms against 29–31, the rest close. `Formatter::write_str` was one
+out-of-line call per piece, `write_char` went through it with a 4-byte buffer, and
+`write_digits` divided by a parameter, two hardware divisions a digit. `write_str` is now an
+`#[inline]` append to the `String` when nothing else is asked for, `write_char` pushes an
+ASCII byte, and base 10 has its own loop. The generator went to 33 ms on both compilers;
+`expr` to 1.10× its C++ half on clang++ and 0.96× on g++, from 1.15× and 1.03×. The same
+timing found what is most of the rest: each statement's tree is dropped node by node
+although its region frees it (T-0218), worth 13 ms of the 72-ms parse-and-evaluate loop.
+
+## A `for` range's end is evaluated once (T-0216, r128, D-0099; 2026-11-14)
+
+A language change, the user's choice. `for i in a..b` was emitted as a C++ counting loop
+whose condition re-evaluated `b` before every pass; now `a` and `b` are evaluated once,
+before the first, as Rust's `for` does, the end held in a variable declared with the
+counter. A literal or constant end is still written in place.
+
+## A loop that kills nothing indexes its `List`s through a slice (T-0215; 2026-11-14)
+
+Compiler work, no language change. After T-0214, writing through a `&mut List` in a loop was
+still 7× a slice on clang++: after each store C++ could not prove the list's length and
+array unchanged. The tie analysis can, so `dz_flow::views` picks, per loop, the lists it
+indexes that nothing inside it may kill, and codegen builds a slice of each before the loop
+and indexes that, every index still checked. `dst[i] = src[i] * 3` went from 41 µs to 6 µs
+per 100 000 elements on clang++; g++, which vectorizes neither, is unchanged. A failing
+index now panics as a slice's does, at the user's line. On the way: g++ stores a bounds
+check's `SourceLocation` on every pass, and `for i in a..b` evaluates `b` on every pass,
+which the spec does not settle; T-0215 records both.
+
+## `#[inline]` reaches another module's generics, and `List` loops vectorize (T-0214; 2026-11-14)
+
+Compiler and library work, no language change. The question was whether bounds checks cost
+in loops; they do not. On clang++, a sum over a `List<i32>` took 22.7 µs per 100 000
+elements indexed and 20.3 µs with `for &x`, against 2.6 µs over a slice whether checked or
+`unsafe`. The emitter collected `#[inline]` from the module being emitted only, so `std`'s
+never reached a `List<i32>` the program instantiates (T-0185 puts instance bodies in the
+program's `.inst.cpp`), and link-time inlining came too late for the vectorizer. Now the set
+is every module's; `List`'s accessors and the slice iterators are `#[inline]`; and a
+constructor that only stores its parameters goes in the header, since `SliceIter`'s, out
+of line, kept the iterator in memory. Both `List` loops now run at 2.6–3.2 µs. g++ 14
+vectorizes none of them and did not change. The whole-program benchmarks did not move, none
+walking a `List` in order in its hot path. Writing through `&mut List` in a loop is still 5×
+slices on clang++; T-0214 says why and what would fix it.
+
 ## `List`'s index checks inlined (T-0157; 2026-11-04)
 
 Library work, no language change. A gprof profile of `astar`'s release build showed that
