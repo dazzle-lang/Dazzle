@@ -1729,3 +1729,60 @@ fn main() {
     println!("{} allocation", c.count)
 }
 ```
+
+## DZ0588
+
+A `Box` is one word, the address of its value, as C++'s `unique_ptr` is. The allocator the
+value came from is kept in the allocation just before it, and when the box is dropped, the
+size of what it frees and the drop it runs are those of the type the value was made as. For
+a `Box<UiElement>` holding a `Button`, the box finds them through `UiElement`'s vtable, the
+table every struct with a `virtual` method has (D-0104).
+
+A struct with no `virtual` method has no vtable, so a `Box` of it can only drop and free
+exactly that struct, and a derived value in it would lose its own fields' drops and be freed
+at the wrong size. C++ has the same rule, unenforced: a `unique_ptr<Base>` deleting a derived
+object through a base with no virtual destructor is undefined. Give the base a `virtual`
+method, keep the box at the derived type, or share the value with an `Rc`, whose allocation
+records the type it was made as and which converts to any base.
+
+```dz
+struct Shape {
+    pub x: f32 = 0.0
+}
+
+struct Circle : Shape {
+    pub radius: f32 = 1.0
+}
+
+fn main() {
+    let s: Box<Shape> = Box<Circle>(Circle{ radius: 2.0 })
+    if let &shape = s {
+        println!("{}", shape.x)
+    }
+}
+```
+
+```dz
+struct Shape {
+    pub x: f32 = 0.0
+
+    pub virtual fn area(&self) -> f32 {
+        return 0.0
+    }
+}
+
+struct Circle : Shape {
+    pub radius: f32 = 1.0
+
+    override fn area(&self) -> f32 {
+        return 3.14 * radius * radius
+    }
+}
+
+fn main() {
+    let s: Box<Shape> = Box<Circle>(Circle{ radius: 2.0 })
+    if let &shape = s {
+        println!("{}", shape.area())
+    }
+}
+```

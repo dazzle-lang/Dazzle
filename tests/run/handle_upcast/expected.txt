@@ -5,4 +5,8 @@ button 'boxed' at 2 (16)
 weak alive true
 drop label ok
 weak after false
+plain 3
+drop label rc fancier
+fancier 4 3 5
+drop label box fancier
 drop label boxed

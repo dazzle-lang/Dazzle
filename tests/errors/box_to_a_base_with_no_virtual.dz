@@ -1,0 +1,21 @@
+// expect: DZ0588
+//
+// A `Box` is one word: its drop finds the size and the drop of a derived value through the
+// vtable, and a base with no `virtual` method has none (spec §14.5, D-0104). Dropping this
+// box as a `Box<Shape>` would drop and free only a `Shape`. Give `Shape` a `virtual`
+// method, keep the `Box<Circle>`, or share it as an `Rc<Shape>`, which converts without one.
+
+struct Shape {
+    pub x: f32 = 0.0
+}
+
+struct Circle : Shape {
+    pub radius: f32 = 1.0
+}
+
+fn main() {
+    let s: Box<Shape> = Box<Circle>(Circle{ radius: 2.0 })
+    if let &shape = s {
+        println!("{}", shape.x)
+    }
+}

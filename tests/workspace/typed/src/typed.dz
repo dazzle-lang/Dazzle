@@ -1009,13 +1009,12 @@ fn reads_a_widget(w: &Widget) -> i32 {
 }
 
 // §14.5, 18.64: a handle to a derived struct is a handle to its base, through any depth.
-fn handles_to_a_base(d: Rc<Dialog>, owned: Box<Panel>) -> usize {
+// A `Box` converts only to a base with a vtable (D-0104): `boxes_to_a_base` below.
+fn handles_to_a_base(d: Rc<Dialog>) -> usize {
     let shared: Rc<Widget> = d
     let watcher: Weak<Widget> = Weak<Dialog>(&d)
     let mut widgets = List<Rc<Widget>>()
     widgets.push(d)
-    let boxed: Box<Widget> = move(owned)
-    let _ = move(boxed)
     let _ = watcher
     return shared.count() + widgets.len()
 }
@@ -1100,6 +1099,28 @@ pub struct Circle : Drawable {
         // what it replaces instead of discarding it.
         return Drawable::label(self) + self.bump()
     }
+}
+
+// A `Box` of a type with a vtable holds anything deriving from it, and drops and frees
+// it as what it was made as (spec §14.5, D-0104).
+pub struct Gadget {
+    pub virtual fn weight(&self) -> i32 {
+        return 1
+    }
+}
+
+pub struct Gizmo : Gadget {
+    pub parts: i32 = 3
+
+    pub override fn weight(&self) -> i32 {
+        return parts
+    }
+}
+
+fn boxes_to_a_base(owned: Box<Gizmo>) -> i32 {
+    let boxed: Box<Gadget> = move(owned)
+    let g = boxed or return 0
+    return g.weight()
 }
 
 // An abstract type is fine behind a reference: that is what `virtual` is for.

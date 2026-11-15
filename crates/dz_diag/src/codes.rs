@@ -461,6 +461,11 @@ pub const TEXT_LEN_FIELD: &str = "DZ0586";
 /// the allocator's address, because every allocator keeps the table of its functions as its
 /// hidden first field, and only such a struct can have one there (spec §14, D-0103).
 pub const ALLOCATOR_NOT_STRUCT: &str = "DZ0587";
+/// A `Box<Derived>` where a `Box<Base>` is wanted, and `Base` has no `virtual` method. A
+/// `Box` is one word and drops its value as the type it holds, reaching a derived one's drop
+/// and size through the vtable, which only a type with a `virtual` method has (spec §14.5,
+/// D-0104).
+pub const BOX_UPCAST_NOT_VIRTUAL: &str = "DZ0588";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

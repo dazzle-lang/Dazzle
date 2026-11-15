@@ -1872,6 +1872,10 @@ fn skipped() -> i32 {
 
 struct Shape {
     pub n: i32 = 0
+
+    pub virtual fn area(&self) -> i32 {
+        return 0
+    }
 }
 
 struct Plain {
@@ -1891,7 +1895,8 @@ fn wrap(given: Node) -> i32 {
 fn kept() -> i32 {
     // `mut`: a `&mut` could put a box from elsewhere inside it.
     let mut t = even(2)
-    // A `Box<Shape>` may hold a `Circle`, whose list is not a `Shape`'s.
+    // A `Box<Shape>` may hold a `Circle`, whose list is not a `Shape`'s: `Shape` has a
+    // vtable, so a `Box<Circle>` converts to one (D-0104).
     let s = Box<Shape>(Shape{})
     return size(&t) + wrap(leaf(1)) + (s or unreachable).n
 }

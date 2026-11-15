@@ -922,6 +922,20 @@ inline Opt<str> str_from_utf8(Slice<const uint8_t> b) {
 /// Named in `decltype` by the handles' converting constructors (spec §14.5, 18.64).
 template <class B> B* implicit_ptr(B* p) { return p; }
 
+/// The size and alignment of what `p` points at, as the type it was made as (`std`'s
+/// `dyn_sizeof` and `dyn_alignof`, for `Box`, D-0104): a polymorphic Dazzle struct answers
+/// through its vtable, anything else is the type it is seen as.
+template <class T> DZ_INLINE auto dyn_size_(const T* p, int) -> decltype(p->_dz_size()) {
+    return p->_dz_size();
+}
+template <class T> DZ_INLINE size_t dyn_size_(const T*, long) { return sizeof(T); }
+template <class T> DZ_INLINE size_t dyn_size(const T* p) { return dyn_size_(p, 0); }
+template <class T> DZ_INLINE auto dyn_align_(const T* p, int) -> decltype(p->_dz_align()) {
+    return p->_dz_align();
+}
+template <class T> DZ_INLINE size_t dyn_align_(const T*, long) { return alignof(T); }
+template <class T> DZ_INLINE size_t dyn_align(const T* p) { return dyn_align_(p, 0); }
+
 /// Bounds-checked index, in every build (spec §5.3). In a loop over `0..xs.len` the
 /// optimiser proves the check redundant and removes it; the unchecked spelling is
 /// `unsafe { xs.ptr[i] }`, which does not come through here at all.

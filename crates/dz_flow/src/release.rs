@@ -165,18 +165,21 @@ impl<'a> Drops<'a> {
             .and_then(|i| self.table.impl_applies(&self.table.impls()[i], &self_ty))
             .unwrap_or_default();
         let body = hir::map_body_types(body, |t| self.table.subst_with(t, &map, Some(&self_ty)));
-        // `Box`'s drop calls the drop of what it was made as, kept in `m_drop`.
-        let boxed = (Some(sym) == self.boxed).then(|| args.first().cloned()).flatten();
-        Frees { d: self, body: &body, boxed }.block(body.root)
+        Frees { d: self, body: &body }.block(body.root)
     }
 
-    /// Whether the drop a `Box<T>` keeps only frees: `T`'s, or that of any struct deriving
-    /// from `T`, since a `Box<Button>` moves into a `Box<UiElement>` (spec §14.5).
-    fn boxed_only_frees(&self, t: &Ty) -> bool {
+    /// Whether destroying a value seen as a `T`, through a pointer, only frees: `T`'s drop,
+    /// or, when `T` has a vtable, that of any struct deriving from `T`, since the drop is
+    /// virtual and a `Box<Button>` moves into a `Box<UiElement>` (spec §14.5, D-0104). A `T`
+    /// with no vtable is destroyed as a `T`, and only a `T` is in a `Box<T>` of one (DZ0588).
+    fn dyn_only_frees(&self, t: &Ty) -> bool {
         if !self.only_frees(t) {
             return false;
         }
         let Ty::Named { sym: base, .. } = t else { return true };
+        if !self.table.struct_sig(*base).is_some_and(|s| s.polymorphic) {
+            return true;
+        }
         !self.res.symbols.iter().enumerate().any(|(i, s)| {
             let sym = SymbolId(i as u32);
             s.kind == dz_resolve::SymbolKind::Struct
@@ -226,9 +229,10 @@ impl<'a> Drops<'a> {
         }) && self.sealed(*sym)
     }
 
-    /// A `Box<T>` of a `T` that owns nothing or is releasable, and that no struct derives from: its allocation is from where it
-    /// was placed, and what it holds is what it was given, which [`Whole`] checks at the
-    /// `Box(…)` that made it (T-0218). A `T` something derives from could hold the derived
+    /// A `Box<T>` of a `T` that owns nothing or is releasable, and that no struct derives
+    /// from when `T` has a vtable: its allocation is from where it was placed, and what it
+    /// holds is what it was given, which [`Whole`] checks at the `Box(…)` that made it
+    /// (T-0218). A `T` with a vtable that something derives from could hold the derived
     /// value, whose own parts are not `T`'s, so that keeps its drop.
     fn boxed(&self, ty: &Ty) -> bool {
         let Ty::Named { sym, args } = ty else { return false };
@@ -236,7 +240,7 @@ impl<'a> Drops<'a> {
             return false;
         }
         let [inner] = args.as_slice() else { return false };
-        (!self.owns(inner) || self.releasable(inner)) && self.boxed_only_frees(inner)
+        (!self.owns(inner) || self.releasable(inner)) && self.dyn_only_frees(inner)
     }
 
     /// Whether a value of `ty` holds a union or a `Box` among the parts it owns: one whose
@@ -361,9 +365,6 @@ fn replaces_self(d: &Drops<'_>, body: &Body) -> bool {
 struct Frees<'d, 'a> {
     d: &'d Drops<'a>,
     body: &'d Body,
-    /// In `Box<T>`'s drop, `T`: the function value it calls is `T`'s drop, or a derived
-    /// type's.
-    boxed: Option<Ty>,
 }
 
 impl Frees<'_, '_> {
@@ -470,10 +471,12 @@ impl Frees<'_, '_> {
             K::Return(v) => v.map_or(true, |v| self.expr(v)),
             K::Call { callee, args } => all(args) && self.call(callee),
             K::Builtin { name, args } | K::Intrinsic { name, args } => match name.as_str() {
+                // Through a pointer, as `Box`'s drop does: a virtual drop may be a derived
+                // type's.
                 "destroy" => {
-                    args.len() == 1 && self.d.only_frees(self.body.ty(args[0])) && all(args)
+                    args.len() == 1 && self.d.dyn_only_frees(self.body.ty(args[0])) && all(args)
                 }
-                "sizeof" | "alignof" => true,
+                "sizeof" | "alignof" | "dyn_sizeof" | "dyn_alignof" => all(args),
                 _ => false,
             },
             // A handle's guard is a strong count; formatting writes somewhere; a `switch`
@@ -487,36 +490,13 @@ impl Frees<'_, '_> {
     }
 
     /// The one call a drop that only frees makes: `Allocator::free`, through the allocator
-    /// it was placed in, and in `Box`'s drop the drop of what it holds.
+    /// it was placed in.
     fn call(&self, callee: &Callee) -> bool {
         match callee {
             Callee::Method { recv, owner, name, .. } => {
                 Some(*owner) == self.d.allocator && name == "free" && self.expr(*recv)
             }
-            Callee::Value(v) => {
-                self.boxed.as_ref().is_some_and(|t| self.d.boxed_only_frees(t))
-                    && self.reads_field(*v, "m_drop")
-            }
             _ => false,
-        }
-    }
-
-    /// Whether `e` is the field `name` of the value being dropped, read directly or through
-    /// a `let` that holds it.
-    fn reads_field(&self, e: ExprId, name: &str) -> bool {
-        let field = |x: ExprId| {
-            self_field(self.body, x)
-                && matches!(self.body.expr(x).kind, hir::ExprKind::Field { base, index }
-                    if field_name(self.d.table, self.body.ty(base), index).as_deref() == Some(name))
-        };
-        match self.body.expr(e).kind {
-            hir::ExprKind::Local(l) => {
-                (0..self.body.stmts.len() as u32).map(StmtId).any(|s| {
-                    matches!(self.body.stmt(s).kind, hir::StmtKind::Let { local: Some(x), init: Some(i) }
-                        if x == l && field(i))
-                })
-            }
-            _ => field(e),
         }
     }
 
@@ -541,13 +521,6 @@ impl Frees<'_, '_> {
             }
             _ => None,
         }
-    }
-}
-
-fn field_name(table: &TypeTable, base: &Ty, index: usize) -> Option<String> {
-    match base.peeled_refs() {
-        Ty::Named { sym, .. } => table.struct_sig(*sym)?.fields.get(index).map(|f| f.name.clone()),
-        _ => None,
     }
 }
 

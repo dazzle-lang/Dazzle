@@ -11,28 +11,47 @@
 /// used. Instead the value is in the box, `@value`: setting the box to `null` inside
 /// `if let &n = self.node` ends `n`, and using `n` after is a compile-time error (§14.5).
 ///
-/// A `Box<Button>` is accepted where a `Box<UiElement>` is wanted, moved into it; the box
-/// remembers what it was made as, so dropping it drops the whole `Button` (18.64).
+/// One word, as C++'s `unique_ptr` is: the allocator the value came from is in its
+/// allocation, just before it, and the type it was made as is the one the box holds, or one
+/// the vtable names. So a `Box<Button>` is accepted where a `Box<UiElement>` is wanted when
+/// `UiElement` has a `virtual` method, and dropping it drops and frees the whole `Button`
+/// (D-0064, D-0104).
 pub struct Box<T> {
     pub(module) m_ptr: own ^mut T = null
-    pub(module) m_allocator: ^mut Allocator = null
-    /// Drops the value and frees it, as the type the box was made as: its size and
-    /// alignment are that type's, so the box need not keep them (T-0097).
-    pub(module) m_drop: fn(^mut u8, ^mut Allocator)
 
     /// The value: emptying, replacing or moving the box ends a reference to it, and a
     /// clause names what is inside it as `h.node@value.name@text` (D-0094 point 3).
     tie @value = m_ptr[*]
 
     /// `value`, moved into an allocation from wherever the compiler places the box: its
-    /// contents live where it lives (spec §14.6).
+    /// contents live where it lives (spec §14.6). The allocation is a `BoxHeader` and then
+    /// the value, at the value's alignment.
     Box(value: T, loc: SourceLocation = #location) {
-        m_allocator = unsafe { #placement }
-        let a = unsafe { m_allocator or panic!("a Box needs an allocator") }
-        m_drop = drop_boxed_as<T>
-        m_ptr = unsafe { a.alloc(sizeof(T), alignof(T), loc) as ^mut T }
-        unsafe { construct(m_ptr[0], move(value)) }
+        let allocator: ^mut Allocator = unsafe { #placement }
+        let a = unsafe { allocator or panic!("a Box needs an allocator") }
+        let align = if alignof(T) > alignof(BoxHeader) {
+            alignof(T)
+        } else {
+            alignof(BoxHeader)
+        }
+        // The header ends where the value starts, so it is found from the value alone.
+        let header = if sizeof(BoxHeader) > align {
+            sizeof(BoxHeader)
+        } else {
+            align
+        }
+        let start = unsafe { a.alloc(header + sizeof(T), align, loc) as usize }
+        unsafe {
+            construct(((start + header - sizeof(BoxHeader)) as ^mut BoxHeader)[0], BoxHeader{ allocator: allocator })
+            m_ptr = (start + header) as ^mut T
+            construct(m_ptr[0], move(value))
+        }
     }
+}
+
+/// What a `Box`'s allocation keeps before its value: the allocator to give it back to.
+struct BoxHeader {
+    pub(module) allocator: ^mut Allocator = null
 }
 
 impl<T> Drop for Box<T> {
@@ -40,18 +59,26 @@ impl<T> Drop for Box<T> {
         if m_ptr == null {
             return
         }
-        let drop_value = m_drop
-        drop_value(unsafe { m_ptr as ^mut u8 }, m_allocator)
+        // The size and alignment of what the box was made as: `T`'s, or a derived type's,
+        // read through the vtable before the value is gone (spec §14.5).
+        let size = unsafe { dyn_sizeof(m_ptr) }
+        let value_align = unsafe { dyn_alignof(m_ptr) }
+        let align = if value_align > alignof(BoxHeader) {
+            value_align
+        } else {
+            alignof(BoxHeader)
+        }
+        let header = if sizeof(BoxHeader) > align {
+            sizeof(BoxHeader)
+        } else {
+            align
+        }
+        let at = unsafe { m_ptr as usize }
+        let allocator = unsafe { ((at - sizeof(BoxHeader)) as ^mut BoxHeader)[0].allocator }
+        unsafe { destroy(m_ptr[0]) }
+        let a = unsafe { allocator or return }
+        a.free(unsafe { (at - header) as ^mut u8 }, header + size, align)
     }
-}
-
-/// Drop the value at `p` as a `T` and give its memory back to `allocator`: what a
-/// `Box` holds, made for the type its value was created as, so a `Box<UiElement>` holding
-/// a `Button` drops and frees a whole `Button` (18.64).
-fn drop_boxed_as<T>(p: ^mut u8, allocator: ^mut Allocator) {
-    unsafe { destroy((p as ^mut T)[0]) }
-    let a = unsafe { allocator or return }
-    a.free(p, sizeof(T), alignof(T))
 }
 
 impl<T> Nullable for Box<T> {

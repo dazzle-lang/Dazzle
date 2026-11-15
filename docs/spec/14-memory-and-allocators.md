@@ -621,7 +621,16 @@ which holds nothing.
 
 **A handle to a derived struct converts to a handle to its base**, as a reference does
 (§7.3): an `Rc<Button>` is accepted where an `Rc<UiElement>` is wanted, sharing the same
-count, and likewise `Weak` and `Box`. `[DECIDED — §18.64]`
+count, and likewise `Weak`. `[DECIDED — §18.64]`
+
+**A `Box` is one word**, its value's address, as C++'s `unique_ptr` is. The allocator the
+value came from is in the allocation, in the word before the value, and the box drops and
+frees the type it holds, or, when that type has a `virtual` method (§7.3), the type the
+value was made as, which its vtable names. So **a `Box<Button>` converts to a
+`Box<UiElement>` only when `UiElement` has a `virtual` method**, its own or a base's
+(`DZ0588`): with none, dropping it would free only a `UiElement`. An `Rc` keeps the type
+its value was made as in its allocation, and converts to any base. `[DECIDED — D-0104,
+amending §18.64]`
 
 Not yet: `Arc<T>`, which needs atomics (§18.11); and a handle to a trait object.
 `[DECIDED — §18.62]`

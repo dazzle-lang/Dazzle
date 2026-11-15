@@ -1473,6 +1473,34 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// A `Box` is one word, and its drop reaches a derived value's own drop and size through
+    /// the vtable, so it converts only to a `Box` of a base with one: a `virtual` method,
+    /// its own or a base's (spec §14.5, D-0104). As in C++, where a `unique_ptr<Base>`
+    /// deleting a derived value through a base with no virtual destructor is undefined.
+    fn refuse_box_upcast_not_virtual(&mut self, expected: &Ty, actual: &Ty, span: Span) {
+        let Ty::Named { sym, args } = expected else { return };
+        if self.cx.res.symbol(*sym).name != "Box" {
+            return;
+        }
+        let [Ty::Named { sym: base, .. }] = args.as_slice() else { return };
+        if self.cx.table.struct_sig(*base).is_some_and(|s| s.polymorphic) {
+            return;
+        }
+        let e = self.cx.name_of(expected);
+        let a = self.cx.name_of(actual);
+        let b = self.cx.name_of(&args[0]);
+        self.cx.error_help(
+            codes::BOX_UPCAST_NOT_VIRTUAL,
+            span,
+            format!("a `{a}` cannot be used as a `{e}`: `{b}` has no `virtual` method"),
+            format!("dropping this through a `{e}` would drop and free only a `{b}`"),
+            format!(
+                "a `Box` reaches what it holds through the vtable, so give `{b}` a `virtual` \
+                 method, or keep the `{a}`; an `Rc<{b}>` converts without one (spec §14.5)"
+            ),
+        );
+    }
+
     /// A trait object needs its implementation's vtable, and only a non-generic
     /// implementation has one yet: `impl<T> Shape for Box<T>` would need one per instance.
     fn refuse_generic_impl_object(&mut self, expected: &Ty, actual: &Ty, span: Span) {
@@ -1518,6 +1546,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return;
         }
         if self.handle_upcast(&expected, &actual) {
+            self.refuse_box_upcast_not_virtual(&expected, &actual, span);
             return;
         }
         // A whole `Derived` where a `Base` is wanted: C++ would silently drop the derived
@@ -6076,8 +6105,10 @@ impl<'a, 'c> Body<'a, 'c> {
                     hir::ExprKind::Builtin { name: "str_from_utf8".to_owned(), args: vec![c.id] };
                 return self.mk(e, Ty::Optional(Rc::new(Ty::Str)), kind);
             }
+            // `std`'s own, which resolution accepts nowhere else.
             if p.segments.len() == 1
-                && dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
+                && (dz_resolve::BUILTIN_FNS.contains(&p.segments[0].name.name.as_str())
+                    || dz_resolve::STD_BUILTIN_FNS.contains(&p.segments[0].name.name.as_str()))
             {
                 let name = p.segments[0].name.name.clone();
                 if matches!(name.as_str(), "typeinfo_of" | "typeid_of" | "typeinfo") {
@@ -9519,7 +9550,8 @@ pub(crate) fn is_source_location(t: &Ty) -> bool {
 /// variadic formatting calls, which §12.9's format-string checking will cover.
 fn builtin_arity(name: &str) -> Option<(usize, usize)> {
     Some(match name {
-        "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" => (1, 1),
+        "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" | "dyn_sizeof"
+        | "dyn_alignof" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
         "memcpy" | "memmove" => (3, 3),
@@ -9529,7 +9561,7 @@ fn builtin_arity(name: &str) -> Option<(usize, usize)> {
 
 fn builtin_call_type(name: &str) -> Ty {
     match name {
-        "sizeof" | "alignof" => Ty::Int(IntTy::Usize),
+        "sizeof" | "alignof" | "dyn_sizeof" | "dyn_alignof" => Ty::Int(IntTy::Usize),
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),

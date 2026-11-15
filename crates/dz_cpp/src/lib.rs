@@ -2749,9 +2749,22 @@ impl<'a> Emitter<'a> {
         }
         // A polymorphic type with no `drop` of its own still needs the virtual destructor,
         // so that destroying a derived value through this type does the right thing. The
-        // derived type's own `~T()` overrides it.
-        if polymorphic && !has_drop && base.is_none() {
+        // derived type's own `~T()` overrides it. The first polymorphic type of a chain
+        // declares it, which need not be the root: a base with no `virtual` method has none.
+        let base_polymorphic =
+            base.and_then(|b| self.table.struct_sig(b)).is_some_and(|b| b.polymorphic);
+        if polymorphic && !has_drop && !base_polymorphic {
             let _ = writeln!(self.header, "    virtual ~{name}() = default;");
+        }
+        // What a `Box` of a base frees, as this type: its size and alignment, read through
+        // the vtable by `std`'s `dyn_sizeof` and `dyn_alignof` (spec §14.5, D-0104).
+        if polymorphic {
+            let (pre, post) = if base_polymorphic { ("", " override") } else { ("virtual ", "") };
+            let _ = writeln!(
+                self.header,
+                "    {pre}size_t _dz_size() const{post} {{ return sizeof({name}); }}\n    \
+                 {pre}size_t _dz_align() const{post} {{ return alignof({name}); }}"
+            );
         }
         if has_drop {
             // `drop` is virtual once the type or a base has a `virtual` method, so a
@@ -2848,12 +2861,14 @@ impl<'a> Emitter<'a> {
                      if (m_header != nullptr) {{ m_header->{count} += 1; }}\n    }}"
                 );
             }
+            // The checker allows it only to a base with a vtable (DZ0588), which in single
+            // inheritance is at the derived value's own address, so the allocator just
+            // before the value is still found from the base's pointer (D-0104).
             "Box" => {
                 let _ = writeln!(
                     h,
                     "    template <class O, class = decltype(::dz::rt::implicit_ptr<{base}>(static_cast<O*>(nullptr)->m_ptr))>\n    \
-                     {name}(O&& o)\n        : m_ptr(o.m_ptr), m_allocator(o.m_allocator), m_drop(o.m_drop) {{\n        \
-                     o.m_ptr = nullptr;\n        o.reset_to_defaults__();\n    }}"
+                     {name}(O&& o) : m_ptr(o.m_ptr) {{ o.m_ptr = nullptr; }}"
                 );
             }
             _ => {}
@@ -6996,6 +7011,9 @@ impl<'a> Emitter<'a> {
             "construct" => format!("::dz::rt::construct({})", rendered.join(", ")),
             "destroy" => format!("::dz::rt::destroy({})", rendered[0]),
             "move_out" => format!("::dz::rt::move_out({})", rendered[0]),
+            // `std`'s, for `Box`: the size and alignment of what was made (D-0104).
+            "dyn_sizeof" => format!("::dz::rt::dyn_size({})", rendered[0]),
+            "dyn_alignof" => format!("::dz::rt::dyn_align({})", rendered[0]),
             "str_from_utf8" => format!("::dz::rt::str_from_utf8({})", rendered[0]),
             // `typeinfo(id)` reads the table codegen writes (spec §13.1).
             "typeinfo" => self.typeinfo_by_id(&rendered[0]),

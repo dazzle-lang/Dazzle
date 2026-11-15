@@ -222,8 +222,8 @@ pub(crate) fn format_text(body: &Body, f: ExprId) -> Option<ExprId> {
 /// codegen adapts it. `virtual` methods are left out until a base and its overrides can be
 /// decided together.
 pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashSet<BodyOwner> {
-    let allocator = res.lookup(res.prelude, "Allocator");
-    let holds = |t: &Ty| holds_allocator(table, allocator, t, &mut Vec::new());
+    let keeps = Keeps::of(res);
+    let holds = |t: &Ty| holds_allocator(table, keeps, t, &mut Vec::new());
     let mut out = HashSet::new();
 
     let mut traits: HashSet<SymbolId> =
@@ -258,7 +258,10 @@ pub fn result_functions(hir: &Hir, table: &TypeTable, res: &Resolution) -> HashS
         // keeps an allocator: it takes that placement and builds its fields there.
         if let BodyOwner::Ctor { owner, .. } = &body.owner {
             let fields = table.struct_sig(*owner).map(|s| s.fields.as_slice()).unwrap_or(&[]);
-            if fields.iter().any(|f| holds(&f.ty)) && allocator_param(res, body).is_none() {
+            let boxed = Some(*owner) == keeps.boxed;
+            if (boxed || fields.iter().any(|f| holds(&f.ty)))
+                && allocator_param(res, body).is_none()
+            {
                 out.insert(body.owner.clone());
             }
             continue;
@@ -324,8 +327,8 @@ pub fn placed_copy_kind(table: &TypeTable, res: &Resolution, sym: SymbolId) -> O
     {
         return None;
     }
-    let allocator = res.lookup(res.prelude, "Allocator");
-    if !s.fields.iter().any(|f| holds_allocator(table, allocator, &f.ty, &mut Vec::new())) {
+    let keeps = Keeps::of(res);
+    if !s.fields.iter().any(|f| holds_allocator(table, keeps, &f.ty, &mut Vec::new())) {
         return None;
     }
     match (&s.copy, &s.drop) {
@@ -522,7 +525,24 @@ fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Prop
 /// Whether a function returning `ty` takes a result placement, and a function type with
 /// that result passes one: `ty` keeps an allocator, through its fields, `?` or `!`.
 pub fn keeps_allocator(table: &TypeTable, res: &Resolution, ty: &Ty) -> bool {
-    holds_allocator(table, res.lookup(res.prelude, "Allocator"), ty, &mut Vec::new())
+    holds_allocator(table, Keeps::of(res), ty, &mut Vec::new())
+}
+
+/// What [`holds_allocator`] looks for: a pointer to an `Allocator`, or a `Box`, whose
+/// allocator is in its allocation, the word before its value (D-0104).
+#[derive(Clone, Copy)]
+struct Keeps {
+    allocator: Option<SymbolId>,
+    boxed: Option<SymbolId>,
+}
+
+impl Keeps {
+    fn of(res: &Resolution) -> Self {
+        Keeps {
+            allocator: res.lookup(res.prelude, "Allocator"),
+            boxed: res.lookup(res.prelude, "Box"),
+        }
+    }
 }
 
 /// A function's signature by its body's owner, `self` not among its parameters.
@@ -548,19 +568,15 @@ fn owner_sig<'t>(table: &'t TypeTable, owner: &BodyOwner) -> Option<&'t dz_check
 /// `get`, `take`), and whether it takes a placement must not depend on the instance, since
 /// every instance is called the same way. `seen` stops a type that holds itself through a
 /// pointer.
-fn holds_allocator(
-    table: &TypeTable,
-    allocator: Option<SymbolId>,
-    ty: &Ty,
-    seen: &mut Vec<Ty>,
-) -> bool {
+fn holds_allocator(table: &TypeTable, keeps: Keeps, ty: &Ty, seen: &mut Vec<Ty>) -> bool {
     match ty {
         Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
-            matches!(&**inner, Ty::Named { sym, .. } if Some(*sym) == allocator)
+            matches!(&**inner, Ty::Named { sym, .. } if Some(*sym) == keeps.allocator)
         }
-        Ty::Optional(inner) | Ty::Fallible(inner) => holds_allocator(table, allocator, inner, seen),
-        Ty::Array { elem, .. } => holds_allocator(table, allocator, elem, seen),
-        Ty::Tuple(parts) => parts.iter().any(|t| holds_allocator(table, allocator, t, seen)),
+        Ty::Named { sym, .. } if Some(*sym) == keeps.boxed => true,
+        Ty::Optional(inner) | Ty::Fallible(inner) => holds_allocator(table, keeps, inner, seen),
+        Ty::Array { elem, .. } => holds_allocator(table, keeps, elem, seen),
+        Ty::Tuple(parts) => parts.iter().any(|t| holds_allocator(table, keeps, t, seen)),
         Ty::Named { sym, args } => {
             if seen.contains(ty) {
                 return false;
@@ -573,7 +589,7 @@ fn holds_allocator(
                 }
                 _ => Vec::new(),
             };
-            fields.iter().any(|t| holds_allocator(table, allocator, t, seen))
+            fields.iter().any(|t| holds_allocator(table, keeps, t, seen))
         }
         _ => false,
     }

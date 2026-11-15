@@ -1741,3 +1741,18 @@ impl<T> Allocator for Pool<T> {
 
     fn free(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {}
 }
+
+// A `Box` converts only to a base with a vtable (spec §14.5, D-0104): it is one word, and
+// finds a derived value's size and drop through the vtable, which `Gauge` has none of:
+// DZ0588.
+pub struct Gauge {
+    pub reading: i32 = 0
+}
+
+pub struct Meter : Gauge {
+    pub needle: i32 = 0
+}
+
+fn boxed_gauge(d: Box<Meter>) -> Box<Gauge> {
+    return move(d)
+}

@@ -61,8 +61,10 @@ impl<T> Drop for Rc<T> {
         }
         // The value goes with its last owner, as the type it was made as. A `Weak` may still
         // hold the allocation to read `strong`, so that is freed only when no `Weak` does.
+        // Given the block, not `m_value`: an `Rc<Plain>` of a `Fancy` that adds the first
+        // `virtual` points 8 bytes into the `Fancy`, past its vtable (D-0104).
         let drop_value = h.drop_value
-        drop_value(unsafe { m_value as ^mut u8 })
+        drop_value(unsafe { m_header as ^mut u8 })
         if h.weak == 0 {
             let a = unsafe { h.allocator or return }
             a.free(unsafe { m_header as ^mut u8 }, h.size, h.align)

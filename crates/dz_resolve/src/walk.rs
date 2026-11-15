@@ -8,7 +8,8 @@ use dz_project::{ModuleId, Workspace};
 use dz_span::{FileId, Span};
 
 use crate::{
-    closest, visible_from, MemberSort, ParsedFile, Resolution, SymbolId, BUILTIN_FNS, BUILTIN_TYPES,
+    closest, visible_from, MemberSort, ParsedFile, Resolution, SymbolId, BUILTIN_FNS,
+    BUILTIN_TYPES, STD_BUILTIN_FNS,
 };
 
 /// What a leading path segment turned out to name.
@@ -1303,6 +1304,9 @@ impl<'a, 'w> Walker<'a, 'w> {
         }
         if BUILTIN_TYPES.contains(&name.name.as_str())
             || (use_kind == PathUse::Value && BUILTIN_FNS.contains(&name.name.as_str()))
+            || (use_kind == PathUse::Value
+                && self.module == self.ws.prelude
+                && STD_BUILTIN_FNS.contains(&name.name.as_str()))
         {
             return Head::Builtin;
         }

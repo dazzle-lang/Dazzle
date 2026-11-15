@@ -444,6 +444,12 @@ pub const BUILTIN_FNS: &[&str] = &[
     "blackbox",
 ];
 
+/// Builtins only `std` may call: the size and alignment of what `p` points at, as the type
+/// it was made as, read through the vtable when that type has one, so a `Box<UiElement>`
+/// holding a `Button` frees a whole `Button` (spec §14.5, T-0229). Not the language's: a
+/// program asks `T::size`.
+pub const STD_BUILTIN_FNS: &[&str] = &["dyn_sizeof", "dyn_alignof"];
+
 /// The compile-time queries every type answers through `::` (spec §5.5), so resolution can
 /// accept `T::size` and `Vec3::is_copyable` without mistaking them for members.
 /// `dz_hir::TypeQuery::from_name` is the authority on what each one means, and a test there

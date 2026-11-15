@@ -1802,3 +1802,66 @@ files written for the other one.
 compiled, went with T-0199, and its second, g++'s inlining, with the inline budget. Its
 estimate of 0.03–0.06 s left predates T-0199; a body edit now recompiles only the module's
 `.cpp`, never its `.inst.cpp`.
+
+## A one-word `Box` (r133; D-0104; T-0229; 2026-11-14)
+
+The user chose, of the four layouts T-0229 laid out, to keep a box's allocator in its
+allocation and reach a derived value's drop and size through the vtable, refusing a `Box`
+conversion to a base with none, and to fix in the same change a crash found while weighing
+them. `Box<T>` is `m_ptr` alone, 8 bytes where it was 24, and `expr`'s `Expr` 32 where it
+was 64 (`T::size`, as `sizeof` in the generated C++ says).
+
+- **The header.** `Box(value)` allocates `max(8, alignof(T))` bytes of header and then the
+  value, at `max(8, alignof(T))`, and writes a `BoxHeader`, the allocator, in the word just
+  before the value, so the drop finds it from `m_ptr` alone whatever the alignment.
+- **The size.** The drop asks `dyn_sizeof(m_ptr)` and `dyn_alignof(m_ptr)`, builtins only
+  `std` can name (`STD_BUILTIN_FNS`, accepted by resolution only in the prelude). In C++ they
+  are `::dz::rt::dyn_size` and `dyn_align`: `p->_dz_size()` where the type has one, else
+  `sizeof(T)`, so a box of a plain struct costs nothing at run time. Every polymorphic struct
+  now declares `_dz_size` and `_dz_align`, `virtual` in the first polymorphic struct of a
+  chain and `override` below it. `destroy` through the box is the virtual destructor.
+- **The virtual destructor** was declared only by a polymorphic struct with no base, so a
+  struct that added the first `virtual` below a base with none, and had no `drop` of its own,
+  had none, and a value deriving from it was destroyed as it. The first polymorphic struct
+  of a chain now declares it.
+- **`DZ0588`**: a `Box<Derived>` where a `Box<Base>` is wanted, `Base` with no `virtual`
+  method. Explained, with `tests/errors`, `typed/` and `typeerrors/` cases. `typed/` had a
+  `Box<Panel>` used as a `Box<Widget>`, which has no `virtual`: it moved to a new pair.
+- **The crash.** An `Rc<Plain>` or `Box<Plain>` of a `Fancy` adding the first `virtual`
+  below `Plain` failed when dropped (`free(): invalid pointer`): `Plain` sits a word into a
+  `Fancy`, after its vtable, and the drop function was handed `Plain`'s address as a
+  `Fancy`'s. `Rc`'s drop now passes the block, and `drop_value_as<T>` finds the value in
+  `RcBlock<T>`; the `Box` conversion is `DZ0588`'s. `tests/run/handle_upcast` has both,
+  and `a_tracked_build_reports_leaks_and_bad_frees` runs it tracked.
+- **What reads a box.** `release.rs` proved a box's drop only frees by reading `m_drop`'s
+  type (T-0218); it now asks of `destroy` whether the type only frees and, when it has a
+  vtable, nothing derives from it (`dyn_only_frees`). So a `Box<Shape>` of a `Shape` with no
+  `virtual`, which can no longer hold a `Circle`, has its drop skipped in a region; the
+  placement test that pinned the opposite gives its `Shape` a `virtual` method. Placement
+  found a container's constructor by a field keeping an allocator, which `Box` no longer
+  has: `holds_allocator` counts a `Box` as keeping one (`Keeps`).
+
+Measured on every benchmark, a baseline `dz` built from `d49cfef` and this one, back to back
+on a quiet machine (`RESULTS.md` is the after):
+
+| Program | Compiler | Before | After | Peak memory before → after |
+|---|---|---:|---:|---:|
+| expr | clang++ | 137 ms (1.02×) | 140 ms (1.04×) | 140.7 → 141.0 MiB |
+| expr | g++ | 134 ms (0.92×) | 127 ms (0.87×) | 141.1 → 140.6 MiB |
+| astar, json, raytrace, words | both | | within 2 ms | unchanged |
+
+A first pair agreed (136 → 140 and 133 → 127 ms), its baseline flagged as run on a busy
+machine. `expr`'s peak is not its trees: each statement's tree is dropped before the next is
+parsed, so what the smaller nodes save is never resident at once. Its g++ release build
+went from 0.80 to 0.65 s.
+
+**Why the time barely moved.** The tree work is about a quarter of the run, and most of it is
+moving a node up through each parser level and dropping the moved-from, null, box behind.
+The old drop reached the value's through a function pointer, so `~Box` was a leaf and both
+compilers inlined it everywhere: the old binary has no call to it. The new one destroys the
+value directly, which drops its boxes, and a compiler inlines nothing into a recursive call:
+clang++'s binary has 43 calls to `~Box`, 4.7% of the run, which is what the smaller nodes
+saved. Keeping only the null test in the drop and the rest in a function of its own made
+clang++ 136 -> 129.5 ms and g++ 133 -> 134.5 ms, g++ then keeping `Expr`'s drop out of line
+instead, so it was not kept. What would fix both is not calling the drop of a value flow
+knows was just moved from.

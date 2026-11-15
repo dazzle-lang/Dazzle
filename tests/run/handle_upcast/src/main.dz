@@ -33,6 +33,31 @@ struct Button : UiElement {
     }
 }
 
+// A struct that adds the first `virtual` below a base with none: in C++ the base is a word
+// into it, after its vtable, so an `Rc<Plain>` points past the start of what it holds and
+// must still drop and free all of it (D-0104). A `Box<Plain>` of one is refused (DZ0588);
+// a `Box<Fancy>` of a `Fancier` is fine.
+struct Plain {
+    pub x: i32 = 0
+}
+
+struct Fancy : Plain {
+    pub y: u64 = 3
+
+    pub virtual fn show(&self) {
+        println!("fancy {} {}", x, y)
+    }
+}
+
+struct Fancier : Fancy {
+    pub label: Label = Label{}
+    pub z: u64 = 5
+
+    override fn show(&self) {
+        println!("fancier {} {} {}", x, y, z)
+    }
+}
+
 fn draw_all(items: &List<Rc<UiElement>>) {
     for &item in items {
         if let &e = item {
@@ -63,4 +88,14 @@ fn main() {
     println!("weak alive {}", weak != null)
     let _ = move(b)
     println!("weak after {}", weak != null)
+
+    let plain: Rc<Plain> = Rc<Fancier>(Fancier{ x: 3, label: Label{ text: "rc fancier" } })
+    if let &p = plain {
+        println!("plain {}", p.x)
+    }
+    let _ = move(plain)
+    let fancy: Box<Fancy> = Box<Fancier>(Fancier{ x: 4, label: Label{ text: "box fancier" } })
+    if let &f = fancy {
+        f.show()
+    }
 }

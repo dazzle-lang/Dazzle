@@ -111,7 +111,11 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
 - **`expr`: parsing is most of the gap.** Every level of the parser returns a union through
   `!->`, and each step costs a default construction, two moves that reset their source, and
   a drop. `Box` is also five times the size of `unique_ptr`
-  ([T-0097](../../docs/tasks/T-0097-moving-union-through-fallible-result-costs.md)). Before
+  ([T-0097](../../docs/tasks/T-0097-moving-union-through-fallible-result-costs.md)); it is
+  one word since 2026-11-14 ([T-0229](../../docs/tasks/T-0229-box-in-one-word-its-allocator.md)),
+  and `Expr` 32 bytes where it was 64, which moved `expr` 2% slower on clang++ and 5% faster
+  on g++, and its peak memory not at all, since each statement's tree is dropped before the
+  next is parsed. Before
   this benchmark, `let tokens = tokenize(...) or { ... }` copied the whole token list twice.
   That is fixed: it now moves, and peak memory went from 298 MiB to 140, below C++'s 151.
 - **`astar`** is 1.3× on g++ and 1.55× on clang. It has not been broken down yet.
