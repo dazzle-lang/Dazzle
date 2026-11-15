@@ -60,7 +60,7 @@ fn built(store: &mut Store) kills store.names@items {
 }
 
 fn copied(word: &String, store: &mut Store) kills store.names@items {
-    store.names.push(word)
+    store.names.push(word.clone())
 }
 
 fn put_back(xs: &mut List<String>) kills xs@items, xs[*] {

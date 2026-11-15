@@ -106,8 +106,16 @@ fn check_body(
     map: &SourceMap,
     diags: &mut Diagnostics,
 ) {
-    let mut cx =
-        Flow { body, table, res, file: body.file, diags, moved: HashMap::new(), quiet: false };
+    let mut cx = Flow {
+        body,
+        table,
+        res,
+        file: body.file,
+        diags,
+        moved: HashMap::new(),
+        cloneable: std::collections::HashSet::new(),
+        quiet: false,
+    };
     cx.body();
     // References used after their memory was killed, and clauses that do not say what
     // the body kills (spec §6.7).
@@ -244,16 +252,16 @@ struct Flow<'a> {
     diags: &'a mut Diagnostics,
     /// Places moved so far, each with the span of the `move` that did it.
     moved: HashMap<Place, Span>,
+    /// The moves nothing wrote whose value can be cloned: a read after one is fixed by
+    /// cloning there instead, which is what the read meant before values moved by default
+    /// (D-0106).
+    cloneable: std::collections::HashSet<Span>,
     /// Set while replaying a loop body to find what it moves. The replay must not report,
     /// or every diagnostic inside a loop would appear twice.
     quiet: bool,
 }
 
 impl<'a> Flow<'a> {
-    fn copyable(&self, t: &Ty) -> bool {
-        self.table.copyable(t)
-    }
-
     fn error(&mut self, d: Diagnostic) {
         if !self.quiet {
             self.diags.push(d);
@@ -500,7 +508,7 @@ impl<'a> Flow<'a> {
     /// (spec §9.4). Anything else is an ordinary value.
     fn consumed(&mut self, e: ExprId) -> bool {
         let ty = self.body.ty(e).clone();
-        if matches!(ty, Ty::Optional(_)) && !self.copyable(&ty) {
+        if matches!(ty, Ty::Optional(_)) && !self.table.plain(&ty) && !self.body.is_clone(e) {
             if let Denotes::Owned(p) = self.denotes(e) {
                 let span = self.body.expr(e).span;
                 self.check_live(&p, span);
@@ -512,41 +520,37 @@ impl<'a> Flow<'a> {
         self.value(e)
     }
 
-    /// An expression whose *value* is wanted. Reading a move-only place here is the copy
-    /// spec §6.3 forbids.
+    /// An expression whose *value* is wanted. A value that is not plain data moves here
+    /// (D-0106): the checker wrote a `Move` around every such read of a place the function
+    /// owns, so what is left is a read written `a.clone()`, a temporary, or a place the
+    /// function cannot move out of.
     fn value(&mut self, e: ExprId) -> bool {
         let ty = self.body.ty(e).clone();
-        if !self.copyable(&ty) && !matches!(self.body.expr(e).kind, hir::ExprKind::Move(_)) {
+        let moves = !self.table.plain(&ty)
+            && !self.body.is_clone(e)
+            && !matches!(self.body.expr(e).kind, hir::ExprKind::Move(_));
+        if moves {
             match self.denotes(e) {
                 // Already moved: `read` below reports that, and it is the more useful of
                 // the two answers — saying "this would copy it" about a value that is not
                 // there any more only buries the real mistake.
                 Denotes::Owned(p) if self.moved.keys().any(|q| q.overlaps(&p)) => {}
+                // The checker moves every such read (`dz_check::moves`), so one left here is
+                // a context the two disagree about: reported, rather than copied silently.
                 Denotes::Owned(_) => {
                     let name = self.type_name(&ty);
                     let why = self
                         .table
                         .move_only_because(&ty)
-                        .unwrap_or_else(|| "it owns a resource".to_owned());
+                        .unwrap_or_else(|| "it is not plain data".to_owned());
                     let span = self.body.expr(e).span;
-                    // A generic parameter or a projection of one has no declaration of its
-                    // own to give a `copy` to; its bound is what says it copies.
-                    let help = if dz_hir::ty::is_abstract(&ty) {
-                        format!("{why} — write `move(…)` to transfer ownership")
-                    } else {
-                        format!(
-                            "{why} — write `move(…)` to transfer ownership, or give \
-                             `{name}` an `impl Clone` to make it copyable (spec §6.3)"
-                        )
-                    };
-                    self.error(
-                        Diagnostic::error(
-                            codes::IMPLICIT_COPY,
-                            format!("`{name}` is move-only and cannot be copied"),
-                        )
-                        .at(self.file, span, "this would copy it")
-                        .with_help(help),
-                    );
+                    let d = Diagnostic::error(
+                        codes::IMPLICIT_COPY,
+                        format!("`{name}` would be copied here, and is not plain data"),
+                    )
+                    .at(self.file, span, "this would copy it");
+                    let d = self.clone_fix(d, &ty, span, why);
+                    self.error(d);
                 }
                 Denotes::Borrowed => {
                     let name = self.type_name(&ty);
@@ -556,23 +560,38 @@ impl<'a> Flow<'a> {
                     } else {
                         ("a reference", "this is borrowed, not owned")
                     };
-                    self.error(
-                        Diagnostic::error(
-                            codes::MOVE_OUT_OF_BORROW,
-                            format!("`{name}` cannot be taken out of {from}"),
-                        )
-                        .at(self.file, span, label)
-                        .with_help(
-                            "a move-only value can only be moved out of something the \
-                             function owns, since the source has to be reset to its \
-                             defaults (spec §6.4)",
-                        ),
-                    );
+                    let d = Diagnostic::error(
+                        codes::MOVE_OUT_OF_BORROW,
+                        format!("`{name}` cannot be moved out of {from}"),
+                    )
+                    .at(self.file, span, label);
+                    let why = "a value is moved only out of something the function owns, since \
+                               the source is reset to its defaults (spec §6.4)"
+                        .to_owned();
+                    let d = self.clone_fix(d, &ty, span, why);
+                    self.error(d);
                 }
                 Denotes::Temporary => {}
             }
         }
         self.read(e)
+    }
+
+    /// `help:` saying why, and for a type that can be cloned, the fix that clones it: a
+    /// value read where it may not be moved is a copy, and `.clone()` is how a copy is
+    /// written (D-0106). Certain, since it is what the read meant before values moved by
+    /// default, and `dz fix` migrates a program by it.
+    fn clone_fix(&self, d: Diagnostic, ty: &Ty, span: Span, why: String) -> Diagnostic {
+        if !self.table.copyable(ty) {
+            return d.with_help(why);
+        }
+        let edit = dz_diag::Edit {
+            file: self.file,
+            span: Span { start: span.end, end: span.end },
+            text: ".clone()".to_owned(),
+        };
+        d.with_help(format!("{why}; write `.clone()` for a copy"))
+            .with_fix("write `.clone()`", vec![edit])
     }
 
     /// An expression evaluated for its effects and its sub-reads, but not copied: the base
@@ -635,6 +654,10 @@ impl<'a> Flow<'a> {
                         // A move ends its source whatever the type: a copyable value is
                         // moved-from afterwards like any other (spec §6.4, §18.33).
                         self.moved.insert(p, span);
+                        // One the checker wrote has its operand's span (`dz_check::moves`).
+                        if self.body.expr(inner).span == span && self.table.copyable(&ty) {
+                            self.cloneable.insert(span);
+                        }
                     }
                     Denotes::Borrowed => {
                         let name = self.type_name(&ty);
@@ -802,7 +825,14 @@ impl<'a> Flow<'a> {
 
             hir::ExprKind::Return(v) => {
                 if let Some(v) = v {
-                    self.value(v);
+                    // `return x` of a whole local is a move C++ already makes, and the
+                    // checker leaves it unwritten so the value can be built in place
+                    // (`dz_check::moves`): nothing after it can see the local again.
+                    if matches!(self.body.expr(v).kind, hir::ExprKind::Local(_)) {
+                        self.read(v);
+                    } else {
+                        self.value(v);
+                    }
                     self.kept_view(v);
                 }
                 true
@@ -890,16 +920,20 @@ impl<'a> Flow<'a> {
                 self.file,
                 span,
                 if looped {
-                    "this runs more than once, and the second time `move` finds nothing here"
+                    "this runs more than once, and the second time it finds nothing here"
                 } else {
                     "used here after the move"
                 },
             )
             .with_secondary(self.file, at, "moved here")
-            .with_help(
+            .with_help(if self.cloneable.contains(&at) {
+                "a value that is not plain data moves when it is used by value, and a \
+                 moved-from value is left at its defaults (spec §6.4); to keep this one, \
+                 move a copy of it: write `.clone()` where it moved"
+            } else {
                 "a moved-from value is left at its defaults, and reading it back would \
-                 almost never be what was meant (spec §6.4)",
-            )
+                 almost never be what was meant (spec §6.4)"
+            })
         } else {
             let field = self.field_path(&q);
             Diagnostic::error(
@@ -912,6 +946,18 @@ impl<'a> Flow<'a> {
                 "move the remaining fields out one at a time, or move the whole value \
                  before taking any field out of it (spec §6.4)",
             )
+        };
+        // A move nothing wrote, of a value that can be cloned, is what was a copy before
+        // values moved by default; writing `.clone()` there keeps it one (D-0106).
+        let d = if self.cloneable.contains(&at) {
+            let edit = dz_diag::Edit {
+                file: self.file,
+                span: Span { start: at.end, end: at.end },
+                text: ".clone()".to_owned(),
+            };
+            d.with_fix("clone it where it moved: write `.clone()`", vec![edit])
+        } else {
+            d
         };
         self.error(d);
     }

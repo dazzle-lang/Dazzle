@@ -27,14 +27,14 @@ impl Drop for Holder {
 
 impl Clone for Holder {
     fn clone(&mut self, other: &Self) {
-        name = other.name
-        tracked = other.tracked
+        name = other.name.clone()
+        tracked = other.tracked.clone()
     }
 }
 
 fn main() {
     let mut a = Holder{ name: String("a"), tracked: Tracked{ id: 1 } }
-    let b = a                // a copy: Tracked's copy runs once
+    let b = a.clone()                // a copy: Tracked's copy runs once
     let c = move(a)          // a move: no copy, and `a` is left at its defaults
     println!("{} {} {}", b.name, c.name, c.tracked.id)
 }

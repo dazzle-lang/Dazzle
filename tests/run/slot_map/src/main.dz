@@ -107,7 +107,7 @@ fn copying() {
     let mut ids = SlotMap<i32>(4)
     let a = ids.insert(1)
     let b = ids.insert(2)
-    let copy = ids
+    let copy = ids.clone()
     let _ = ids.remove(a)
     println!("copy has a: {} original has a: {} b in both: {}", copy.contains(a), ids.contains(a), copy.get(b) != null && ids.get(b) != null)
 

@@ -4,7 +4,7 @@ pub struct Grid<T> {
     pub cells: List<T> = List<T>()
 
     /// A method generic over something other than the element.
-    pub fn fold<A: Clone>(&self, start: A, step: fn(A, &T) -> A) -> A {
+    pub fn fold<A: Clone>(&self, start: A, step: fn(A, &T) -> A) -> A in start@home {
         let mut acc = start
         for &c in self.cells.iter() {
             acc = step(acc, c)
@@ -17,7 +17,7 @@ pub struct Grid<T> {
         let mut g = Grid<T>{}
         let mut i: usize = 0
         while i < n {
-            g.cells.push(make(value))
+            g.cells.push(make(value.clone()))
             i += 1
         }
         return move(g)

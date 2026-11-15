@@ -361,7 +361,7 @@ fn moving(slot: ^mut i32) -> bool {
 
 // §6.3: a type with a `copy` needs no `move` at all.
 fn copying(c: Copyable) -> i32 {
-    let a = c
+    let a = c.clone()
     return a.n + c.n
 }
 
@@ -803,8 +803,8 @@ fn read_through(p: ^Vec3, pp: ^^mut Vec3) -> f32 {
 }
 
 // §8.2: a `T: Clone` may be copied, where an unbounded `T` is move-only.
-fn twice<T: Clone>(x: T) -> (T, T) {
-    return (x, x)
+fn twice<T: Clone>(x: T) -> (T, T) in x@home {
+    return (x.clone(), x)
 }
 
 fn copies() -> i32 {
@@ -914,7 +914,7 @@ impl<T: Clone> Clone for Held<T> {
 }
 
 fn copies_where_it_may(h: Held<i32>) -> Held<i32> {
-    let again = h
+    let again = h.clone()
     return again
 }
 
@@ -941,7 +941,7 @@ fn by_value(v: Vec3) -> f32 {
 }
 
 fn generic_copy_out_of_a_reference<T: Clone>(r: &T) -> T {
-    return r
+    return r.clone()
 }
 
 // §9: comparing an optional with `none` asks whether it is empty, from either side.
@@ -1021,7 +1021,7 @@ fn reads_a_widget(w: &Widget) -> i32 {
 // §14.5, 18.64: a handle to a derived struct is a handle to its base, through any depth.
 // A `Box` converts only to a base with a vtable (D-0104): `boxes_to_a_base` below.
 fn handles_to_a_base(d: Rc<Dialog>) -> usize {
-    let shared: Rc<Widget> = d
+    let shared: Rc<Widget> = d.clone()
     let watcher: Weak<Widget> = Weak<Dialog>(&d)
     let mut widgets = List<Rc<Widget>>()
     widgets.push(d)
@@ -1483,8 +1483,8 @@ fn pointed(h: ^Heading, m: ^mut Heading, n: ^i32) !-> usize {
 struct Shelf<T> {
     pub item: T
 
-    pub fn paired<U: Clone>(&self, other: U) -> (U, U) {
-        return (other, other)
+    pub fn paired<U: Clone>(&self, other: U) -> (U, U) in other@home {
+        return (other.clone(), other)
     }
 
     pub fn take<U>(first: U, second: U) -> U in first@home {
@@ -1691,7 +1691,7 @@ fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> u
     let at = xs.index_of(&2) or 0
     let first = xs.first() or return 0
     let mut by_cells = HashMap<List<i32>, bool>()
-    by_cells.insert(xs, true)
+    by_cells.insert(xs.clone(), true)
     let hero = names.get_mut_str("hero") or return 0
     hero += 1
     let count = names.get_or_insert(String::from("wall"), 0)
@@ -1751,7 +1751,7 @@ struct Holder<T: Clone> {
     }
 
     pub fn get(&self) -> T {
-        return held
+        return held.clone()
     }
 }
 
@@ -2071,7 +2071,7 @@ pub struct Bookshelf {
     tie [*] = m_books[*]
     tie @counts = m_count
 
-    pub fn add(&mut self, title: String) kills self@items {
+    pub fn add(&mut self, title: String) kills self@items sends title to self {
         m_books.push(title)
     }
 

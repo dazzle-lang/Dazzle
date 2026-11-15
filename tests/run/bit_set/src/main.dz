@@ -48,11 +48,11 @@ fn main() {
     for n in in_b {
         b.insert(n)
     }
-    let mut u = a
+    let mut u = a.clone()
     u.union_with(&b)
-    let mut i = a
+    let mut i = a.clone()
     i.intersect_with(&b)
-    let mut d = a
+    let mut d = a.clone()
     d.difference_with(&b)
     let mut grown = b
     grown.union_with(&a)

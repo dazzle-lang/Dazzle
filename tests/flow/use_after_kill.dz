@@ -4,7 +4,7 @@
 // and so does one a call returns inside a struct or a tuple: an iterator, a split.
 // expect: DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413, DZ0413
 
-fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] {
+fn counting(counts: &mut HashMap<String, i32>, k: String, o: String) kills counts@items, counts[*] sends k to counts, o to counts {
     let n = counts.get_or_insert(k, 0)
     counts.insert(o, 1)
     n += 1

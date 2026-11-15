@@ -23,14 +23,14 @@ struct Pair<T: Clone> {
     pub a: T
     pub b: T
 
-    pub fn both(v: T) -> Pair<T> {
-        return Pair<T>{ a: v, b: v }
+    pub fn both(v: T) -> Pair<T> in v@home {
+        return Pair<T>{ a: v.clone(), b: v }
     }
 
     // Inside the type, a bare `Pair` is `Pair<T>`.
     pub fn swapped(&self) -> Pair<T> {
-        let p = Pair::both(b)
-        return Pair<T>{ a: p.a, b: a }
+        let p = Pair::both(b.clone())
+        return Pair<T>{ a: p.a, b: a.clone() }
     }
 }
 

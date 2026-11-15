@@ -66,9 +66,13 @@ fn main() {
 
 ## DZ0403
 
-A move-only value — one that owns something — is never copied by accident (spec §6.3): to
-hand it to a binding, a parameter or a field, write `move(…)`, which says the old place
-gives it up. A type that should be copyable implements `Clone`.
+A value that owns something is copied only by `a.clone()`, and only when its type is
+`Clone` (spec §6.3, D-0106): plain data is `Clone` by its shape, and a type that owns
+something by an `impl Clone`. One that is neither — a type with a `drop` and no `clone`, or a
+`T` with no `Clone` bound — cannot be copied at all, so asking for a copy of it is this
+error. Hand the value on instead, which moves it, or give the type an `impl Clone`. A `for`,
+`if let` or `case` binding that would copy such a value is the same mistake: refer to it
+with `&e`.
 
 ```dz
 struct Ticket {
@@ -87,7 +91,7 @@ fn redeem(t: Ticket) {
 
 fn main() {
     let t = Ticket{ id: 7 }
-    redeem(t)
+    redeem(t.clone())
 }
 ```
 
@@ -108,7 +112,7 @@ fn redeem(t: Ticket) {
 
 fn main() {
     let t = Ticket{ id: 7 }
-    redeem(move(t))
+    redeem(t)
 }
 ```
 
@@ -615,7 +619,7 @@ fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
 fn main() {
     let mut ys = List<String>()
     ys.push(String("a"))
-    let copy = ys
+    let copy = ys.clone()
     append_copy(&mut ys, &copy)
     println!("{}", ys.len())
 }

@@ -112,8 +112,8 @@ pub struct Counter {
         return move(v)
     }
 
-    pub fn twice<T: Clone>(&self, v: T) -> (T, T) {
-        return (v, v)
+    pub fn twice<T: Clone>(&self, v: T) -> (T, T) in v@home {
+        return (v.clone(), v)
     }
 
     pub fn wrap<T>(v: T) -> T in v@home {

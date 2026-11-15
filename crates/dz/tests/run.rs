@@ -1877,11 +1877,11 @@ pub struct Cell<T: Clone> {
     }
 
     fn inner(&self) -> T {
-        return self.value
+        return self.value.clone()
     }
 
     pub fn unused(&self) -> T {
-        return self.value
+        return self.value.clone()
     }
 
     pub virtual fn describe(&self) -> i32 {

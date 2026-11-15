@@ -140,7 +140,7 @@ fn lists() {
     let mut p = List<i32>()
     p.push(1)
     p.push(2)
-    let q = p
+    let q = p.clone()
     let mut r = List<i32>()
     r.push(2)
     r.push(1)
@@ -223,7 +223,7 @@ fn sets() {
     for &v in seen {
         sum += v
     }
-    let copy = seen
+    let copy = seen.clone()
     println!("evens {} sum {} copy {}", seen.len(), sum, copy.len())
 
     let mut words = HashSet<String>()

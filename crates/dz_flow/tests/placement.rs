@@ -64,8 +64,8 @@ fn printed() -> i32 {
     println!("{}", s)
     let mut counts = HashMap<String, i32>()
     let word = String::from("w")
-    counts.insert(word, 1)
-    let copy = word
+    counts.insert(word.clone(), 1)
+    let copy = word.clone()
     return counts.len() as i32 + copy.byte_len() as i32
 }
 
@@ -793,7 +793,7 @@ fn optional() -> List<i32>? {
 fn kept_inside() -> usize {
     let mut outer = List<i32>()
     let h = Holder{ items: List<i32>() }
-    outer = h.items
+    outer = h.items.clone()
     return outer.len() + h.items.len()
 }
 fn main() {
@@ -1286,34 +1286,34 @@ struct Named {
 
 impl Clone for Named {
     fn clone(&mut self, other: &Self) {
-        name = other.name
-        tags = other.tags
+        name = other.name.clone()
+        tags = other.tags.clone()
     }
 }
 
 // Placed: a copy pushed into a local list, and one in a struct literal.
 fn kept(word: &String, store: &Store) -> usize {
     let mut names = List<String>()
-    names.push(word)
-    let s = Store{ names: store.names }
+    names.push(word.clone())
+    let s = Store{ names: store.names.clone() }
     return names.len() + s.names.len()
 }
 
 // The caller's: a copy returned.
 fn returned(store: &Store) -> List<String> {
-    return store.names
+    return store.names.clone()
 }
 
 // Heap: pushed into a list the caller lent.
 fn stored(word: &String, store: &mut Store) kills store.names@items {
-    store.names.push(word)
+    store.names.push(word.clone())
 }
 
 // Heap: a copy made on every pass, kept by a list outside the loop that does not keep it.
 fn churned(word: &String, n: i32) -> usize {
     let mut names = List<String>()
     for _ in 0..n {
-        names.push(word)
+        names.push(word.clone())
         names.clear()
     }
     return names.len()
@@ -1324,7 +1324,7 @@ fn main() {
     let w = String::from("w")
     stored(&w, &mut store)
     let n = Named{ name: String::from("n"), tags: List<String>() }
-    let m = n
+    let m = n.clone()
     println!("{} {} {} {}", kept(&w, &store), returned(&store).len(), churned(&w, 2), m.tags.len())
 }
 "#;
@@ -1735,7 +1735,7 @@ fn kept() -> usize {
     grown.resize(4)
     let key = List<i32>()
     let mut keyed = HashMap<List<i32>, i32>()
-    keyed.insert(key, 1)
+    keyed.insert(key.clone(), 1)
     let mut a = String::from("a")
     a = String::from("b")
     let mut r = String::from("r")
@@ -1949,7 +1949,7 @@ fn create_strings() -> String {
     strings[100].push_str(" - changed too")
     println!("{}", selected)
     strings.push(String("One more string"))
-    return strings[500]
+    return strings[500].clone()
 }
 
 fn replaced(n: i32) -> usize {

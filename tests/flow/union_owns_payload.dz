@@ -1,6 +1,6 @@
 // Spec §7.5, 18.52: a union owns its active payload, so a union with a move-only variant —
-// here one carrying a struct with a `drop` — is itself move-only, and copying it without
-// `move` is the same mistake as copying the struct.
+// here one carrying a struct with a `drop` — is itself move-only, and cloning it is the
+// same mistake as cloning the struct (D-0106).
 // expect: DZ0403
 
 pub struct Res {
@@ -17,7 +17,7 @@ pub union Slot {
 }
 
 fn copied(s: Slot) -> bool {
-    let other = s
+    let other = s.clone()
     return switch other {
         case Empty { false }
         case Res { true }

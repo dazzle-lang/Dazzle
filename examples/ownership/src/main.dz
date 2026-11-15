@@ -112,7 +112,7 @@ impl<T: Clone> Clone for Shelf<T> {
         m_data = self.take(other.m_cap)
         unsafe {
             for i in 0..other.m_len {
-                construct(m_data[i], other.m_data[i])
+                construct(m_data[i], other.m_data[i].clone())
             }
         }
         m_cap = other.m_cap
@@ -132,7 +132,7 @@ fn main() {
     fiction.push(Book{ title: "Hyperion", year: 1989 })
 
     // A copy: Book is copyable, so `impl<T: Clone> Copy` covers Shelf<Book>.
-    let mut backup = fiction
+    let mut backup = fiction.clone()
     backup.label = "backup"
 
     // A move: `fiction` is reset to its defaults, and reading it again would not compile

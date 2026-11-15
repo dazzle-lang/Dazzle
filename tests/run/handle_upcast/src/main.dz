@@ -73,9 +73,9 @@ fn keep(e: Rc<UiElement>) -> usize {
 fn main() {
     let b = Rc<Button>(Button{ x: 1, label: Label{ text: "ok" } })
     let mut items = List<Rc<UiElement>>()
-    items.push(b)
+    items.push(b.clone())
     items.push(Rc<UiElement>(UiElement{ x: 5 }))
-    println!("count {} passed {}", b.count(), keep(b))
+    println!("count {} passed {}", b.count(), keep(b.clone()))
     let weak: Weak<UiElement> = Weak<Button>(&b)
     draw_all(&items)
 

@@ -43,7 +43,7 @@ fn main() {
 
     // Copying shares; dropping a copy counts down.
     {
-        let other = s.texture
+        let other = s.texture.clone()
         println!("shared count {}", other.count())
     }
     println!("back to {}", s.texture.count())
@@ -75,7 +75,7 @@ fn main() {
     }
     let mut empty: Rc<i32> = null
     println!("empty {}", if let v = empty { v } else { 7 })
-    empty = n
+    empty = n.clone()
     println!("count {}", empty.count())
 
     // `Box`: one owner.

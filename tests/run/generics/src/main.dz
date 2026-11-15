@@ -114,7 +114,7 @@ impl<T: Clone> Clone for Buffer<T> {
                 memcpy(m_data, other.m_data, other.m_len * sizeof(T))
             } else {
                 for i in 0..other.m_len {
-                    construct(m_data[i], other.m_data[i])
+                    construct(m_data[i], other.m_data[i].clone())
                 }
             }
         }

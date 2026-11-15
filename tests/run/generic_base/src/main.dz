@@ -11,10 +11,10 @@ struct Panel<T: Clone> {
     }
 
     pub fn get(&self) -> T {
-        return value
+        return value.clone()
     }
 
-    pub fn set(&mut self, v: T) kills self.value {
+    pub fn set(&mut self, v: T) kills self.value sends v to self {
         value = v
     }
 

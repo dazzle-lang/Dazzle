@@ -43,7 +43,7 @@ fn main() {
     let removed = b.remove(3)
     let swapped = b.swap_remove(0)
     println!("{} {} {} {} {} {}", b.len(), last, removed, swapped, b[0], sum(b.as_slice()))
-    let c = b
+    let c = b.clone()
     b.clear()
     println!("{} {} {}", b.len(), c.len(), c[1])
 
@@ -61,7 +61,7 @@ fn main() {
     s.push_str(", world")
     s.push('!')
     s.push('\u{e9}')
-    let copy = s
+    let copy = s.clone()
     let same = copy == s
     println!("{} {} {} {} {}", s.as_str(), s.byte_len(), same, String::from("x").byte_len(), s.as_cstr())
     // `push`'s ASCII path writes where the closing zero was: from empty, between other

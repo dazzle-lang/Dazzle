@@ -75,7 +75,7 @@ fn field_by_field(h: Holder) -> bool {
 
 // A copyable type needs no `move` anywhere.
 fn copies_are_fine(t: Tally) -> i32 {
-    let a = t
+    let a = t.clone()
     let b = t
     return a.n + b.n
 }
@@ -87,7 +87,7 @@ pub union Counted {
 }
 
 fn union_copies_are_fine(c: Counted) -> bool {
-    let a = c
+    let a = c.clone()
     let b = c
     return switch a {
         case Nothing { true }

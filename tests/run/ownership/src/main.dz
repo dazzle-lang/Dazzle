@@ -93,7 +93,7 @@ fn main() {
 
     // §6.3: `copy` runs on a defaults-initialised object, so `d.n` is the body's answer.
     let c = Counted(1)
-    let d = c
+    let d = c.clone()
     println!("copied: {} {}", c.n, d.n)
 
     // §6.5: drop at the end of the enclosing scope, not at the end of the function.

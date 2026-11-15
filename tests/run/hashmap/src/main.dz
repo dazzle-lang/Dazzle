@@ -177,7 +177,7 @@ fn copying() {
     let mut a = HashMap<i32, i32>()
     a.insert(1, 10)
     a.insert(2, 20)
-    let mut b = a
+    let mut b = a.clone()
     b.insert(3, 30)
     let two = 2
     let three = 3

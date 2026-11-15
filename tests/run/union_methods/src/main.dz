@@ -63,7 +63,7 @@ union Slot<T: Clone> {
     pub fn or_else(&self, fallback: T) -> T in fallback@home {
         return switch self {
             case Empty { fallback }
-            case Full(&f) { f.value }
+            case Full(&f) { f.value.clone() }
         }
     }
 }

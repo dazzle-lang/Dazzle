@@ -47,12 +47,12 @@ fn edits() {
 
 fn copies() {
     let mut long = String("a string longer than fifteen")
-    let copied = long
+    let copied = long.clone()
     long.push_str("!")
     show("original", &long)
     show("copy", &copied)
     let mut tiny = String("tiny")
-    let also = tiny
+    let also = tiny.clone()
     tiny.push('!')
     show("tiny", &tiny)
     show("its copy", &also)

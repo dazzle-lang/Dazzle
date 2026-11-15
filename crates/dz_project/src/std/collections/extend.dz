@@ -34,7 +34,7 @@ impl<T: Clone> Extend<T> for List<T> {
             unsafe { memcpy(&mut m_data[i], &xs[0], xs.len * sizeof(T)) }
         } else {
             for k in 0..xs.len {
-                unsafe { construct(m_data[i + k], xs[k]) }
+                unsafe { construct(m_data[i + k], xs[k].clone()) }
             }
         }
         m_len += xs.len
@@ -42,7 +42,7 @@ impl<T: Clone> Extend<T> for List<T> {
 
     fn fill(&mut self, v: T) {
         for i in 0..m_len {
-            unsafe { m_data[i] = v }
+            unsafe { m_data[i] = v.clone() }
         }
     }
 }

@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 249
 expression: r.hir
 ---
 body ctor BinaryHeap#0 -> void
@@ -20726,7 +20725,8 @@ body fn twice -> (T, T)
     return: !
       tuple: (T, T)
         local _0 x: T
-        local _0 x: T
+        move: T
+          local _0 x: T
 body fn copies -> i32
   block
     let _0 t: (i32, i32)
@@ -21100,9 +21100,11 @@ body fn handles_to_a_base -> usize
       call-ctor List#0: List<Rc<Widget>>
     call-method List::push: void
       local _3 widgets: List<Rc<Widget>>
-      local _0 d: Rc<Dialog>
+      move: Rc<Dialog>
+        local _0 d: Rc<Dialog>
     let _: _
-      local _2 watcher: Weak<Widget>
+      move: Weak<Widget>
+        local _2 watcher: Weak<Widget>
     return: !
       binary +: usize
         call-method Rc::count: usize
@@ -22302,7 +22304,8 @@ body method Shelf::paired -> (U, U)
     return: !
       tuple: (U, U)
         local _1 other: U
-        local _1 other: U
+        move: U
+          local _1 other: U
 body method Shelf::take -> U
   param _0 first: U
   param _1 second: U
@@ -23104,7 +23107,8 @@ body ctor Holder#0 -> void
     assign =
       field #0: T
         local _0 self: Holder<T>
-      local _1 held: T
+      move: T
+        local _1 held: T
 body method Holder::get -> T
   param _0 self: Holder<T>
   block
@@ -23627,7 +23631,8 @@ body method Bookshelf::add -> void
     call-method List::push: void
       field #0: List<String>
         local _0 self: Bookshelf
-      local _1 title: String
+      move: String
+        local _1 title: String
 body method Bookshelf::title -> &str
   param _0 self: Bookshelf
   param _1 i: usize

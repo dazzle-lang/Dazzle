@@ -14,7 +14,7 @@ fn two_handles() {
     let mut list = List<String>()
     list.push(String::from("a"))
     let mut a = Rc<List<String>>(move(list))
-    let b = a
+    let b = a.clone()
     if let &mut dst = a {
         if let &src = b {
             append_copy(&mut dst, &src)
@@ -57,8 +57,8 @@ fn main() {
     let mut list = List<String>()
     list.push(String::from("a"))
     let a = Rc<List<String>>(move(list))
-    let mut c = a
-    kept_across_a_kill(a, &mut c)
+    let mut c = a.clone()
+    kept_across_a_kill(a.clone(), &mut c)
     one_handle(&mut c)
     let mut numbers = Rc<List<i32>>(List<i32>())
     two_types(a, &mut numbers)

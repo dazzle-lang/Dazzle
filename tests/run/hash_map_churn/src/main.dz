@@ -109,7 +109,7 @@ fn the_rest() {
         asked += v
     }
     println!("retained {} each asked {}", m.len(), asked == 25)
-    let copy = m
+    let copy = m.clone()
     m.clear()
     println!("cleared {} copy {} has 49 {}", m.len(), copy.len(), copy.contains(&49))
     m.insert(1, 1)

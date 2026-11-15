@@ -23,11 +23,11 @@ struct Pair<A: Clone> {
 
     /// The type's parameter and the method's side by side.
     pub fn with<B>(&self, second: B) -> (A, B) in second@home {
-        return (first, move(second))
+        return (first.clone(), move(second))
     }
 
     /// A generic method calling another generic method on the same value.
-    pub fn both<B: Clone>(&self, b: B) -> (A, B) {
+    pub fn both<B: Clone>(&self, b: B) -> (A, B) in b@home {
         return self.with<B>(b)
     }
 }
@@ -45,7 +45,7 @@ struct Maker {
 
 /// A generic function calling a generic method: the method's instance comes from this
 /// function's instance.
-fn wrap<T: Clone>(v: T) -> (i32, T) {
+fn wrap<T: Clone>(v: T) -> (i32, T) in v@home {
     let p = Pair<i32>{ first: 1 }
     return p.both(v)
 }

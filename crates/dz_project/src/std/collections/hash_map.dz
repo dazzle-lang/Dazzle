@@ -126,7 +126,7 @@ pub struct HashMap<K: Hash + Eq, V> {
             let mut hits = match_tag(group, tag)
             while hits != 0 {
                 let i = (at + first_byte(hits)) & mask
-                if same(unsafe { &m_keys[i] }, key) {
+                if same(unsafe { &m_keys[i] }, key.clone()) {
                     return i
                 }
                 hits = hits & (hits - 1)
@@ -567,8 +567,8 @@ impl<K: Hash + Eq + Clone, V: Clone> Clone for HashMap<K, V> {
         for i in 0..m_slots {
             if (unsafe { other.m_ctrl[i] } & 0x80) == 0 {
                 unsafe {
-                    construct(m_keys[i], other.m_keys[i])
-                    construct(m_values[i], other.m_values[i])
+                    construct(m_keys[i], other.m_keys[i].clone())
+                    construct(m_values[i], other.m_values[i].clone())
                 }
             }
         }

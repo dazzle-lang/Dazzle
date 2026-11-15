@@ -265,7 +265,7 @@ impl<T: Clone> Clone for Deque<T> {
         m_cap = other.m_len
         for i in 0..other.m_len {
             unsafe {
-                construct(m_data[i], other.m_data[other.slot(i)])
+                construct(m_data[i], other.m_data[other.slot(i)].clone())
             }
         }
         m_len = other.m_len

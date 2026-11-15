@@ -38,7 +38,7 @@ fn tell(prefix: &str, things: ..&Describe) {
     }
 }
 
-fn biggest<T: Ord + Clone>(first: T, rest: ..T) -> T {
+fn biggest<T: Ord + Clone>(first: T, rest: ..T) -> T in first@home {
     let mut best = first
     for x in rest {
         if x > best {

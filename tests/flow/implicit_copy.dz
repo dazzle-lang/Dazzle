@@ -1,4 +1,5 @@
-// Spec §6.3: a move-only type cannot be assigned or passed by value without `move`.
+// Spec §6.3, D-0106: a type that owns something and has no `impl Clone` cannot be copied;
+// handing it on moves it, and `.clone()` asks for what it cannot do.
 // expect: DZ0403
 
 pub struct Res {
@@ -14,6 +15,6 @@ impl Drop for Res {
 }
 
 fn copied(r: Res) -> bool {
-    let other = r
-    return other.live()
+    let other = r.clone()
+    return other.live() && r.live()
 }

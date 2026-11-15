@@ -19,7 +19,7 @@ fn main() {}
 
 ```dz
 fn first<T: Clone>(xs: &[]T) -> T {
-    return xs[0]
+    return xs[0].clone()
 }
 
 fn main() {

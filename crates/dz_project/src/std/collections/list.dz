@@ -557,7 +557,7 @@ impl<T: Clone> Clone for List<T> {
         m_data = unsafe { a.alloc(other.m_len * sizeof(T), alignof(T)) as ^mut T }
         m_cap = other.m_len
         for i in 0..other.m_len {
-            unsafe { construct(m_data[i], other.m_data[i]) }
+            unsafe { construct(m_data[i], other.m_data[i].clone()) }
         }
         m_len = other.m_len
     }

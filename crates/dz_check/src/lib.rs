@@ -27,6 +27,7 @@ use dz_span::{FileId, SourceMap, Span};
 mod build;
 mod check;
 mod impls;
+mod moves;
 pub mod ties;
 
 /// The type model lives in `dz_hir`, since the HIR stores a `Ty` on every node and
@@ -918,6 +919,50 @@ impl TypeTable {
         // carries on with that question's stack: see `COPY_STACK`.
         let mut stack = COPY_STACK.with(|s| s.borrow().clone());
         self.copyable_guarded(ty, &mut stack)
+    }
+
+    /// Is this plain data, which copies by itself (spec §6.3, D-0106)? A type that is
+    /// [`TypeTable::copyable`] with no `impl Clone` anywhere in it: no `drop`, no `own`
+    /// field, no `clone` of its own, every field plain. A copy and a move of it are the
+    /// same bytes, so a program cannot tell them apart; anything else moves, and is copied
+    /// only by `a.clone()`. A type parameter is never plain, whatever its bounds: a generic
+    /// body moves a `T`, so it means one thing for every instance (D-0033).
+    pub fn plain(&self, ty: &Ty) -> bool {
+        self.copyable(ty) && !self.clones_itself(ty, &mut Vec::new())
+    }
+
+    /// Whether some part of `ty` is copied by code, an `impl Clone`'s, or may be: a type
+    /// parameter.
+    fn clones_itself(&self, ty: &Ty, stack: &mut Vec<SymbolId>) -> bool {
+        match ty {
+            Ty::Param(_) | Ty::Assoc(_) => true,
+            Ty::Array { elem: inner, .. } | Ty::Optional(inner) => self.clones_itself(inner, stack),
+            Ty::Tuple(parts) => parts.iter().any(|t| self.clones_itself(t, stack)),
+            Ty::Named { sym, args } => {
+                if stack.contains(sym) {
+                    return false;
+                }
+                stack.push(*sym);
+                let answer = match self.get(*sym) {
+                    Some(ItemSig::Struct(s)) => {
+                        s.copy.is_some()
+                            || self
+                                .field_types(*sym, args, &s.fields)
+                                .iter()
+                                .any(|t| self.clones_itself(t, stack))
+                    }
+                    Some(ItemSig::Union { variants, .. }) => variants.iter().any(|v| {
+                        self.payload_types(*sym, args, v)
+                            .iter()
+                            .any(|t| self.clones_itself(t, stack))
+                    }),
+                    _ => false,
+                };
+                stack.pop();
+                answer
+            }
+            _ => false,
+        }
     }
 
     /// Is this an imported handle — a C struct whose header never defines it (spec §15.2)?

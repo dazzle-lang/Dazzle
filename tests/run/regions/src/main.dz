@@ -35,7 +35,7 @@ fn evens(n: i32) -> List<i32> {
 
 // Copies what it is lent into a store that outlives the lender's region.
 fn keep(store: &mut Store, xs: &List<i32>) kills store.saved {
-    store.saved = xs
+    store.saved = xs.clone()
 }
 
 // Fills a region of its own, reusing the chunks the last region gave back, so anything
@@ -116,7 +116,7 @@ fn distinct(text: &str) -> i32 {
         if let &mut n = counts.get_mut_str(word.as_str()) {
             n += 1
         } else {
-            counts.insert(word, 1)
+            counts.insert(word.clone(), 1)
         }
     }
     let mut most = 0
@@ -419,7 +419,7 @@ fn create_strings() -> String {
     println!("{}", selected)
     strings.push(String("One more string"))
     churn()
-    return strings[500]
+    return strings[500].clone()
 }
 
 // `append` moves in the elements of a list that was lent, so they are on the heap: the
@@ -484,7 +484,7 @@ fn tallied(text: &str) -> usize {
         if let &mut n = counts.get_mut_str(word.as_str()) {
             n += 1
         } else {
-            counts.insert(word, 1)
+            counts.insert(word.clone(), 1)
         }
     }
     let mut total: usize = 0
@@ -505,7 +505,7 @@ fn labelled(n: i32) -> usize {
 
 // A copy into a list the caller lent keeps the heap: the list outlives this region.
 fn lend_copy(store: &mut Store, word: &String) kills store.names@items {
-    store.names.push(word)
+    store.names.push(word.clone())
     churn()
 }
 
@@ -517,8 +517,8 @@ struct Named {
 // A `copy` of its own builds both fields where the copy is placed (T-0140).
 impl Clone for Named {
     fn clone(&mut self, other: &Self) {
-        name = other.name
-        tags = other.tags
+        name = other.name.clone()
+        tags = other.tags.clone()
     }
 }
 
@@ -528,14 +528,14 @@ struct Holder {
 
 // A copy returned: built where the caller keeps it.
 fn named_of(h: &Holder) -> Named {
-    return h.named
+    return h.named.clone()
 }
 
 // A copy bound by `let`, in this region, which outlives nothing it copied.
 fn named_copy() -> usize {
     let mut a = Named{ name: String::from("a"), tags: List<String>() }
     a.tags.push(String::from("tag"))
-    let b = a
+    let b = a.clone()
     a.tags.push(String::from("more"))
     return b.name.byte_len() + b.tags.len() * 10 + a.tags.len() * 100
 }

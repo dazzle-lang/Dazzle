@@ -1252,7 +1252,10 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Register the finished body. Called once per body, at the end of checking it.
     fn finish(self, root: BlockId) {
         let fallible = self.fallible;
-        let body = self.hir.finish(root, fallible);
+        let mut body = self.hir.finish(root, fallible);
+        // Values move by default: the moves the source no longer spells are written into
+        // the tree here, before flow, placement or codegen read it (D-0106).
+        crate::moves::insert(&mut body, &self.cx.table);
         self.cx.hir.push(body);
     }
 

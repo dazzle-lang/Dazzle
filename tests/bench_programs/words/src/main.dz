@@ -118,7 +118,7 @@ fn main() {
             n += 1
         } else {
             // A copy of the buffer becomes the key; the buffer is kept for the next word.
-            counts.insert(word, 1)
+            counts.insert(word.clone(), 1)
         }
     }
 

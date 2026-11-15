@@ -121,7 +121,7 @@ const SCENARIOS: &[Scenario] = &[
             Replace(
                 M000,
                 "pub fn touch0(",
-                "pub fn pick0<T: Clone>(x: T) -> T {\n    let y = x\n    return y\n}\n\npub fn touch0(",
+                "pub fn pick0<T: Clone>(x: T) -> T in x@home {\n    let y = x\n    return y\n}\n\npub fn touch0(",
             ),
             Replace(M001, M001_CALL, "touch0(pick0(seed + 1))"),
         ],

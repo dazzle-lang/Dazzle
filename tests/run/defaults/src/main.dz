@@ -75,7 +75,7 @@ fn first_or<T: Clone>(xs: &[]T, fallback: T, limit: usize = 1) -> T in fallback@
     if xs.len < limit {
         return fallback
     }
-    return xs[0]
+    return xs[0].clone()
 }
 
 struct Boxed<T: Clone> {

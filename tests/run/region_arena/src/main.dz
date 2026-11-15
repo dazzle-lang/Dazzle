@@ -18,9 +18,9 @@ fn keep(
     s: &String,
     m: &HashMap<i32, i32>,
 ) kills into.list, into.text, into.map {
-    into.list = xs
-    into.text = s
-    into.map = m
+    into.list = xs.clone()
+    into.text = s.clone()
+    into.map = m.clone()
 }
 
 // Many small allocations, across several chunks: each keeps what was written to it.
