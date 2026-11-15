@@ -16,7 +16,7 @@ fn take(r: Res) -> bool {
 fn in_a_loop(r: Res, n: i32) -> i32 {
     let mut i = 0
     while i < n {
-        let gone = take(move(r))
+        let gone = take(r)
         i += 1
     }
     return i

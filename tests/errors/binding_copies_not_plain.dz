@@ -1,0 +1,32 @@
+// expect: DZ0403, DZ0403, DZ0403
+//
+// A by-value binding never copies a value that is not plain data (D-0106): each element of
+// a list, a payload, and an array the function does not own is referred to with `&`, and
+// cloned where a copy is wanted; `if_let_out_of_a_reference` is the optional's case. A
+// `_` binds nothing and copies nothing, and an array the function owns is consumed
+// instead (`for_consuming_then_use`).
+
+union Shape {
+    Circle { name: String }
+    Empty {}
+}
+
+fn each(names: &List<String>, s: &Shape, held: &[2]String) -> usize {
+    let mut total: usize = 0
+    for name in names {
+        total += name.byte_len()
+    }
+    switch s {
+        case Circle(c) { total += c.name.byte_len() }
+        case Empty {}
+    }
+    for h in held {
+        total += h.byte_len()
+    }
+    for _ in names {
+        total += 1
+    }
+    return total
+}
+
+fn main() {}

@@ -69,7 +69,7 @@ fn named(n: i32) !-> (const &str, List<i32>) {
     }
     let mut xs = List<i32>()
     xs.push(n)
-    return ("list", move(xs))
+    return ("list", xs)
 }
 
 fn pair() -> (i32, const &str) {

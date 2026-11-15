@@ -1,20 +1,22 @@
 # Ownership and flow, DZ04xx
 
 A value that owns something — a `String`, a `List`, a struct with a `drop` — has one owner.
-`move(x)` hands it on and leaves `x` at its defaults; nothing is copied unless the type is
-`Clone` (spec §6).
+Using it by value — `let b = a`, passing it, returning it, storing it — hands it on and
+leaves `a` at its defaults; nothing is copied unless the copy is written, `a.clone()`. Plain
+data, such as an `i32` or a `Vec3`, copies by itself (spec §6, D-0106).
 
 ## DZ0401
 
-After `move(x)`, `x` holds nothing — it is back at its defaults — so reading it is almost
-certainly a mistake. The analysis follows every path: a value moved on one branch is moved
-where the branches meet. The second label points at the move. Use the value before moving
-it, or move a copy of what you need.
+After a value moves, its old place holds nothing — it is back at its defaults — so reading
+it is almost certainly a mistake. The analysis follows every path: a value moved on one
+branch is moved where the branches meet. The second label points at the move. Use the value
+before it moves, or move a copy of it: where nothing wrote the move, the fix writes
+`.clone()` there.
 
 ```dz
 fn main() {
     let name = String("hero")
-    let kept = move(name)
+    let kept = name
     println!("{} {}", kept, name)
 }
 ```
@@ -22,45 +24,45 @@ fn main() {
 ```dz
 fn main() {
     let name = String("hero")
-    println!("{}", name)
-    let kept = move(name)
-    println!("{}", kept)
+    let kept = name.clone()
+    println!("{} {}", kept, name)
 }
 ```
 
 ## DZ0402
 
-`move` resets its source to its defaults, so it needs a place the function owns. Behind a
-`&` or a `^` the value belongs to someone else, who would find it reset. Copy a copyable
-value instead, or take ownership by value.
+A move resets its source to its defaults, so it needs a place the function owns. Behind a
+`&` or a `^`, in a `static` or in an element of a container, the value belongs to someone
+else, who would find it reset. Reading a value that is not plain data there by value is
+such a move; write `.clone()` for a copy, which the fix does, or take ownership by value.
 
 ```dz
-struct Point {
-    pub x: i32
+struct Named {
+    pub name: String
 }
 
-fn steal(p: &Point) -> i32 {
-    return move(p.x)
+fn steal(n: &Named) -> String {
+    return n.name
 }
 
 fn main() {
-    let p = Point{ x: 3 }
-    println!("{}", steal(&p))
+    let n = Named{ name: String("hero") }
+    println!("{}", steal(&n))
 }
 ```
 
 ```dz
-struct Point {
-    pub x: i32
+struct Named {
+    pub name: String
 }
 
-fn read(p: &Point) -> i32 {
-    return p.x
+fn copied(n: &Named) -> String {
+    return n.name.clone()
 }
 
 fn main() {
-    let p = Point{ x: 3 }
-    println!("{}", read(&p))
+    let n = Named{ name: String("hero") }
+    println!("{}", copied(&n))
 }
 ```
 
@@ -118,7 +120,7 @@ fn main() {
 
 ## DZ0404
 
-Moves are tracked per field, so `move(h.a)` leaves `h.b` usable — but `h` as a whole is
+Moves are tracked per field, so moving `h.a` out leaves `h.b` usable — but `h` as a whole is
 then missing a part, and cannot be read, passed or moved as one value.
 
 ```dz
@@ -133,8 +135,8 @@ fn keep(p: Pair) {
 
 fn main() {
     let p = Pair{ a: String("a"), b: String("b") }
-    let first = move(p.a)
-    keep(move(p))
+    let first = p.a
+    keep(p)
     println!("{}", first)
 }
 ```
@@ -151,8 +153,8 @@ fn keep(p: Pair) {
 
 fn main() {
     let p = Pair{ a: String("a"), b: String("b") }
-    let second = move(p.b)
-    let first = move(p.a)
+    let second = p.b
+    let first = p.a
     println!("{} {}", first, second)
 }
 ```
@@ -641,7 +643,7 @@ struct Store {
 
 fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
     let s = from.pop() or return
-    store.names.push(move(s))
+    store.names.push(s)
 }
 
 fn main() {
@@ -659,7 +661,7 @@ struct Store {
 
 fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
     let s = from.pop() or return
-    store.names.push(move(s))
+    store.names.push(s)
 }
 
 fn main() {
@@ -697,5 +699,28 @@ fn label(xs: &mut List<String>) -> String {
 fn main() {
     let mut names = List<String>()
     println!("{}", label(&mut names))
+}
+```
+
+## DZ0423
+
+`move(x)` was how a value was moved; it is not written any more (D-0106). A value that is
+not plain data moves wherever it is used by value — bound, passed, returned, stored — and
+plain data copies, so `move(x)` is `x`, and a consuming loop is `for r in rs`. A copy of a
+value that owns something is written `x.clone()`. `dz fix` removes every `move(…)`.
+
+```dz
+fn main() {
+    let a = String("text")
+    let b = move(a)
+    println!("{}", b)
+}
+```
+
+```dz
+fn main() {
+    let a = String("text")
+    let b = a
+    println!("{}", b)
 }
 ```

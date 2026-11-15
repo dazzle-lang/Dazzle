@@ -33,7 +33,7 @@ pub struct Rc<T> {
             drop_value: drop_value_as<T>,
         }
         unsafe {
-            construct(block[0], RcBlock<T>{ header: header, value: move(value) })
+            construct(block[0], RcBlock<T>{ header: header, value: value })
             m_header = &mut block[0].header
             m_value = &mut block[0].value
         }

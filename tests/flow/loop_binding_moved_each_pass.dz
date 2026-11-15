@@ -36,8 +36,8 @@ fn keep(t: Token) -> bool {
 
 fn keep_all(m: Maker) -> i32 {
     let mut n = 0
-    for t in move(m) {
-        let kept = keep(move(t))
+    for t in m {
+        let kept = keep(t)
         n += 1
     }
     return n

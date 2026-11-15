@@ -50,7 +50,7 @@ pub struct Formatter {
         let mut f: Formatter
         f.m_out = out
         f.m_loc = loc
-        return move(f)
+        return f
     }
 
     /// A formatter writing to standard output, as `print!` does. What it holds is written
@@ -70,7 +70,7 @@ pub struct Formatter {
     fn stream(which: i32) -> Formatter {
         let mut f: Formatter
         f.m_stream = which
-        return move(f)
+        return f
     }
 
     /// Append `s`.

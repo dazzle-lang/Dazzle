@@ -20,7 +20,7 @@ fn main() {
     let r = Res{ n: 1 }
     let s = Step::Go
     switch s {
-        case Go { take(move(r)) }
+        case Go { take(r) }
         case Stop {}
     }
     println!("{}", r.n)

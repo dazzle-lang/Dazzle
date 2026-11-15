@@ -1,0 +1,28 @@
+// expect: DZ0423, DZ0423, DZ0423
+//
+// `move` is no longer written (D-0106): a value that is not plain data moves wherever it is
+// used by value, so `move(x)` is `x`. Each is reported once, with the fix that unwraps it,
+// and the program then reads as if it were written without: `a` and the array are moved,
+// and nothing after uses them. A consuming loop is `for r in rs`.
+
+struct Res {
+    pub n: i32
+}
+
+impl Drop for Res {
+    fn drop(&mut self) {}
+}
+
+fn take(s: String) -> usize {
+    return s.byte_len()
+}
+
+fn main() {
+    let a = String("text")
+    let b = move(a)
+    let n = take(move(b))
+    let rs = [Res{ n: 1 }, Res{ n: 2 }]
+    for r in move(rs) {
+        println!("{} {}", n, r.n)
+    }
+}

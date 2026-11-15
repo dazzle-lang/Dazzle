@@ -150,8 +150,7 @@ body method BinaryHeap::pop -> T?
       local _0 self: BinaryHeap<T>
       int 0: usize
     return: !
-      move: T?
-        local _2 top: T?
+      local _2 top: T?
 body method BinaryHeap::clear -> void
   param _0 self: BinaryHeap<T>
   block
@@ -1028,8 +1027,7 @@ body method Deque::pop_front -> T?
         local _0 self: Deque<T>
       int 1: usize
     return: !
-      move: T
-        local _1 v: T
+      local _1 v: T
 body method Deque::pop_back -> T?
   param _0 self: Deque<T>
   block
@@ -1798,8 +1796,7 @@ body method HashMap::replace -> V?
               move: V
                 local _2 value: V
         return: !
-          move: V
-            local _6 old: V
+          local _6 old: V
     let _: _
       call-method HashMap::place: usize
         local _0 self: HashMap<K, V>
@@ -2689,8 +2686,7 @@ body method HashMap::remove_slot -> V
         local _0 self: HashMap<K, V>
       int 1: usize
     return: !
-      move: V
-        local _2 value: V
+      local _2 value: V
 body method HashMap::grow_to -> void
   param _0 self: HashMap<K, V>
   param _1 wanted: usize
@@ -4280,8 +4276,7 @@ body method List::remove -> T
         local _0 self: List<T>
       int 1: usize
     return: !
-      move: T
-        local _5 v: T
+      local _5 v: T
 body method List::remove_range -> void
   param _0 self: List<T>
   param _1 from: usize
@@ -4749,8 +4744,7 @@ body method List::swap_remove -> T
                   field #1: usize
                     local _0 self: List<T>
     return: !
-      move: T
-        local _5 v: T
+      local _5 v: T
 body method List::swap -> void
   param _0 self: List<T>
   param _1 i: usize
@@ -6307,8 +6301,7 @@ body method SlotMap::remove -> T?
           cast: u32
             local _2 place: usize
     return: !
-      move: T
-        local _3 v: T
+      local _3 v: T
 body method SlotMap::retain -> void
   param _0 self: SlotMap<T>
   param _1 keep: fn(Key<T>, &mut T) -> bool
@@ -7301,8 +7294,7 @@ body method Formatter::string -> Formatter
         local _2 f: Formatter
       local _1 loc: SourceLocation
     return: !
-      move: Formatter
-        local _2 f: Formatter
+      local _2 f: Formatter
 body method Formatter::stdout -> Formatter
   block
     return: !
@@ -7323,8 +7315,7 @@ body method Formatter::stream -> Formatter
         local _1 f: Formatter
       local _0 which: i32
     return: !
-      move: Formatter
-        local _1 f: Formatter
+      local _1 f: Formatter
 body method Formatter::write_str -> void
   param _0 self: Formatter
   param _1 s: &str
@@ -8446,8 +8437,7 @@ body method Directory::list !-> List<Path>
     call-method Sort::sort: void
       local _2 entries: List<Path>
     return: !
-      move: List<Path>
-        local _2 entries: List<Path>
+      local _2 entries: List<Path>
 body field-default File.0 -> void
   block
     int 0: usize
@@ -8634,8 +8624,7 @@ body method File::read_bytes !-> List<u8>
       local _3 bytes: List<u8>
       local _4 got: usize
     return: !
-      move: List<u8>
-        local _3 bytes: List<u8>
+      local _3 bytes: List<u8>
 body method File::read_text !-> String
   param _0 path: &Path
   block
@@ -8955,8 +8944,7 @@ body method Path::join -> Path
           local _3 other: Path
       block
         return: !
-          move: Path
-            local _3 other: Path
+          local _3 other: Path
     if: void
       call-method Path::is_empty: bool
         local _3 other: Path
@@ -9371,8 +9359,7 @@ body method Process::args -> List<String>
           local _2 i: usize
           int 1: usize
     return: !
-      move: List<String>
-        local _0 out: List<String>
+      local _0 out: List<String>
 body method Process::env -> String?
   param _0 name: &str
   block
@@ -20183,11 +20170,9 @@ body fn largest -> T
         enum-variant Ordering#2: Ordering
       block
         return: !
-          move: T
-            local _0 a: T
+          local _0 a: T
     return: !
-      move: T
-        local _1 b: T
+      local _1 b: T
 body fn primitives_satisfy_the_operator_traits -> i32
   block
     return: !
@@ -22314,8 +22299,7 @@ body method Shelf::take -> U
       move: U
         local _1 second: U
     return: !
-      move: U
-        local _0 first: U
+      local _0 first: U
 body fn generic_methods -> i32
   param _0 s: &Shelf<bool>
   block
@@ -23241,8 +23225,7 @@ body fn passed_on -> T
   param _0 x: T
   block
     return: !
-      move: T
-        local _0 x: T
+      local _0 x: T
 body fn a_reference_passed_on -> i32
   block
     let _0 a: i32
@@ -23531,8 +23514,7 @@ body fn either_value -> T
   param _2 v: T
   block
     return: !
-      move: T
-        local _2 v: T
+      local _2 v: T
 body fn score_once -> void
   param _0 r: &mut Roster
   block
@@ -23866,8 +23848,7 @@ body fn teller -> i32
     call-method Teller::deposit: void
       local _1 t: Teller
     let _2 moved: Teller
-      move: Teller
-        local _1 t: Teller
+      local _1 t: Teller
     let _3 seen: &i32
       call-method Teller::total: &i32
         local _2 moved: Teller
@@ -23888,7 +23869,7 @@ body fn final_of -> T::Item?
   block
     let _1 found: T::Item?
       none: T::Item?
-    for _2 x (consuming)
+    for _2 x
       move: T
         local _0 it: T
       block
@@ -23897,8 +23878,7 @@ body fn final_of -> T::Item?
           move: T::Item
             local _2 x: T::Item
     return: !
-      move: T::Item?
-        local _1 found: T::Item?
+      local _1 found: T::Item?
 body fn final_number -> i32
   param _0 xs: &List<i32>
   block
@@ -24388,3 +24368,56 @@ body fn counted -> usize
     return: !
       field #0: usize
         local _0 c: Counting
+body fn moved_by_default -> usize
+  param _0 names: &List<String>
+  block
+    let _1 first: String
+      call-ctor String#0: String
+        str "first": &str
+    let _2 kept: String
+      local _1 first: String
+    let _3 moved: String
+      move: String
+        local _1 first: String
+    let _4 copies: List<String>
+      call-ctor List#0: List<String>
+    for _5 name
+      call-method Iterable::iter: SliceIter<String>
+        local _0 names: &List<String>
+      block
+        call-method List::push: void
+          local _4 copies: List<String>
+          deref: String
+            local _5 name: &String
+    let _6 held: [2]String
+      array: [2]String
+        call-ctor String#0: String
+          str "a": &str
+        call-ctor String#0: String
+          str "b": &str
+    let _7 total: usize
+      binary +: usize
+        call-method String::byte_len: usize
+          local _2 kept: String
+        call-method String::byte_len: usize
+          local _3 moved: String
+    for _8 s (consuming)
+      move: [2]String
+        local _6 held: [2]String
+      block
+        call-method List::push: void
+          local _4 copies: List<String>
+          move: String
+            local _8 s: String
+    for _
+      call-method Iterable::iter: SliceIter<String>
+        local _0 names: &List<String>
+      block
+        assign +=
+          local _7 total: usize
+          int 1: usize
+    return: !
+      binary +: usize
+        local _7 total: usize
+        call-method List::len: usize
+          local _4 copies: List<String>

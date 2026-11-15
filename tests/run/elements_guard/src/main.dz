@@ -15,7 +15,7 @@ struct Names {
                 construct(fresh[i], move_out(m_data[i]))
                 i += 1
             }
-            construct(fresh[m_len], move(s))
+            construct(fresh[m_len], s)
             if m_data != null {
                 Allocators::Global.free(m_data as ^mut u8, m_len * sizeof(String), alignof(String), #location)
             }

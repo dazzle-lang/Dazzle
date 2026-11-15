@@ -4,7 +4,7 @@
 // (spec §8.2, §8.5).
 
 fn item_of<T>(x: T) -> T::Item {
-    return move(x)
+    return x
 }
 
 fn main() {}

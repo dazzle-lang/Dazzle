@@ -142,7 +142,7 @@ pub struct Shelf{i}<T> {{
     pub items: List<T>
 
     pub fn put(&mut self, v: T) kills self.items@items sends v to self {{
-        items.push(move(v))
+        items.push(v)
     }}
 
     pub fn count(&self) -> usize {{
@@ -205,7 +205,7 @@ pub fn run{i}(seed: i64) -> i64 {{
         let first = {p}(seed)
         acc = apply{i}(mode{i}(j as i64 + {k}), acc, part.mix(&first))
         index.insert(part.id, part.weight)
-        shelf{k}.put(move(part))
+        shelf{k}.put(part)
     }}
     acc = (acc + largest{i}(&shelf{k}.items) as i64 + shelf{k}.count() as i64) % {MOD}""".splitlines()
     lines.append(f"    acc = (acc + index.len() as i64) % {MOD}")

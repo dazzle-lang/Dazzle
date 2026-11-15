@@ -130,7 +130,7 @@ fn count<T: Clone>(xs: &[]T, stop: Step) -> i32 {
 }
 
 fn wrap<T>(x: T) -> Choice<T> in x@home {
-    return Choice::One{ value: move(x) }
+    return Choice::One{ value: x }
 }
 
 fn main() {
@@ -236,7 +236,7 @@ fn main() {
     for i, &r in rs.indexed() {
         println!("see {} {}", i, r.n)
     }
-    for r in move(rs) {
+    for r in rs {
         println!("took {}", r.n)
     }
     println!("end")

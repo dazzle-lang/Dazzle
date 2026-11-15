@@ -44,7 +44,7 @@ pub struct Box<T> {
         unsafe {
             construct(((start + header - sizeof(BoxHeader)) as ^mut BoxHeader)[0], BoxHeader{ allocator: allocator })
             m_ptr = (start + header) as ^mut T
-            construct(m_ptr[0], move(value))
+            construct(m_ptr[0], value)
         }
     }
 }

@@ -19,7 +19,7 @@ pub struct BinaryHeap<T: Ord> {
 
     /// A heap of `items`, built in place in `n` steps rather than `n log n` pushes.
     BinaryHeap(items: List<T>) {
-        m_items = move(items)
+        m_items = items
         let n = m_items.len()
         let mut at = n / 2
         while at > 0 {
@@ -49,7 +49,7 @@ pub struct BinaryHeap<T: Ord> {
 
     /// Add `v`.
     pub fn push(&mut self, v: T, loc: SourceLocation = #location) kills self@items sends v to self {
-        m_items.push(move(v), loc)
+        m_items.push(v, loc)
         let mut at = m_items.len() - 1
         while at > 0 {
             let parent = (at - 1) / 2
@@ -70,7 +70,7 @@ pub struct BinaryHeap<T: Ord> {
         m_items.swap(0, last)
         let top = m_items.pop()
         self.sift_down(0)
-        return move(top)
+        return top
     }
 
     /// Drop every element and keep the allocation.

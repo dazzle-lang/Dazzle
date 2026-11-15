@@ -83,7 +83,7 @@ fn main() {
     log.add("one")
     log.add("two")
     log.add("three")
-    for line in log[1..] {
+    for &line in log[1..] {
         println!("{}", line)
     }
 }

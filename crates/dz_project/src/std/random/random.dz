@@ -46,7 +46,7 @@ pub struct Random {
     /// A number in `[lo, hi)`, of whatever kind `lo` and `hi` are: `Random::range(1, 7)` is a
     /// die roll, `Random::range(0.0, 1.5)` a float. `lo` when `hi` is not above it.
     pub fn range<T: Number>(lo: T, hi: T) -> T {
-        return lo.uniform(move(hi), Random::next_u64())
+        return lo.uniform(hi, Random::next_u64())
     }
 
     /// `true` with probability `p`: never at 0 or below, always at 1 or above.

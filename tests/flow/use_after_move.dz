@@ -14,6 +14,6 @@ fn take(r: Res) -> bool {
 }
 
 fn straight_line(r: Res) -> bool {
-    let gone = move(r)
-    return take(move(r))
+    let gone = r
+    return take(r)
 }

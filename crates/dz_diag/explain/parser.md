@@ -483,7 +483,7 @@ where it goes.
 ```dz
 fn move_last(xs: &mut List<String>, out: &mut List<String>) kills xs@items, xs[*], out@items sends xs[*] out {
     let v = xs.pop() or return
-    out.push(move(v))
+    out.push(v)
 }
 
 fn main() {
@@ -497,7 +497,7 @@ fn main() {
 ```dz
 fn move_last(xs: &mut List<String>, out: &mut List<String>) kills xs@items, xs[*], out@items sends xs[*] to out {
     let v = xs.pop() or return
-    out.push(move(v))
+    out.push(v)
 }
 
 fn main() {

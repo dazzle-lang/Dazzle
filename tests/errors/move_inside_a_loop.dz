@@ -15,6 +15,6 @@ fn take(r: Res) {}
 fn main() {
     let r = Res{ n: 1 }
     for i in 0..2 {
-        take(move(r))
+        take(r)
     }
 }

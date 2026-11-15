@@ -91,7 +91,7 @@ pub struct Deque<T> {
             self.grow_to(m_len + 1, loc)
         }
         unsafe {
-            construct(m_data[self.slot(m_len)], move(v))
+            construct(m_data[self.slot(m_len)], v)
         }
         m_len += 1
     }
@@ -111,7 +111,7 @@ pub struct Deque<T> {
             m_head - 1
         }
         unsafe {
-            construct(m_data[m_head], move(v))
+            construct(m_data[m_head], v)
         }
         m_len += 1
     }
@@ -126,7 +126,7 @@ pub struct Deque<T> {
         }
         m_head = self.slot(1)
         m_len -= 1
-        return move(v)
+        return v
     }
 
     /// Take the back element out, or `none` when there is none.

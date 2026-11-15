@@ -51,7 +51,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     /// Add `key` with `value`. When the key was already there its value is replaced, and
     /// the old one dropped; `replace` hands it back instead.
     pub fn insert(&mut self, key: K, value: V, loc: SourceLocation = #location) kills self@items, self[*] sends key to self, value to self {
-        let _ = self.replace(move(key), move(value), loc)
+        let _ = self.replace(key, value, loc)
     }
 
     /// Add `key` with `value`, returning the value it replaces, or `none` when the key is
@@ -60,10 +60,10 @@ pub struct HashMap<K: Hash + Eq, V> {
         let h = key_hash(&key)
         if let slot = self.find(&key, h) {
             let old = unsafe { move_out(m_values[slot]) }
-            unsafe { construct(m_values[slot], move(value)) }
-            return move(old)
+            unsafe { construct(m_values[slot], value) }
+            return old
         }
-        let _ = self.place(move(key), move(value), h, loc)
+        let _ = self.place(key, value, h, loc)
         return none
     }
 
@@ -79,7 +79,7 @@ pub struct HashMap<K: Hash + Eq, V> {
         if let slot = self.find(&key, h) {
             return unsafe { &mut m_values[slot] }
         }
-        let slot = self.place(move(key), move(default), h, loc)
+        let slot = self.place(key, default, h, loc)
         return unsafe { &mut m_values[slot] }
     }
 
@@ -304,8 +304,8 @@ pub struct HashMap<K: Hash + Eq, V> {
         }
         self.set_ctrl(slot, tag_of(h))
         unsafe {
-            construct(m_keys[slot], move(key))
-            construct(m_values[slot], move(value))
+            construct(m_keys[slot], key)
+            construct(m_values[slot], value)
         }
         m_len += 1
         return slot
@@ -346,7 +346,7 @@ pub struct HashMap<K: Hash + Eq, V> {
             m_growth_left += 1
         }
         m_len -= 1
-        return move(value)
+        return value
     }
 
     /// Enough slots for `wanted` entries at seven eighths full, never fewer than there are —

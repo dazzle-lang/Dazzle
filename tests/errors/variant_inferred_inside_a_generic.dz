@@ -8,7 +8,7 @@ union Choice<T> {
 }
 
 fn wrap<T>(x: T) -> Choice<T> in x@home {
-    return Choice::One{ value: move(x) }
+    return Choice::One{ value: x }
 }
 
 fn main() {

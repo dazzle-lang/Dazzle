@@ -168,8 +168,9 @@ fn structs_and_ranges()
 fn ownership_and_errors()
   block
     let a
-      move
-        path name
+      call
+        field .clone
+          path name
     let b
       ref
         path value

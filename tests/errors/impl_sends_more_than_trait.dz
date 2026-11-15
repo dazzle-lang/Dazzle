@@ -14,7 +14,7 @@ struct Bag {
 
 impl Sink for Bag {
     fn put(&mut self, s: String) kills self.items@items sends s to self {
-        items.push(move(s))
+        items.push(s)
     }
 }
 

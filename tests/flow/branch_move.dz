@@ -16,7 +16,7 @@ fn take(r: Res) -> bool {
 
 fn one_branch(r: Res, flag: bool) -> bool {
     if flag {
-        let gone = move(r)
+        let gone = r
     }
-    return take(move(r))
+    return take(r)
 }

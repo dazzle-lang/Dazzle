@@ -55,15 +55,15 @@ fn first<view T: Iterate>(it: &T) -> T::Item {
 // `Token?`.
 fn last<view T: Iterate>(it: T) -> T::Item? {
     let mut found: T::Item? = none
-    for x in move(it) {
-        found = move(x)
+    for x in it {
+        found = x
     }
-    return move(found)
+    return found
 }
 
 fn count<view T: Iterate>(it: T) -> usize {
     let mut n: usize = 0
-    for _ in move(it) {
+    for _ in it {
         n += 1
     }
     return n
@@ -71,13 +71,13 @@ fn count<view T: Iterate>(it: T) -> usize {
 
 fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
     for x in xs {
-        f(move(x))
+        f(x)
     }
 }
 
 fn drain<view T: Iterate>(it: T, f: fn(T::Item)) {
-    for x in move(it) {
-        f(move(x))
+    for x in it {
+        f(x)
     }
 }
 
@@ -157,7 +157,7 @@ fn main() {
     monsters.push(Monster{ name: "bat", hp: 5 })
     each(&monsters, show_monster)
     let numbered = Numbered<SliceIter<Monster>>{ inner: monsters.iter() }
-    for i, m in move(numbered) {
+    for i, m in numbered {
         println!("{}: {}", i, m.name)
     }
 

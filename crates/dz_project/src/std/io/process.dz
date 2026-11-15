@@ -11,7 +11,7 @@ pub struct Process {
             out.push(String(process_arg(i)))
             i += 1
         }
-        return move(out)
+        return out
     }
 
     /// The environment variable `name`, or `none` when it is not set.

@@ -109,7 +109,7 @@ fn handling(path: str) {
         log::warn("texture {} failed: {}", path, e.message)
         return
     }
-    sprite.texture = move(tex)
+    sprite.texture = tex
 
     let p = find_player(id) or return
     p.health -= damage

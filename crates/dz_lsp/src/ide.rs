@@ -1731,7 +1731,8 @@ pub struct CompletionSet {
     pub incomplete: bool,
 }
 
-/// The keywords of spec §2.7. A test holds this to the lexer's own list.
+/// The keywords of spec §2.7 a program writes, each held by a test to be the lexer's: not
+/// `move`, which is reserved and no longer written (D-0106).
 pub const KEYWORDS: &[&str] = &[
     "as",
     "break",
@@ -1755,7 +1756,6 @@ pub const KEYWORDS: &[&str] = &[
     "loop",
     "macro",
     "module",
-    "move",
     "mut",
     "none",
     "null",

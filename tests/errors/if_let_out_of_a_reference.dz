@@ -1,0 +1,19 @@
+// expect: DZ0402
+//
+// `if let name = n.name` takes the value out of the optional, and through a reference that
+// is a move out of something the function does not own (spec §6.4, §9.4). A `String` is not
+// plain data, so it is not copied either (D-0106): refer to it with `if let &name`, or write
+// `n.name.clone()`, which the fix does.
+
+struct Named {
+    pub name: String?
+}
+
+fn length(n: &Named) -> usize {
+    if let name = n.name {
+        return name.byte_len()
+    }
+    return 0
+}
+
+fn main() {}

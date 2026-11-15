@@ -40,9 +40,9 @@ fn tell(prefix: &str, things: ..&Describe) {
 
 fn biggest<T: Ord + Clone>(first: T, rest: ..T) -> T in first@home {
     let mut best = first
-    for x in rest {
-        if x > best {
-            best = x
+    for &x in rest {
+        if x > &best {
+            best = x.clone()
         }
     }
     return best
@@ -104,7 +104,7 @@ fn main() {
 
     let t = Token{ id: 1 }
     println!("counting:")
-    println!("count {}", count(move(t), Token{ id: 2 }))
+    println!("count {}", count(t, Token{ id: 2 }))
     println!("after")
 
     // As a value, a variadic function takes its slice.

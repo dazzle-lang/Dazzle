@@ -124,6 +124,16 @@ impl BodyBuilder {
         &self.exprs[id.index()].kind
     }
 
+    /// A node's type, as it was built.
+    pub(crate) fn ty(&self, id: ExprId) -> &Ty {
+        &self.exprs[id.index()].ty
+    }
+
+    /// A local's name.
+    pub(crate) fn local_name(&self, id: LocalId) -> &str {
+        &self.locals[id.index()].name
+    }
+
     /// The value of a block that is nothing but one expression — `unsafe { &mut X }`.
     pub(crate) fn block_value(&self, id: BlockId) -> Option<ExprId> {
         match self.blocks[id.index()].stmts.as_slice() {

@@ -589,7 +589,7 @@ fn semantic_tokens_classify_names_by_what_they_are() {
             .map(|t| (t.class, t.declaration, t.readonly))
     };
     assert_eq!(class_at("a: T, b: T) -> T", 0), Some((C::Parameter, true, false)));
-    assert_eq!(class_at("return move(a)", 12), Some((C::Parameter, false, false)));
+    assert_eq!(class_at("return a\n    }\n    return b", 7), Some((C::Parameter, false, false)));
     assert_eq!(class_at("let mut seen", 8), Some((C::Variable, true, false)));
     assert_eq!(class_at("seen += n", 0), Some((C::Variable, false, false)));
     assert_eq!(class_at("m_len == m_cap", 0), Some((C::Property, false, false)));

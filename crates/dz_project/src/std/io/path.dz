@@ -57,7 +57,7 @@ pub struct Path {
         let here = self.as_str()
         let other = Path(part)
         if here.byte_len == 0 || other.is_absolute() {
-            return move(other)
+            return other
         }
         if other.is_empty() {
             return Path(here)

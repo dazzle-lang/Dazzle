@@ -450,11 +450,14 @@ impl<'a> Flow<'a> {
             }
             hir::StmtKind::For { bindings, subject, body, shape, .. } => {
                 // A user iterator is copied or moved into the loop's own iterator, which
-                // `advance` then mutates (spec §10.4) — so its subject is a value, and a
-                // move-only iterator needs a `move`. An array or slice is walked in place,
-                // unless `for e in move(xs)` consumes it.
+                // `advance` then mutates (spec §10.4) — so its subject is a value, which an
+                // iterator that is not plain moves into. An array or slice is walked in place,
+                // unless the loop consumes an array it owns (D-0106).
                 if *shape == hir::ForShape::Consuming
-                    || matches!(self.body.ty(*subject).peeled(), hir::ty::Ty::Named { .. })
+                    || matches!(
+                        self.body.ty(*subject).peeled(),
+                        Ty::Named { .. } | Ty::Param(_) | Ty::Assoc(_)
+                    )
                 {
                     self.value(*subject);
                 } else {
@@ -675,7 +678,7 @@ impl<'a> Flow<'a> {
                             .with_help(
                                 "the source of a move is reset to its defaults, and a borrow \
                                  does not give the right to do that (spec §6.4); to copy the \
-                                 value instead, leave out `move`",
+                                 value instead, write `.clone()`",
                             ),
                         );
                         self.place_only(inner);

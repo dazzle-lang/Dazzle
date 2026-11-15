@@ -576,13 +576,13 @@ fn a_reference_cannot_be_a_plain_type_argument() {
     only("fn f() {\n let a = 1\n let mut xs = List<&i32>()\n xs.push(&a)\n}\n");
     only("fn f() {\n let _xs = List<(i32, &i32)>()\n}\n");
     only("fn f() {\n let a = 1\n let _b = Box<&i32>(&a)\n}\n");
-    only("fn keep<T>(x: T) -> T {\n return move(x)\n}\nfn f() {\n let a = 1\n let _k = keep(&a)\n}\n");
+    only("fn keep<T>(x: T) -> T {\n return x\n}\nfn f() {\n let a = 1\n let _k = keep(&a)\n}\n");
     only("struct S {\n r: &i32?\n}\n");
     only("struct S {\n r: (i32, &i32)\n}\n");
     only("union U {\n Held { r: &i32 }\n Empty {}\n}\n");
     // A `view` parameter is placed as a reference is, so it may be given one; so may `^T`.
     assert!(snippet(
-        "fn pass<view T>(x: T) -> T in x {\n return move(x)\n}\nfn f() {\n let a = 1\n let _r = pass(&a)\n}\n"
+        "fn pass<view T>(x: T) -> T in x {\n return x\n}\nfn f() {\n let a = 1\n let _r = pass(&a)\n}\n"
     )
     .is_empty());
     assert!(snippet("fn f() {\n let _xs = List<^i32>()\n}\n").is_empty());

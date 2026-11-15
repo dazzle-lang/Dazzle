@@ -24,7 +24,7 @@ struct Shelf<T> {
             self.grow()
         }
         unsafe {
-            construct(m_data[m_len], move(v))
+            construct(m_data[m_len], v)
         }
         m_len += 1
     }
@@ -137,7 +137,7 @@ fn main() {
 
     // A move: `fiction` is reset to its defaults, and reading it again would not compile
     // (DZ0401). `let shelved = fiction` would be another copy.
-    let shelved = move(fiction)
+    let shelved = fiction
 
     for i in 0..shelved.len() {
         let b = shelved.get(i)

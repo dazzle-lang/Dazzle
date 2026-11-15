@@ -84,11 +84,11 @@ fn main() {
 
     // §6.4: the source of a move is left at its defaults, so the moved-from handle
     // reports -1 rather than pointing at a slot someone else now owns.
-    let moved = move(h)
+    let moved = h
     println!("moved: label={} live={}", moved.label, moved.live())
 
     // Passing by value hands the resource to `consume`, whose parameter dies at its end.
-    println!("consume: {}", consume(move(moved)))
+    println!("consume: {}", consume(moved))
     println!("slot a released: {}", slot_a == 0)
 
     // §6.3: `copy` runs on a defaults-initialised object, so `d.n` is the body's answer.

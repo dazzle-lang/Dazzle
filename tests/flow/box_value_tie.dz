@@ -29,9 +29,9 @@ fn replaced(h: &mut Holder) kills h.node {
 fn moved_out() {
     let mut b = Box<Node>(Node{ name: String::from("b") })
     if let &n = b {
-        let taken = move(b)
+        let taken = b
         println!("{}", n.name)
-        let _ = move(taken)
+        let _ = taken
     }
 }
 

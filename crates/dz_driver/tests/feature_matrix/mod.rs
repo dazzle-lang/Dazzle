@@ -70,7 +70,7 @@ pub fn take(r: Res) -> i32 {
 }
 
 pub fn keep<T>(x: T) -> T in x@home {
-    return move(x)
+    return x
 }
 
 pub fn sum(xs: &[]i32) -> i32 {
@@ -109,7 +109,7 @@ pub struct Counter {
     }
 
     pub fn echo<T>(&self, v: T) -> T in v@home {
-        return move(v)
+        return v
     }
 
     pub fn twice<T: Clone>(&self, v: T) -> (T, T) in v@home {
@@ -117,7 +117,7 @@ pub struct Counter {
     }
 
     pub fn wrap<T>(v: T) -> T in v@home {
-        return move(v)
+        return v
     }
 }
 ";
@@ -167,7 +167,8 @@ pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
     ),
     ("block_if", "let flag = true\nr = if flag { 14 } else { 0 }", 14),
     ("move_only_by_ref", "let rs = [Res{ n: 7 }, Res{ n: 8 }]\nfor &x in rs {\n    r += x.n\n}", 15),
-    ("move_into_call", "let res = Res{ n: 16 }\nr = take(move(res))", 16),
+    ("move_into_call", "let res = Res{ n: 16 }\nr = take(res)", 16),
+    ("consume_owned_array", "let rs = [Res{ n: 5 }, Res{ n: 6 }]\nfor x in rs {\n    r += x.n\n}", 11),
     (
         "struct_field_through_mut",
         "let mut pts = [Pt{ x: 1, y: 2 }]\nfor &mut p in pts {\n    p.x += 16\n}\nr = pts[0].x",
@@ -275,8 +276,8 @@ pub const MISTAKES: &[(&str, &str, &str)] = &[
     ("duplicate_case", "let n = 1\nswitch n {\n    case 1 {}\n    case 1 {}\n    default {}\n}", "DZ0548"),
     ("function_as_case_label", "let n = 1\nswitch n {\n    case some_i32 {}\n    default {}\n}", "DZ0501"),
     ("run_time_case_label","let n = 1\nlet m = 2\nswitch n {\n    case m {}\n    default {}\n}", "DZ0547"),
-    ("use_after_move", "let a = Res{ n: 1 }\nlet b = take(move(a))\nr = a.n + b", "DZ0401"),
-    ("copy_move_only_element", "let rs = [Res{ n: 1 }]\nfor x in rs {\n    r = x.n\n}", "DZ0403"),
+    ("use_after_move", "let a = Res{ n: 1 }\nlet b = take(a)\nr = a.n + b", "DZ0401"),
+    ("copy_move_only_element", "let rs = [Res{ n: 1 }]\nlet seen = &rs\nfor x in seen {\n    r = x.n\n}", "DZ0403"),
     ("reference_to_a_range_value", "for &i in 0..2 {\n    r = i\n}", "DZ0549"),
     ("fallible_not_consumed", "fails()", "DZ0510"),
     ("fallible_not_consumed_in_if", "if r == 0 {\n    fails()\n} else {\n    r = 1\n}", "DZ0510"),

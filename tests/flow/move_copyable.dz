@@ -1,8 +1,9 @@
-// Spec §6.4, §18.33: `move` ends its source whatever the type — a copyable one included.
+// Spec §6.4, D-0033, D-0106: a generic body moves a `T` whatever its instance is, plain data
+// included, so it means one thing for every argument: here `a` is gone after `let b = a`,
+// though `twice(7)` would copy an `i32`.
 // expect: DZ0401
 
-fn twice() -> i32 {
-    let a = 7
-    let b = move(a)
-    return move(a)
+fn twice<T: Clone>(a: T) -> T {
+    let b = a
+    return a
 }

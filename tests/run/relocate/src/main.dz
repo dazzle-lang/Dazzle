@@ -62,7 +62,7 @@ fn main() {
         for _ in 0..i % 20 {
             w.push((97 + i % 26) as u32 as char)
         }
-        words.push(move(w))
+        words.push(w)
     }
     words.insert(0, String::from("first"))
     let gone = words.remove(5)
@@ -101,7 +101,7 @@ fn main() {
         for j in 0..i {
             kids.push(Tree::Leaf{ value: j })
         }
-        forest.push(Tree::Node{ kids: move(kids) })
+        forest.push(Tree::Node{ kids: kids })
     }
     forest.insert(1, Tree::Leaf{ value: 50 })
     let mut s = 0
@@ -136,7 +136,7 @@ fn main() {
         let mut key = String::from("key number ")
         key.push((97 + i % 26) as u32 as char)
         key.push((65 + i / 26) as u32 as char)
-        named.insert(move(key), Noisy{ id: 100 + i, name: String::from("in a map") })
+        named.insert(key, Noisy{ id: 100 + i, name: String::from("in a map") })
     }
     let mut ids = 0
     for &v in named.values() {

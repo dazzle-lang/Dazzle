@@ -19,5 +19,5 @@ struct Holder<T> {
 
 fn main() {
     let xs = List<i32>()
-    let h = Holder(move(xs))
+    let h = Holder(xs)
 }

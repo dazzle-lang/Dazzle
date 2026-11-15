@@ -30,7 +30,7 @@ fn evens(n: i32) -> List<i32> {
             xs.push(i)
         }
     }
-    return move(xs)
+    return xs
 }
 
 // Copies what it is lent into a store that outlives the lender's region.
@@ -66,7 +66,7 @@ fn squares(n: i32) -> List<i32> {
     for i in 0..n {
         xs.push(i * i)
     }
-    return move(xs)
+    return xs
 }
 
 // Passes its own caller's placement on to `squares`.
@@ -102,7 +102,7 @@ fn take_last(
     into: &mut Store
 ) kills names@items, names[*], into.names@items sends names[*] to into {
     let last = names.pop() or return
-    into.names.push(move(last))
+    into.names.push(last)
 }
 
 // Counts words into a map whose keys are copies of one reused buffer, as the `words`
@@ -139,7 +139,7 @@ trait Counter {
         for i in 0..n {
             xs.push(i)
         }
-        return move(xs)
+        return xs
     }
 }
 
@@ -153,7 +153,7 @@ impl Counter for Steps {
         for i in 0..n {
             xs.push(i * by)
         }
-        return move(xs)
+        return xs
     }
 }
 
@@ -180,7 +180,7 @@ fn apply(make: fn(i32) -> List<i32>, n: i32) -> List<i32> {
 
 // A generic function takes no placement, so as a `fn(String) -> String` it is adapted.
 fn same<T>(x: T) -> T in x@home {
-    return move(x)
+    return x
 }
 
 // A constructor builds its fields where the value it makes is placed, and a value's
@@ -255,7 +255,7 @@ fn caption(n: i32) -> String {
 fn captions(names: &mut List<String>, n: i32) kills names@items {
     for i in 0..n {
         let s = format!("c{}", i)
-        names.push(move(s))
+        names.push(s)
     }
 }
 
@@ -274,7 +274,7 @@ fn weighed() -> i32 {
     for i in 0..100 {
         xs.push(i)
     }
-    return weigh(move(xs))
+    return weigh(xs)
 }
 
 fn main() {
@@ -463,7 +463,7 @@ fn paths(n: i32) -> i32 {
         for step in 0..20 {
             path.push(i * 100 + step)
         }
-        all.push(move(path))
+        all.push(path)
     }
     churn()
     let mut sum = 0
@@ -488,7 +488,7 @@ fn tallied(text: &str) -> usize {
         }
     }
     let mut total: usize = 0
-    for k, &n in counts {
+    for &k, &n in counts {
         total += k.byte_len() * 10 + n as usize
     }
     return total + churn() as usize
@@ -564,7 +564,7 @@ fn popped(store: &mut Store) -> usize kills store.names@items {
     let mut names = List<String>()
     names.push(String::from("popped"))
     let last = names.pop() or return 0
-    store.names.push(move(last))
+    store.names.push(last)
     return names.len() + churn() as usize
 }
 

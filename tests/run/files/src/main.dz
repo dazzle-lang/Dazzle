@@ -61,7 +61,7 @@ fn disk(root: &Path) !-> void {
         println!("missing: not found {}", e.code == IoError::NotFound as u32)
         String()
     }
-    let _ = move(missing)
+    let _ = missing
     let _ = File::read_text(&bin_path) or { e ->
         println!("binary as text: invalid data {}", e.code == IoError::InvalidData as u32)
         String()

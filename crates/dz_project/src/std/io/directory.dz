@@ -37,6 +37,6 @@ pub struct Directory {
         }
         dir_close(handle)
         entries.sort()
-        return move(entries)
+        return entries
     }
 }

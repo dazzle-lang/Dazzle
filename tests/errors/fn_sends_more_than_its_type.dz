@@ -5,7 +5,7 @@
 // what it is given, and the type says it keeps nothing.
 
 fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
-    xs.push(move(s))
+    xs.push(s)
 }
 
 fn put(

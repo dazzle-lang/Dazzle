@@ -5,7 +5,7 @@
 
 struct Widget {
     pub virtual fn notify<T>(&self, event: T) {
-        let _ = move(event)
+        let _ = event
     }
 }
 

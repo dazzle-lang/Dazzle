@@ -66,7 +66,7 @@ fn load(n: i32) -> Asset {
         let mut data = List<i16>()
         data.push(7)
         data.push(9)
-        return .Samples{ data: move(data) }
+        return .Samples{ data: data }
     }
     return Asset::Sound{ id: n }
 }
@@ -86,7 +86,7 @@ fn main() {
     a = load(5)
     println!("assigning another sound")
     a = load(6)
-    let b = move(a)
+    let b = a
     switch b {
         case Sound(&s) { println!("moved sound {}", s.id) }
         default { println!("not a sound") }
@@ -106,10 +106,10 @@ fn main() {
     // Moved out of a field, and out of a struct moved whole: each sound is dropped once, by
     // whoever holds it last, and the field it left is filled again before its own drop.
     let mut shelf = Shelf{ slot: Slot{ asset: load(4) } }
-    let taken = move(shelf.slot.asset)
+    let taken = shelf.slot.asset
     shelf.slot.asset = load(5)
     println!("taken {}, refilled {}", kind_of(&taken), kind_of(&shelf.slot.asset))
-    let whole = move(shelf.slot)
+    let whole = shelf.slot
     shelf.slot = Slot{ asset: load(0) }
     println!("whole {}, left {}", kind_of(&whole.asset), kind_of(&shelf.slot.asset))
 }

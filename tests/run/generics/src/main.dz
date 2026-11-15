@@ -51,9 +51,9 @@ impl Ord for Score {
 // §8.1: checked once, against `T: Ord`, and instantiated for `i32` and for `Score`.
 fn largest<T: Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
-        return move(a)
+        return a
     }
-    return move(b)
+    return b
 }
 
 // §8.2: an unbounded `T` is enough for a plain container.
@@ -84,7 +84,7 @@ struct Buffer<T> {
         if m_len == m_cap {
             panic!("buffer full")
         }
-        unsafe { construct(m_data[m_len], move(v)) }
+        unsafe { construct(m_data[m_len], v) }
         m_len += 1
     }
 

@@ -78,7 +78,10 @@ impl Walk<'_> {
                 // walked in place, and a container through the iterator it hands out
                 // (spec §10.4).
                 if shape == hir::ForShape::Consuming
-                    || matches!(self.body.ty(subject).peeled(), Ty::Named { .. })
+                    || matches!(
+                        self.body.ty(subject).peeled(),
+                        Ty::Named { .. } | Ty::Param(_) | Ty::Assoc(_)
+                    )
                 {
                     self.value(subject);
                 } else {

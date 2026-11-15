@@ -49,7 +49,7 @@ struct SparseSet<T> {
         assert(m_sparse[index] == 0)
         m_sparse[index] = m_entities.len() + 1
         m_entities.push(entity)
-        m_values.push(move(value))
+        m_values.push(value)
     }
 
     pub fn remove(&mut self, entity: Key<Entity>) -> bool kills self@items, self@values {

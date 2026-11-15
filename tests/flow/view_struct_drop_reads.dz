@@ -28,7 +28,7 @@ view struct Quiet {
 }
 
 fn keep(p: Peek) {
-    let _ = move(p)
+    let _ = p
 }
 
 // Dropped at the end of its scope, after the text it views grew.
@@ -70,7 +70,7 @@ fn ended_first() {
 fn moved_out(s: &str) {
     let mut mine = String::from("text")
     let p = Peek(mine.as_str())
-    keep(move(p))
+    keep(p)
     mine.push_str("-grow")
     let _ = s
 }
@@ -78,7 +78,7 @@ fn moved_out(s: &str) {
 // Fine: returned, so the caller drops it while the text is still there.
 fn returned(s: &str) -> Peek in s {
     let p = Peek(s)
-    return move(p)
+    return p
 }
 
 // Fine: no `drop`, so nothing reads the view when it goes.

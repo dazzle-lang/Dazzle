@@ -72,7 +72,7 @@ fn generate(words: i64) -> String {
             ' '
         })
     }
-    return move(text)
+    return text
 }
 
 struct Entry {
@@ -123,13 +123,13 @@ fn main() {
     }
 
     let mut entries = List<Entry>(counts.len())
-    for w, &n in counts {
-        entries.push(Entry{ word: w, count: n })
+    for &w, &n in counts {
+        entries.push(Entry{ word: w.clone(), count: n })
     }
     entries.sort_by(before)
 
     let mut checksum: u64 = 1469598103934665603
-    for e in entries {
+    for &e in entries {
         for b in e.word.as_str() as &[]u8 {
             checksum = (checksum ^^ b as u64) * 1099511628211
         }

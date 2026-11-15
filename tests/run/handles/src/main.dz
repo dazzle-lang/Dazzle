@@ -83,7 +83,7 @@ fn main() {
     if let &t = b {
         println!("box {} {}", t.name, t.width)
     }
-    let moved = move(b)
+    let moved = b
     println!("moved {}", moved != null)
 
     // `if let` on an optional and a pointer, each binding.

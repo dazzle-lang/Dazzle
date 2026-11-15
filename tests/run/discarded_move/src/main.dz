@@ -1,4 +1,4 @@
-// `let _ = move(x)` hands `x` to nobody, so it is dropped there, as the statement ends, and
+// `let _ = x` hands `x` to nobody, so it is dropped there, as the statement ends, and
 // not when its scope does (spec §6.4, §6.5). The generated C++ wrote `(void)(mv(x))`, a cast
 // that moves nothing, for a move-only `x`, which then lived on to the end of its scope;
 // it now builds the value and lets it go (T-0225). A local moved into a call or a list is
@@ -27,15 +27,15 @@ fn take_one(t: Token) {
 
 fn main() {
     let a = Token(1)
-    let _ = move(a)
+    let _ = a
     println!("after discarding 1")
 
     let b = Token(2)
-    take_one(move(b))
+    take_one(b)
     println!("after giving 2 away")
 
     let mut kept = List<Token>()
     let c = Token(3)
-    kept.push(move(c))
+    kept.push(c)
     println!("after keeping 3")
 }

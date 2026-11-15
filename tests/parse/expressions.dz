@@ -48,7 +48,7 @@ fn structs_and_ranges() {
 }
 
 fn ownership_and_errors() {
-    let a = move(name)
+    let a = name.clone()
     let b = &value
     let c = &mut value
     let d = load(path) or return

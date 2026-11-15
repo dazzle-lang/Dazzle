@@ -1547,7 +1547,7 @@ fn a_parameter_moved_on_is_used_in_place() {
     let dir = scratch(
         "dz_param_in_place",
         "[module]\nname = \"shelving\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
-        "struct Loud {\n    pub id:  i32\n    m_owned: own ^mut i32 = null\n\n    Loud(id: i32) {\n        self.id = id\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", id)\n    }\n}\n\nfn shelve(name: String, shelf: &mut List<String>) kills shelf@items sends name to shelf {\n    shelf.push(move(name))\n}\n\nfn shelve_loud(l: Loud, shelf: &mut List<Loud>) kills shelf@items sends l to shelf {\n    shelf.push(move(l))\n}\n\nfn measure(name: String) -> usize {\n    return name.byte_len()\n}\n\nfn shelve_some(name: String, shelf: &mut List<String>, keep: bool) kills shelf@items sends name to shelf {\n    if keep {\n        shelf.push(move(name))\n    }\n}\n\nfn main() {\n    let mut shelf = List<String>()\n    shelve(String(\"a name long enough to be on the heap\"), &mut shelf)\n    shelve_some(String(\"another that is on the heap as well\"), &mut shelf, true)\n    shelve_some(String(\"and one dropped where it was passed\"), &mut shelf, false)\n    println!(\"{} {} {}\", shelf.len(), shelf[1], measure(String(\"four\")))\n    let mut loud = List<Loud>()\n    shelve_loud(Loud(7), &mut loud)\n    println!(\"shelved\")\n}\n",
+        "struct Loud {\n    pub id:  i32\n    m_owned: own ^mut i32 = null\n\n    Loud(id: i32) {\n        self.id = id\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", id)\n    }\n}\n\nfn shelve(name: String, shelf: &mut List<String>) kills shelf@items sends name to shelf {\n    shelf.push(name)\n}\n\nfn shelve_loud(l: Loud, shelf: &mut List<Loud>) kills shelf@items sends l to shelf {\n    shelf.push(l)\n}\n\nfn measure(name: String) -> usize {\n    return name.byte_len()\n}\n\nfn shelve_some(name: String, shelf: &mut List<String>, keep: bool) kills shelf@items sends name to shelf {\n    if keep {\n        shelf.push(name)\n    }\n}\n\nfn main() {\n    let mut shelf = List<String>()\n    shelve(String(\"a name long enough to be on the heap\"), &mut shelf)\n    shelve_some(String(\"another that is on the heap as well\"), &mut shelf, true)\n    shelve_some(String(\"and one dropped where it was passed\"), &mut shelf, false)\n    println!(\"{} {} {}\", shelf.len(), shelf[1], measure(String(\"four\")))\n    let mut loud = List<Loud>()\n    shelve_loud(Loud(7), &mut loud)\n    println!(\"shelved\")\n}\n",
     );
     let out =
         Command::new(dz()).args(["run", "--track-memory", dir.to_str().unwrap()]).output().unwrap();
@@ -2327,8 +2327,8 @@ fn runaway_instantiation_is_bounded_by_the_compiler() {
         "dz_mono_runaway",
         "[module]\nname = \"r\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
         "struct Box<T> {\n    pub v: T\n}\n\n\
-         fn deeper<T>(x: T) -> i32 {\n    let b = Box<T>{ v: move(x) }\n    \
-         return deeper(move(b))\n}\n\n\
+         fn deeper<T>(x: T) -> i32 {\n    let b = Box<T>{ v: x }\n    \
+         return deeper(b)\n}\n\n\
          fn main() {\n    println!(\"{}\", deeper(1))\n}\n",
     );
     let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();

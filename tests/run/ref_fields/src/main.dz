@@ -50,14 +50,14 @@ fn main() {
     let mut count = 0
     let mut k = Counter(&mut count, 5)
     k.bump()
-    let mut k2 = move(k)
+    let mut k2 = k
     k2.bump()
     println!("count {}", count)
 
     let p = Peek(&b)
     let r = p.n()
-    let moved = move(p)
-    println!("peek {} {}", r, first(move(moved)))
+    let moved = p
+    println!("peek {} {}", r, first(moved))
 
     let q = Pair{ a: &b, b: &c }
     let copy = q

@@ -20,22 +20,22 @@ struct Shelf {
     }
 
     pub fn put(&mut self, s: String) kills self@items@items {
-        m_items.push(move(s))
+        m_items.push(s)
     }
 
     pub fn put_declared(&mut self, s: String) kills self@items@items sends s to self {
-        m_items.push(move(s))
+        m_items.push(s)
     }
 }
 
 fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items {
     let s = from.pop() or return
-    store.names.push(move(s))
+    store.names.push(s)
 }
 
 fn give_declared(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
     let s = from.pop() or return
-    store.names.push(move(s))
+    store.names.push(s)
 }
 
 fn last_of(xs: &mut List<String>) -> String kills xs@items, xs[*] {
@@ -47,11 +47,11 @@ fn last_of_declared(xs: &mut List<String>) -> String in xs@home kills xs@items, 
 }
 
 fn keep(s: String) -> String {
-    return move(s)
+    return s
 }
 
 fn keep_declared(s: String) -> String in s@home {
-    return move(s)
+    return s
 }
 
 // Built here, copied, put back, or owning nothing: no input's memory leaves for another.
@@ -65,7 +65,7 @@ fn copied(word: &String, store: &mut Store) kills store.names@items {
 
 fn put_back(xs: &mut List<String>) kills xs@items, xs[*] {
     let s = xs.pop() or return
-    xs.push(move(s))
+    xs.push(s)
 }
 
 fn counted(from: &mut List<i32>, store: &mut Store) kills from@items, store.counts@items {

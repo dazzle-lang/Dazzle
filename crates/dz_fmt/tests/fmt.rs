@@ -226,8 +226,8 @@ fn trailing_comments_keep_the_column_they_were_written_at() {
         "\
 fn main() {
     let a = Image(64, 64)
-    let b = a                        // a copy: runs `copy`
-    let c = move(a)                  // a move: `a` is reset to its defaults
+    let b = a.clone()                // a copy: runs `clone`
+    let c = a                        // a move: `a` is reset to its defaults
 }                                    // c, b and a are dropped, in that order
 ",
     );

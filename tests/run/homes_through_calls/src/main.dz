@@ -33,7 +33,7 @@ impl Source for Bag {
     }
 
     fn keep(&mut self, s: String) kills self.items@items sends s to self {
-        items.push(move(s))
+        items.push(s)
     }
 }
 
@@ -42,14 +42,14 @@ fn through_object(store: &mut List<String>) -> i32 kills store@items {
     let mut bag = Bag()
     let s: &mut Source = &mut bag
     let v = s.make(1) or return 0
-    store.push(move(v))
+    store.push(v)
     return churn()
 }
 
 // Through a trait-object parameter.
 fn make_from(src: &mut Source, store: &mut List<String>) kills src, store@items sends src to store {
     let v = src.make(2) or return
-    store.push(move(v))
+    store.push(v)
 }
 
 fn through_parameter(store: &mut List<String>) -> i32 kills store@items {
@@ -64,7 +64,7 @@ fn make_one<S: Source>(
     store: &mut List<String>
 ) kills src, store@items sends src to store {
     let v = src.make(3) or return
-    store.push(move(v))
+    store.push(v)
 }
 
 fn through_bound(store: &mut List<String>) -> i32 kills store@items {
@@ -78,7 +78,7 @@ fn through_reference(store: &mut List<String>) -> i32 kills store@items {
     let mut bag = Bag()
     let s = &mut bag
     let v = s.make(4) or return 0
-    store.push(move(v))
+    store.push(v)
     return churn()
 }
 
@@ -86,7 +86,7 @@ fn through_reference(store: &mut List<String>) -> i32 kills store@items {
 fn directly(store: &mut List<String>) -> i32 kills store@items {
     let mut bag = Bag()
     let v = bag.make(5) or return 0
-    store.push(move(v))
+    store.push(v)
     return churn()
 }
 
@@ -107,7 +107,7 @@ fn through_value(
 
 // Through a function value whose type says it keeps what it is given.
 fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
-    xs.push(move(s))
+    xs.push(s)
 }
 
 fn kept_by_value(

@@ -117,7 +117,7 @@ pub struct List<T> {
         if m_len == m_cap {
             self.grow_to(m_len + 1, loc)
         }
-        unsafe { construct(m_data[m_len], move(v)) }
+        unsafe { construct(m_data[m_len], v) }
         m_len += 1
     }
 
@@ -139,7 +139,7 @@ pub struct List<T> {
             self.grow_to(m_len + 1, loc)
         }
         self.shift_up(i, 1)
-        unsafe { construct(m_data[i], move(v)) }
+        unsafe { construct(m_data[i], v) }
         m_len += 1
     }
 
@@ -151,7 +151,7 @@ pub struct List<T> {
         let v = unsafe { move_out(m_data[i]) }
         self.shift_down(i + 1, 1)
         m_len -= 1
-        return move(v)
+        return v
     }
 
     /// Drop the elements `from..to`, moving the ones after them down. Panics when the range
@@ -275,7 +275,7 @@ pub struct List<T> {
         if i != m_len {
             unsafe { construct(m_data[i], move_out(m_data[m_len])) }
         }
-        return move(v)
+        return v
     }
 
     /// Exchange the elements at `i` and `j`.
@@ -289,7 +289,7 @@ pub struct List<T> {
         unsafe {
             let held = move_out(m_data[i])
             construct(m_data[i], move_out(m_data[j]))
-            construct(m_data[j], move(held))
+            construct(m_data[j], held)
         }
     }
 
@@ -441,7 +441,7 @@ pub struct List<T> {
         unsafe {
             let held = move_out(m_data[i])
             construct(m_data[i], move_out(m_data[j]))
-            construct(m_data[j], move(held))
+            construct(m_data[j], held)
         }
     }
 

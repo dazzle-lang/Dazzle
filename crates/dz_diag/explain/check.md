@@ -1546,7 +1546,7 @@ fn main() {
 
 ```dz
 fn keep(v: String, out: &mut List<String>) kills out@items sends v to out {
-    out.push(move(v))
+    out.push(v)
 }
 
 fn main() {
@@ -1565,7 +1565,7 @@ function type with no `sends` promises to send nothing.
 
 ```dz
 fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
-    xs.push(move(s))
+    xs.push(s)
 }
 
 fn put(f: fn(xs: &mut List<String>, s: String) kills xs@items, xs: &mut List<String>) kills xs@items {
@@ -1580,7 +1580,7 @@ fn main() {
 
 ```dz
 fn stash(xs: &mut List<String>, s: String) kills xs@items sends s to xs {
-    xs.push(move(s))
+    xs.push(s)
 }
 
 fn put(f: fn(xs: &mut List<String>, s: String) kills xs@items sends s to xs, xs: &mut List<String>) kills xs@items {

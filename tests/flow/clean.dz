@@ -47,29 +47,29 @@ fn take(r: Res) -> bool {
 }
 
 fn moves_are_fine(r: Res) -> bool {
-    return take(move(r))
+    return take(r)
 }
 
 // A move on one branch and a move on the other still leaves nothing live after the join.
 fn both_branches(r: Res, flag: bool) -> bool {
     if flag {
-        return take(move(r))
+        return take(r)
     }
-    return take(move(r))
+    return take(r)
 }
 
 // Assigning to a moved-from binding puts a value back in it (spec §6.4).
 fn reassignment_revives(p: ^mut i32, q: ^mut i32) -> bool {
     let mut r = Res(p)
-    let first = take(move(r))
+    let first = take(r)
     r = Res(q)
-    return take(move(r)) && first
+    return take(r) && first
 }
 
 // Every field moved out separately is not a partial move of anything still read.
 fn field_by_field(h: Holder) -> bool {
-    let x = take(move(h.a))
-    let y = take(move(h.b))
+    let x = take(h.a)
+    let y = take(h.b)
     return x && y
 }
 
@@ -102,7 +102,7 @@ pub union Owned {
 }
 
 fn union_moves_are_fine(o: Owned) -> bool {
-    let kept = move(o)
+    let kept = o
     return switch kept {
         case Nothing { false }
         case Res(&r) { r.live() }

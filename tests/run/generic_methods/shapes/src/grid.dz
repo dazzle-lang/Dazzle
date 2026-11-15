@@ -20,7 +20,7 @@ pub struct Grid<T> {
             g.cells.push(make(value.clone()))
             i += 1
         }
-        return move(g)
+        return g
     }
 }
 
@@ -29,8 +29,8 @@ pub struct Tally {
 
     /// A non-generic type, mutated by a generic method.
     pub fn add_all<N: Clone>(&mut self, xs: &[]N, weight: fn(N) -> i32) {
-        for x in xs {
-            count += weight(x)
+        for &x in xs {
+            count += weight(x.clone())
         }
     }
 }

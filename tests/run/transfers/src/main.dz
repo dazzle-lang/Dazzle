@@ -6,8 +6,8 @@
 // rule must refuse or place, and the K ones must keep compiling with no copy.
 //
 // Two shapes have no probe because the language already refuses them: moving out through a
-// reference (`let tmp = move(last)` of a `&mut` from `last_mut`, DZ0402), and a consuming
-// `for` (`for s in move(names)`, DZ0501).
+// reference (a `String` read by value through the `&mut` `last_mut` returns, DZ0402), and a consuming
+// `for` over a `List` (`for s in names` binding a `String` by value is DZ0403).
 
 import movers::{ longest, move_one, tag, Shelf }
 
@@ -42,7 +42,7 @@ fn inner_to_outer() -> usize {
         let mut inner = List<String>()
         inner.push(String::from("p2 inner to outer, long enough to need memory"))
         let s = inner.pop() or return 0
-        outer.push(move(s))
+        outer.push(s)
     }
     churn()
     println!("{}", outer[0])
@@ -51,14 +51,14 @@ fn inner_to_outer() -> usize {
 
 // P3: through a function that hands back what it is given.
 fn id(s: String) -> String in s@home {
-    return move(s)
+    return s
 }
 
 fn through_id(store: &mut Store) -> i32 kills store.names@items {
     let mut names = List<String>()
     names.push(String::from("p3 through id, long enough to need memory"))
     let s = names.pop() or return 0
-    store.names.push(id(move(s)))
+    store.names.push(id(s))
     return churn()
 }
 
@@ -78,9 +78,9 @@ fn replaced(store: &mut Store) -> i32 kills store.names@items {
     m.insert(1, String::from("p5 replaced, long enough to need memory"))
     m.insert(2, String::from("p5 removed from a map, long enough to need memory"))
     let old = m.replace(1, String::from("new")) or return 0
-    store.names.push(move(old))
+    store.names.push(old)
     let gone = m.remove(&2) or return 0
-    store.names.push(move(gone))
+    store.names.push(gone)
     return churn()
 }
 
@@ -92,14 +92,14 @@ fn into_field(store: &mut Store) -> i32 kills store.maybe {
     return churn()
 }
 
-// P7: a consuming `for` does not exist (`for s in move(names)` is DZ0501), so the shape
+// P7: a `List` has no consuming `for` (`for s in names` by value is DZ0403), so the shape
 // it stands for is a drain by `pop` in a loop.
 fn consumed(store: &mut Store) -> i32 kills store.names@items {
     let mut names = List<String>()
     names.push(String::from("p7 drained, long enough to need memory"))
     while true {
         let s = names.pop() or break
-        store.names.push(move(s))
+        store.names.push(s)
     }
     return churn()
 }
@@ -110,7 +110,7 @@ fn into_static() -> i32 kills KEPT {
     names.push(String::from("p8 into a static, long enough to need memory"))
     let s = names.pop() or return 0
     if let &mut kept = KEPT {
-        kept.push(move(s))
+        kept.push(s)
     }
     return churn()
 }
@@ -119,7 +119,7 @@ fn into_static() -> i32 kills KEPT {
 // source list is a local.
 fn move_last<T>(xs: &mut List<T>, out: &mut List<T>) kills xs@items, xs[*], out@items sends xs[*] to out {
     let v = xs.pop() or return
-    out.push(move(v))
+    out.push(v)
 }
 
 fn generic(store: &mut Store) -> i32 kills store.names@items {
@@ -132,7 +132,7 @@ fn generic(store: &mut Store) -> i32 kills store.names@items {
 // P10: a `Box` built in a region, moved into the store.
 fn boxed(store: &mut Store) -> i32 kills store.boxes@items {
     let b = Box(String::from("p10 boxed, long enough to need memory"))
-    store.boxes.push(move(b))
+    store.boxes.push(b)
     return churn()
 }
 
@@ -140,7 +140,7 @@ fn boxed(store: &mut Store) -> i32 kills store.boxes@items {
 fn whole(store: &mut Store) -> i32 kills store.names {
     let mut names = List<String>()
     names.push(String::from("p11 whole list, long enough to need memory"))
-    store.names = move(names)
+    store.names = names
     return churn()
 }
 
@@ -161,7 +161,7 @@ fn from_lent(store: &mut Store) -> i32 kills store.names@items {
     let mut names = List<String>()
     names.push(String::from("p14 returned from a lent list, long enough to need memory"))
     let s = last_of(&mut names)
-    store.names.push(move(s))
+    store.names.push(s)
     return churn()
 }
 
@@ -181,7 +181,7 @@ fn shelved(store: &mut Store) -> i32 kills store.names@items {
     let mut shelf = Shelf()
     shelf.put(String::from("x2 shelved, long enough to need memory"))
     let s = shelf.take() or return 0
-    store.names.push(move(s))
+    store.names.push(s)
     return churn()
 }
 
@@ -204,13 +204,13 @@ fn queue() -> usize {
 fn built() -> List<String> {
     let mut xs = List<String>()
     xs.push(String::from("k2 returned whole, long enough to need memory"))
-    return move(xs)
+    return xs
 }
 
 // K3: a `Box` built in a region and moved to a local of the same block.
 fn reboxed() -> usize {
     let b = Box(String::from("k3 reboxed"))
-    let c = move(b)
+    let c = b
     if let &s = c {
         return s.byte_len()
     }

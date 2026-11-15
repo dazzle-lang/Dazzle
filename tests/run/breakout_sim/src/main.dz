@@ -38,7 +38,7 @@ fn play(seed: u64, aim_offset: f32, frames: i32) -> Game {
         g.score == g.broken_points,
         g.bricks.len() < 60,
     )
-    return move(g)
+    return g
 }
 
 fn main() {

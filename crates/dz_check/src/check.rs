@@ -2281,21 +2281,33 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             }
         }
-        let consuming = matches!(subject_ast.kind, ExprKind::Move(_));
-        if consuming && indexed {
-            self.cx.error_help(
-                codes::CODEGEN_UNSUPPORTED,
-                f.iter.span,
-                "`move(…).indexed()` is not supported yet",
-                "a consuming loop with a pass count",
-                "count the passes yourself, or iterate by reference with `&e` — see the \
-                 deferral register in docs/tasks/",
-            );
+        // `for e in move(xs)` was the consuming loop; it is `for e in xs` now (D-0106).
+        if let ExprKind::Move(inner) = &subject_ast.kind {
+            self.move_removed(subject_ast, inner);
+            subject_ast = inner;
         }
 
         let reached_into = std::mem::replace(&mut self.reaching_into, true);
         let mut subject = self.expr(subject_ast, None);
         self.reaching_into = reached_into;
+        // A loop that binds each element of an array it owns by value, when the elements
+        // are not plain, takes them out of it: the array is moved into the loop, as any
+        // value is that is used by value (D-0106). Anywhere else such a binding would be a
+        // copy, which `bind_for` refuses.
+        let consuming = f.bindings.iter().all(|b| b.mode == BindMode::Value)
+            && matches!(self.subst(&subject.ty), Ty::Array { elem, .. }
+                if !elem.is_wildcard() && !self.cx.table.plain(&elem))
+            && self.owned_place(subject.id);
+        if consuming && indexed {
+            self.cx.error_help(
+                codes::CODEGEN_UNSUPPORTED,
+                f.iter.span,
+                "a consuming loop with `.indexed()` is not supported yet",
+                "a consuming loop with a pass count",
+                "count the passes yourself, or iterate by reference with `&e` — see the \
+                 deferral register in docs/tasks/",
+            );
+        }
         // A container is looped over through the iterator it hands out (spec §10.4, 18.51).
         if !consuming {
             let writes = f.bindings.iter().any(|b| b.mode == BindMode::RefMut);
@@ -2318,6 +2330,20 @@ impl<'a, 'c> Body<'a, 'c> {
         let (body, label, _) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
         self.pop();
         hir::StmtKind::For { bindings, subject: subject.id, body, shape, label }
+    }
+
+    /// Is the node a place this function owns — a local, a by-value parameter, or a field of
+    /// either reached without a pointer — so that a value may be moved out of it (spec §6.4)?
+    /// `self` is a receiver, not owned.
+    fn owned_place(&self, id: hir::ExprId) -> bool {
+        match self.hir.kind(id) {
+            hir::ExprKind::Local(l) => self.hir.local_name(*l) != "self",
+            hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+                !matches!(self.hir.ty(*base), Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. })
+                    && self.owned_place(*base)
+            }
+            _ => false,
+        }
     }
 
     /// `list.iter()`, or `list.iter_mut()` when a binding writes: the iterator a `for` walks
@@ -2570,17 +2596,20 @@ impl<'a, 'c> Body<'a, 'c> {
         let ty = match (b.mode, item) {
             (BindMode::Value, ForItem::Value(t)) => t.clone(),
             (BindMode::Value, ForItem::Place { ty, .. }) => {
-                if !ty.is_wildcard() && !self.cx.table.copyable(ty) {
+                // A value that is not plain is copied only by `.clone()`, never by a
+                // binding; an array the function owns is consumed instead (D-0106).
+                // `_` binds nothing, so it copies nothing.
+                if name.is_some() && !ty.is_wildcard() && !self.cx.table.plain(ty) {
                     let t = self.cx.name_of(ty);
                     let n = name.map_or("e".to_owned(), |i| i.name.clone());
                     self.cx.error_help(
                         codes::IMPLICIT_COPY,
                         b.span,
-                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        format!("`{n}` would be a copy of a `{t}`, which is not plain data"),
                         "a copy of each element",
                         format!(
-                            "refer to each element with `&{n}`, or consume the sequence with \
-                             `move(…)` (spec §6.3, §10.4)"
+                            "refer to each element with `&{n}`, and write `{n}.clone()` where a \
+                             copy is wanted (spec §6.3, §10.4, D-0106)"
                         ),
                     );
                     Ty::Error
@@ -3368,9 +3397,11 @@ impl<'a, 'c> Body<'a, 'c> {
                 };
                 self.mk(e, ty, hir::ExprKind::Deref(c.id))
             }
+            // `move` is gone (D-0106): a value that is not plain moves wherever it is used by
+            // value, so `move(x)` is `x`, and reads on as that once reported.
             ExprKind::Move(inner) => {
-                let c = self.expr(inner, expected);
-                self.mk(e, c.ty.clone(), hir::ExprKind::Move(c.id))
+                self.move_removed(e, inner);
+                self.expr(inner, expected)
             }
             ExprKind::Unary { op, operand } => {
                 // `-128` for an `i8` is one literal, whose range is checked as a whole: the
@@ -5268,6 +5299,34 @@ impl<'a, 'c> Body<'a, 'c> {
         Some(self.mk(e, ty, hir::ExprKind::Call { callee, args }))
     }
 
+    /// `move(x)`, written where `x` alone now means the same (D-0106): `DZ0423`, with the fix
+    /// that unwraps it. Certain: where `x` owns something it moves anyway, and where it is
+    /// plain data the move and the copy are the same bytes, the source unread after either.
+    fn move_removed(&mut self, e: &Expr, inner: &Expr) {
+        let edits = vec![
+            dz_diag::Edit {
+                file: self.cx.file,
+                span: Span { start: e.span.start, end: inner.span.start },
+                text: String::new(),
+            },
+            dz_diag::Edit {
+                file: self.cx.file,
+                span: Span { start: inner.span.end, end: e.span.end },
+                text: String::new(),
+            },
+        ];
+        self.cx.diags.push(
+            dz_diag::Diagnostic::error(codes::MOVE_REMOVED, "`move` is no longer written")
+                .at(self.cx.file, e.span, "write the value alone")
+                .with_help(
+                    "a value that is not plain data moves wherever it is used by value, and \
+                     plain data copies, so `move(x)` is `x`; write `x.clone()` to keep a copy \
+                     (D-0106)",
+                )
+                .with_fix("remove `move(…)`", edits),
+        );
+    }
+
     /// `a.clone()`: the value `a` reaches, read by value as a copy (spec §6.3, D-0106). It
     /// is the place itself, through any reference or pointer the receiver is, so every
     /// later phase sees the copy it always built — in its placement, by the type's `impl
@@ -5332,7 +5391,7 @@ impl<'a, 'c> Body<'a, 'c> {
     fn special_member_called(&mut self, name: &Ident, args: &[Expr], e: &Expr) -> Checked {
         let help = if name.name == "drop" {
             "a value's `drop` runs by itself at the end of its scope; to end its life early, \
-             `move` it into a scope that ends (spec §6.5)"
+             write `let _ = x`, which moves it nowhere and drops it there (spec §6.5)"
         } else {
             "an `impl Clone`'s `clone` fills in a value at its defaults, and runs by itself: \
              write `a.clone()`, with no argument, for a copy of `a` (spec §6.3)"
@@ -8621,12 +8680,12 @@ impl<'a, 'c> Body<'a, 'c> {
         let n = &b.name.name;
         match b.mode {
             BindMode::Value => {
-                if borrowed && !payload.is_wildcard() && !self.cx.table.copyable(payload) {
+                if borrowed && !payload.is_wildcard() && !self.cx.table.plain(payload) {
                     let t = self.cx.name_of(payload);
                     self.cx.error_help(
                         codes::IMPLICIT_COPY,
                         b.name.span,
-                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        format!("`{n}` would be a copy of a `{t}`, which is not plain data"),
                         "a copy of the value",
                         format!("refer to it with `if let &{n}` or `&mut {n}` (spec §6.3, §9.4)"),
                     );
@@ -8680,14 +8739,14 @@ impl<'a, 'c> Body<'a, 'c> {
                     };
                     let types = self.cx.table.field_types(*owner, args, &fields);
                     if let Some(t) =
-                        types.iter().find(|t| !t.is_wildcard() && !self.cx.table.copyable(t))
+                        types.iter().find(|t| !t.is_wildcard() && !self.cx.table.plain(t))
                     {
                         let t = self.cx.name_of(t);
                         let n = pat.binding.as_ref().map_or("c".to_owned(), |b| b.name.clone());
                         self.cx.error_help(
                             codes::IMPLICIT_COPY,
                             pat.span,
-                            format!("`{n}` would be a copy of a payload holding a `{t}`, which cannot be copied"),
+                            format!("`{n}` would be a copy of a payload holding a `{t}`, which is not plain data"),
                             "a copy of the payload",
                             format!(
                                 "refer to the payload with `{}(&{n})` (spec §6.3, §10.3)",
@@ -8695,14 +8754,14 @@ impl<'a, 'c> Body<'a, 'c> {
                             ),
                         );
                     }
-                } else if payload.named().is_some() && !self.cx.table.copyable(&payload) {
-                    // A carried struct that cannot be copied (spec §7.5, 18.45).
+                } else if payload.named().is_some() && !self.cx.table.plain(&payload) {
+                    // A carried struct that is not plain data (spec §7.5, 18.45, D-0106).
                     let t = self.cx.name_of(&payload);
                     let n = pat.binding.as_ref().map_or("c".to_owned(), |b| b.name.clone());
                     self.cx.error_help(
                         codes::IMPLICIT_COPY,
                         pat.span,
-                        format!("`{n}` would be a copy of a `{t}`, which cannot be copied"),
+                        format!("`{n}` would be a copy of a `{t}`, which is not plain data"),
                         "a copy of the payload",
                         format!(
                             "refer to the payload with `{}(&{n})` (spec §6.3, §10.3)",

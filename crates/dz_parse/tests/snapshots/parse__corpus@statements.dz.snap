@@ -214,8 +214,7 @@ fn handling(path: str)
     assign =
       field .texture
         path sprite
-      move
-        path tex
+      path tex
     let p
       or
         call

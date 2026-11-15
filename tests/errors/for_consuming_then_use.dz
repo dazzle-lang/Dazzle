@@ -1,6 +1,7 @@
 // expect: DZ0401
 //
-// `move(rs)` consumes the array, so it is gone after the loop.
+// `for r in rs` binds each element by value, and a `Res` is not plain, so the loop
+// consumes the array, and it is gone after the loop (D-0106).
 
 struct Res {
     pub n: i32
@@ -12,7 +13,7 @@ impl Drop for Res {
 
 fn main() {
     let rs = [Res{ n: 1 }]
-    for r in move(rs) {
+    for r in rs {
         println!("{}", r.n)
     }
     println!("{}", rs[0].n)

@@ -70,7 +70,7 @@ fn main() {
     for v in [4, 10, 3, 5, 1, 6, 6, 2] {
         items.push(v)
     }
-    let mut built = BinaryHeap<i32>(move(items))
+    let mut built = BinaryHeap<i32>(items)
     println!("built: {}", drain(&mut built))
     built.push(1)
     built.push(2)

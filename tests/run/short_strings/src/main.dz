@@ -56,7 +56,7 @@ fn copies() {
     tiny.push('!')
     show("tiny", &tiny)
     show("its copy", &also)
-    let moved = move(long)
+    let moved = long
     show("moved", &moved)
 }
 
@@ -83,8 +83,8 @@ fn containers() {
     words.sort()
     println!("sorted {} first [{}] last [{}]", words.len(), words[0].as_str(), words[199].as_str())
     let mut counts = HashMap<String, i32>()
-    for w in words {
-        counts.insert(w, 1)
+    for &w in words {
+        counts.insert(w.clone(), 1)
     }
     let key = "w99"
     println!("map {} has w99 {}", counts.len(), counts.contains_str(key))

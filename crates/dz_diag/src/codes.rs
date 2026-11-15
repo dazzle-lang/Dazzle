@@ -202,6 +202,10 @@ pub const SEND_NOT_DECLARED: &str = "DZ0421";
 /// A `sends` pair, or an owned result's `in x@home`, that the body never does: it would make
 /// callers place memory further out than it goes (D-0097).
 pub const SEND_NEVER_HAPPENS: &str = "DZ0422";
+/// `move(x)`, which the language no longer has: a value that is not plain data moves
+/// whenever it is used by value (D-0106). `move` stays a reserved word so old code gets this,
+/// with the fix that unwraps it, rather than an unknown name.
+pub const MOVE_REMOVED: &str = "DZ0423";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

@@ -6690,7 +6690,12 @@ impl<'a> Emitter<'a> {
                     let e = self.expr(v);
                     return format!("return ::dz::rt::Res<{ret}>::bad({e})");
                 }
-                let moved = !self.table.copyable(body.ty(v));
+                // `return x` of a whole local is a move nothing writes (D-0106): C++ moves it
+                // by itself into a result of its own type, and the checker leaves it alone so
+                // the result can be built in place. Into `Res<T>::good(…)` C++ would copy it.
+                let whole_local = matches!(body.expr(v).kind, hir::ExprKind::Local(_));
+                let moved = !self.table.copyable(body.ty(v))
+                    || (body.fallible && whole_local && !self.table.plain(body.ty(v)));
                 let ret = body.ret.clone();
                 let text = self.stored(&ret, v);
                 let text = if moved { format!("::dz::rt::mv({text})") } else { text };

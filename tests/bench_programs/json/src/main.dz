@@ -347,12 +347,12 @@ view struct Parser {
         self.skip_space()
         if m_at < m_bytes.len && m_bytes[m_at] == ']' as u8 {
             m_at += 1
-            return Json::Array{ items: move(items) }
+            return Json::Array{ items: items }
         }
         let mut more = true
         while more {
             let v = self.value() or return
-            items.push(move(v))
+            items.push(v)
             self.skip_space()
             more = m_at < m_bytes.len && m_bytes[m_at] == ',' as u8
             if more {
@@ -360,7 +360,7 @@ view struct Parser {
             }
         }
         self.expect(']' as u8) or return
-        return Json::Array{ items: move(items) }
+        return Json::Array{ items: items }
     }
 
     fn object(&mut self) !-> Json {
@@ -369,7 +369,7 @@ view struct Parser {
         self.skip_space()
         if m_at < m_bytes.len && m_bytes[m_at] == '}' as u8 {
             m_at += 1
-            return Json::Object{ members: move(members) }
+            return Json::Object{ members: members }
         }
         let mut more = true
         while more {
@@ -380,7 +380,7 @@ view struct Parser {
             let key = self.string() or return
             self.expect(':' as u8) or return
             let v = self.value() or return
-            members.push(Member{ key: move(key), value: move(v) })
+            members.push(Member{ key: key, value: v })
             self.skip_space()
             more = m_at < m_bytes.len && m_bytes[m_at] == ',' as u8
             if more {
@@ -388,7 +388,7 @@ view struct Parser {
             }
         }
         self.expect('}' as u8) or return
-        return Json::Object{ members: move(members) }
+        return Json::Object{ members: members }
     }
 }
 
@@ -434,7 +434,7 @@ fn to_record(members: &List<Member>) !-> Record {
                 case Array(&a) {
                     for &t in a.items {
                         let tag = text_of(&t, key) or return
-                        tags.push(move(tag))
+                        tags.push(tag)
                     }
                 }
                 default {
@@ -480,7 +480,7 @@ fn to_record(members: &List<Member>) !-> Record {
             }
         }
     }
-    return Record{ id: id, name: move(name), tags: move(tags), pos: pos, active: active, score: score }
+    return Record{ id: id, name: name, tags: tags, pos: pos, active: active, score: score }
 }
 
 fn to_records(tree: &Json) !-> List<Record> {
@@ -491,7 +491,7 @@ fn to_records(tree: &Json) !-> List<Record> {
                 switch item {
                     case Object(&o) {
                         let r = to_record(&o.members) or return
-                        records.push(move(r))
+                        records.push(r)
                     }
                     default {
                         return error(Failure::Shape, "a record is not an object")

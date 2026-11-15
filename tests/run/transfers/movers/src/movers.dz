@@ -4,7 +4,7 @@
 
 pub fn move_one<T>(xs: &mut List<T>, out: &mut List<T>) kills xs@items, xs[*], out@items sends xs[*] to out {
     let v = xs.pop() or return
-    out.push(move(v))
+    out.push(v)
 }
 
 pub fn tag(names: &mut List<String>, n: i32) kills names@items {
@@ -21,7 +21,7 @@ pub struct Shelf {
     }
 
     pub fn put(&mut self, s: String) kills self@items@items sends s to self {
-        m_items.push(move(s))
+        m_items.push(s)
     }
 
     pub fn take(&mut self) -> String? in self@home kills self@items {

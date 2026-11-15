@@ -356,7 +356,7 @@ fn consumes(o: Owner) -> bool {
 // §6.4: `move` transfers ownership, and the source is not read again.
 fn moving(slot: ^mut i32) -> bool {
     let o = Owner(slot)
-    return consumes(move(o))
+    return consumes(o)
 }
 
 // §6.3: a type with a `copy` needs no `move` at all.
@@ -606,9 +606,9 @@ fn vector_arithmetic(a: Vec2, b: Vec2) -> Vec2 {
 // move-only type (spec §6.3, §8.2): a generic body is checked for every `T` at once.
 fn largest<T: std::Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
-        return move(a)
+        return a
     }
-    return move(b)
+    return b
 }
 
 // §11.2: the machine's own types satisfy the operator traits, so §8.1's own example
@@ -1128,7 +1128,7 @@ pub struct Gizmo : Gadget {
 }
 
 fn boxes_to_a_base(owned: Box<Gizmo>) -> i32 {
-    let boxed: Box<Gadget> = move(owned)
+    let boxed: Box<Gadget> = owned
     let g = boxed or return 0
     return g.weight()
 }
@@ -1488,8 +1488,8 @@ struct Shelf<T> {
     }
 
     pub fn take<U>(first: U, second: U) -> U in first@home {
-        let _ = move(second)
-        return move(first)
+        let _ = second
+        return first
     }
 }
 
@@ -1802,7 +1802,7 @@ fn slot_maps(points: &mut SlotMap<Vec3>, scores: &mut List<Score>) -> f32 kills 
 // §6.7, T-0212: a `view` parameter is placed as a reference is, so it may be given one,
 // where a plain parameter, a container's element say, may not.
 fn passed_on<view T>(x: T) -> T in x {
-    return move(x)
+    return x
 }
 
 fn a_reference_passed_on() -> i32 {
@@ -1821,7 +1821,7 @@ fn first_item<view T: Iterate>(it: &T) -> T::Item {
 fn count_items<C: Iterable>(xs: &C, seen: fn(C::Iter::Item)) -> i32 {
     let mut n = 0
     for x in xs {
-        seen(move(x))
+        seen(x)
         n += 1
     }
     return n
@@ -1999,7 +1999,7 @@ fn fresh_bytes() -> ^mut u8 {
 }
 
 fn either_value<T>(a: &Roster, b: &Roster, v: T) -> T in v@home {
-    return move(v)
+    return v
 }
 
 // A function fits a function type that promises at least what it kills; one that kills
@@ -2193,7 +2193,7 @@ fn teller() -> i32 {
     let mut book = Ledger{}
     let mut t = Teller(&mut book, 2)
     t.deposit()
-    let moved = move(t)
+    let moved = t
     let seen = moved.total()
     let g = Glance{ ledger: &book }
     return seen + g.ledger.total
@@ -2203,10 +2203,10 @@ fn teller() -> i32 {
 // list's iterator, which `or` turns back into the reference.
 fn final_of<view T: Iterate>(it: T) -> T::Item? {
     let mut found: T::Item? = none
-    for x in move(it) {
-        found = move(x)
+    for x in it {
+        found = x
     }
-    return move(found)
+    return found
 }
 
 fn final_number(xs: &List<i32>) -> i32 {
@@ -2309,7 +2309,7 @@ pub struct Mailbox {
     tie @letters = m_letters
 
     pub fn post(&mut self, letter: String) kills self@letters@items sends letter to self {
-        m_letters.push(move(letter))
+        m_letters.push(letter)
     }
 
     pub fn collect(&mut self) -> String? in self@home kills self@letters@items, self@letters[*] {
@@ -2321,7 +2321,7 @@ pub static OUTBOX: List<String>? = none
 
 fn forward<T>(from: &mut List<T>, to: &mut List<T>) kills from@items, from[*], to@items sends from[*] to to {
     let v = from.pop() or return
-    to.push(move(v))
+    to.push(v)
 }
 
 fn oldest(letters: &mut List<String>) -> String in letters@home kills letters@items, letters[*] {
@@ -2331,7 +2331,7 @@ fn oldest(letters: &mut List<String>) -> String in letters@home kills letters@it
 fn dispatch(letters: &mut List<String>) sends letters[*] to OUTBOX kills letters@items, letters[*], OUTBOX {
     let v = letters.pop() or return
     if let &mut out = OUTBOX {
-        out.push(move(v))
+        out.push(v)
     }
 }
 
@@ -2345,7 +2345,7 @@ trait Tray {
 
 impl Tray for Mailbox {
     fn lay(&mut self, letter: String) kills self@letters@items sends letter to self {
-        self.post(move(letter))
+        self.post(letter)
     }
 
     fn lift(&mut self) -> String? in self@home kills self@letters@items, self@letters[*] {
@@ -2370,19 +2370,19 @@ impl Tray for Blank {
 }
 
 fn lay_through(tray: &mut Tray, letter: String) kills tray sends letter to tray {
-    tray.lay(move(letter))
+    tray.lay(letter)
 }
 
 fn lift_through(tray: &mut Tray, to: &mut List<String>) kills tray, to@items sends tray to to {
     let v = tray.lift() or return
-    to.push(move(v))
+    to.push(v)
 }
 
 fn stash_letter(
     letters: &mut List<String>,
     letter: String
 ) kills letters@items sends letter to letters {
-    letters.push(move(letter))
+    letters.push(letter)
 }
 
 fn post_with(
@@ -2447,4 +2447,26 @@ fn counted() -> usize {
     let p = a.alloc(16, 8)
     a.free(p, 16, 8)
     return c.count
+}
+
+// D-0106: a value that is not plain moves when used by value, and is copied by `.clone()`;
+// a loop binding the elements of an array it owns by value consumes it, and one over a
+// list refers to each element and clones the ones it keeps.
+fn moved_by_default(names: &List<String>) -> usize {
+    let first = String("first")
+    let kept = first.clone()
+    let moved = first
+    let mut copies = List<String>()
+    for &name in names {
+        copies.push(name.clone())
+    }
+    let held = [String("a"), String("b")]
+    let mut total = kept.byte_len() + moved.byte_len()
+    for s in held {
+        copies.push(s)
+    }
+    for _ in names {
+        total += 1
+    }
+    return total + copies.len()
 }

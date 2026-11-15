@@ -42,7 +42,7 @@ fn main() {
     kids.push(Tree::Leaf{ value: 2 })
     let mut entries = List<Entry>()
     entries.push(Entry{ name: String("three"), tree: Tree::Leaf{ value: 3 } })
-    entries.push(Entry{ name: String("pair"), tree: Tree::Node{ kids: move(kids) } })
-    let root = Tree::Named{ entries: move(entries) }
+    entries.push(Entry{ name: String("pair"), tree: Tree::Node{ kids: kids } })
+    let root = Tree::Named{ entries: entries }
     println!("sum {}", sum(&root))
 }

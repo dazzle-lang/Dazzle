@@ -650,8 +650,8 @@ error[DZ0507]: `memcpy` writes through its first argument
 error[DZ0531]: `Unique` does not implement `Clone`
     ┌─ typeerrors/src/errors.dz:550:12
     │
-550 │     return keep_copy(move(u))
-    │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Clone`
+550 │     return keep_copy(u)
+    │            ^^^^^^^^^^^^ `T` is bounded by `Clone`
     │
     = help: implement it: `impl Clone for Unique { … }` (spec §7.6)
 
@@ -736,7 +736,7 @@ error[DZ0520]: `drop` cannot be called by name
 676 │     u.drop()
     │       ^^^^ runs by itself
     │
-    = help: a value's `drop` runs by itself at the end of its scope; to end its life early, `move` it into a scope that ends (spec §6.5)
+    = help: a value's `drop` runs by itself at the end of its scope; to end its life early, write `let _ = x`, which moves it nowhere and drops it there (spec §6.5)
 
 error[DZ0514]: cannot compare `i32?` with `i32?`
     ┌─ typeerrors/src/errors.dz:681:12
@@ -1298,8 +1298,8 @@ error[DZ0557]: `show` cannot have type parameters of its own
 error[DZ0531]: `Box<i32>` does not implement `Clone`
      ┌─ typeerrors/src/errors.dz:1066:13
      │
-1066 │     let _ = c.both(move(owned))
-     │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Clone`
+1066 │     let _ = c.both(owned)
+     │             ^^^^^^^^^^^^^ `T` is bounded by `Clone`
      │
      = help: implement it: `impl Clone for Box<i32> { … }` (spec §7.6)
 
@@ -2178,7 +2178,7 @@ error[DZ0587]: `Allocator` can only be implemented for a plain struct, and `Pool
 error[DZ0588]: a `Box<Meter>` cannot be used as a `Box<Gauge>`: `Gauge` has no `virtual` method
      ┌─ typeerrors/src/errors.dz:1762:12
      │
-1762 │     return move(d)
-     │            ^^^^^^^ dropping this through a `Box<Gauge>` would drop and free only a `Gauge`
+1762 │     return d
+     │            ^ dropping this through a `Box<Gauge>` would drop and free only a `Gauge`
      │
      = help: a `Box` reaches what it holds through the vtable, so give `Gauge` a `virtual` method, or keep the `Box<Meter>`; an `Rc<Gauge>` converts without one (spec §14.5)

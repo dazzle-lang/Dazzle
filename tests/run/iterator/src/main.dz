@@ -26,7 +26,7 @@ struct Buffer<T> {
             panic!("buffer full")
         }
         unsafe {
-            construct(m_data[m_len], move(v))
+            construct(m_data[m_len], v)
         }
         m_len += 1
     }
@@ -75,7 +75,7 @@ struct List<T> {
     }
 
     pub fn push(&mut self, value: T) sends value to self {
-        m_buffer.push(move(value))
+        m_buffer.push(value)
     }
 
     pub fn len(&self) -> usize {

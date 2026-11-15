@@ -94,13 +94,13 @@ fn evens() -> List<i32> {
 // Heap: moved into a field of a parameter.
 fn keep(store: &mut Store) kills store.saved {
     let xs = List<i32>()
-    store.saved = move(xs)
+    store.saved = xs
 }
 
 // Pushed into a container it was lent: built in that container's home (D-0097).
 fn tag(names: &mut List<String>) kills names@items {
     let s = String::from("a")
-    names.push(move(s))
+    names.push(s)
 }
 
 fn consume(xs: List<i32>) -> usize {
@@ -110,17 +110,17 @@ fn consume(xs: List<i32>) -> usize {
 // Placed: passed by value to a parameter that stays in the call.
 fn give() -> usize {
     let xs = List<i32>()
-    return consume(move(xs))
+    return consume(xs)
 }
 
 fn hoard(xs: List<i32>, store: &mut Store) kills store.saved sends xs to store {
-    store.saved = move(xs)
+    store.saved = xs
 }
 
 // Heap: passed by value to a parameter that is kept.
 fn handed(store: &mut Store) kills store.saved {
     let xs = List<i32>()
-    hoard(move(xs), store)
+    hoard(xs, store)
 }
 
 // Placed: moved to an outer local, which is placed itself, so in its region (T-0146).
@@ -128,7 +128,7 @@ fn outer() -> usize {
     let mut kept = List<i32>()
     {
         let inner = List<i32>()
-        kept = move(inner)
+        kept = inner
     }
     return kept.len()
 }
@@ -149,7 +149,7 @@ fn squares_in(n: i32, allocator: ^mut Allocator = Allocators::Global) -> List<i3
     a.free(scratch, 4, 4)
     let mut xs = List<i32>()
     xs.push(n)
-    return move(xs)
+    return xs
 }
 
 fn own_fn() -> usize {
@@ -374,7 +374,7 @@ impl Maker for Keeper {
 fn evens() -> List<i32> {
     let mut xs = List<i32>()
     xs.push(2)
-    return move(xs)
+    return xs
 }
 
 // Passes its own caller's placement on.
@@ -539,7 +539,7 @@ fn lent() -> usize {
 // Moved on to another local, which is only lent.
 fn handed_on() -> usize {
     let first = List<i32>()
-    let p = Pair{ left: move(first), right: List<i32>() }
+    let p = Pair{ left: first, right: List<i32>() }
     return p.left.len()
 }
 
@@ -558,13 +558,13 @@ fn boxed() -> usize {
 // Stored where the block's region cannot reach: the heap, by the proposer and the check.
 fn stored(h: &mut Holder) kills h.kept {
     let p = Pair{ left: List<i32>(), right: List<i32>() }
-    h.kept = move(p)
+    h.kept = p
 }
 
 // A box given away: its contents with it.
 fn given(xs: &mut List<Box<List<i32>>>) kills xs@items {
     let b = Box(List<i32>())
-    xs.push(move(b))
+    xs.push(b)
 }
 
 fn main() {
@@ -655,7 +655,7 @@ struct Looping {
 // Keeps what it is given, so a value passed to it leaves the caller.
 fn consume(xs: List<i32>) -> usize {
     let mut kept = List<List<i32>>()
-    kept.push(move(xs))
+    kept.push(xs)
     return kept.len()
 }
 
@@ -767,17 +767,17 @@ struct Holder {
 fn block_value() -> List<i32> {
     let xs = {
         let inner = List<i32>()
-        move(inner)
+        inner
     }
-    return move(xs)
+    return xs
 }
 fn wrapped() -> Holder {
     let h = Holder{ items: List<i32>() }
-    return move(h)
+    return h
 }
 fn into_element(lists: &mut List<List<i32>>) kills lists[*] {
     let xs = List<i32>()
-    lists[0] = move(xs)
+    lists[0] = xs
 }
 fn condition() -> i32 {
     let mut n = 0
@@ -788,7 +788,7 @@ fn condition() -> i32 {
 }
 fn optional() -> List<i32>? {
     let xs: List<i32>? = List<i32>()
-    return move(xs)
+    return xs
 }
 fn kept_inside() -> usize {
     let mut outer = List<i32>()
@@ -851,7 +851,7 @@ fn made(n: i32) -> String {
 }
 fn pushed(names: &mut List<String>, n: i32) kills names@items {
     let s = format!("{}", n)
-    names.push(move(s))
+    names.push(s)
 }
 fn named(store: &mut Store, n: i32) kills store.name {
     store.name = format!("{}", n)
@@ -931,31 +931,31 @@ struct Holder {
     }
 
     pub fn take(&mut self, xs: List<i32>) kills self.kept sends xs to self {
-        self.kept = move(xs)
+        self.kept = xs
     }
 }
 fn measure(xs: List<i32>) -> usize {
     let n = xs.len()
-    let ys = move(xs)
+    let ys = xs
     return n + ys.len()
 }
 fn countdown(xs: List<i32>, n: i32) -> usize {
     if n == 0 {
         return xs.len()
     }
-    return countdown(move(xs), n - 1)
+    return countdown(xs, n - 1)
 }
 fn forward(xs: List<i32>) -> usize {
-    return measure(move(xs))
+    return measure(xs)
 }
 fn hand_back(xs: List<i32>) -> List<i32> in xs@home {
-    return move(xs)
+    return xs
 }
 fn hoard(xs: List<i32>, into: &mut List<List<i32>>) kills into@items sends xs to into {
-    into.push(move(xs))
+    into.push(xs)
 }
 fn relay(xs: List<i32>, into: &mut List<List<i32>>) kills into@items sends xs to into {
-    hoard(move(xs), into)
+    hoard(xs, into)
 }
 fn caller(h: &mut Holder) -> usize kills h.kept {
     let a = List<i32>()
@@ -963,10 +963,10 @@ fn caller(h: &mut Holder) -> usize kills h.kept {
     let c = List<i32>()
     let d = List<i32>()
     let mut lists = List<List<i32>>()
-    relay(move(d), &mut lists)
+    relay(d, &mut lists)
     let e = List<i32>()
-    h.take(move(e))
-    return measure(move(a)) + countdown(move(b), 3) + forward(move(c)) + h.total(List<i32>())
+    h.take(e)
+    return measure(a) + countdown(b, 3) + forward(c) + h.total(List<i32>())
 }
 fn main() {
     let mut h = Holder()
@@ -1177,7 +1177,7 @@ fn popped(store: &mut Store) -> usize kills store.names@items {
     let mut names = List<String>()
     names.push(String::from("kept elsewhere"))
     let last = names.pop() or return 0
-    store.names.push(move(last))
+    store.names.push(last)
     return names.len()
 }
 
@@ -1194,7 +1194,7 @@ fn drained(n: i32) -> usize {
 
 fn give(from: &mut List<String>, store: &mut Store) kills from@items, from[*], store.names@items sends from[*] to store {
     let s = from.pop() or return
-    store.names.push(move(s))
+    store.names.push(s)
 }
 
 fn lent(store: &mut Store) -> usize kills store.names@items {
@@ -1442,7 +1442,7 @@ struct Names {
     }
 
     pub fn add(&mut self, s: String) kills self@names sends s to self {
-        m_names.push(move(s))
+        m_names.push(s)
     }
 
     pub fn clear(&mut self) kills self@names, self[*] {
@@ -1475,7 +1475,7 @@ struct Pile {
     // Keeps `s`, and drops everything it kept before.
     pub fn add(&mut self, s: String) kills self@all sends s to self {
         m_names = List<String>()
-        m_names.push(move(s))
+        m_names.push(s)
     }
 
     pub fn len(&self) -> usize {
@@ -1485,7 +1485,7 @@ struct Pile {
 
 fn counted(words: &List<String>) -> usize {
     let mut counts = HashMap<String, i32>()
-    for w in words {
+    for &w in words {
         let word = w.as_str()
         if let &mut n = counts.get_mut_str(word) {
             n += 1
@@ -1498,7 +1498,7 @@ fn counted(words: &List<String>) -> usize {
 
 fn seen(words: &List<String>) -> usize {
     let mut set = HashSet<String>()
-    for w in words {
+    for &w in words {
         let word = w.as_str()
         if !set.contains_str(word) {
             set.insert(String::from(word))
@@ -1509,7 +1509,7 @@ fn seen(words: &List<String>) -> usize {
 
 fn other_key(words: &List<String>) -> usize {
     let mut counts = HashMap<String, i32>()
-    for w in words {
+    for &w in words {
         let word = w.as_str()
         if let &mut n = counts.get_mut_str("x") {
             n += 1
@@ -1522,7 +1522,7 @@ fn other_key(words: &List<String>) -> usize {
 
 fn touched_first(words: &List<String>) -> usize {
     let mut counts = HashMap<String, i32>()
-    for w in words {
+    for &w in words {
         let word = w.as_str()
         if let &mut n = counts.get_mut_str(word) {
             n += 1
@@ -1667,7 +1667,7 @@ struct Taken {
 
     // Holds what it is given, which was built wherever its caller built it.
     Taken(items: List<i32>) {
-        self.items = move(items)
+        self.items = items
     }
 }
 
@@ -1695,7 +1695,7 @@ fn reset(s: &mut String) kills s {
 }
 
 fn pass_on(x: String) -> String in x@home {
-    return move(x)
+    return x
 }
 
 fn fresh() -> String {
@@ -1723,7 +1723,7 @@ fn skipped() -> usize {
         names.push(String::from("each pass, kept"))
     }
     let one = String::from("one")
-    names.push(move(one))
+    names.push(one)
     return xs.len() + s.byte_len() + m.len() + b.items.len() + f.byte_len() + n + names.len()
 }
 
@@ -1827,7 +1827,7 @@ fn even(depth: i32) -> Node {
     }
     let l = odd(depth - 1)
     let r = odd(depth - 1)
-    return Node::Pair{ l: Box<Node>(move(l)), r: Box<Node>(move(r)) }
+    return Node::Pair{ l: Box<Node>(l), r: Box<Node>(r) }
 }
 
 fn odd(depth: i32) -> Node {
@@ -1841,9 +1841,9 @@ fn odd(depth: i32) -> Node {
 fn chain(n: i32) -> Node {
     let mut acc = leaf(0)
     for i in 0..n {
-        acc = Node::Pair{ l: Box<Node>(move(acc)), r: Box<Node>(leaf(i)) }
+        acc = Node::Pair{ l: Box<Node>(acc), r: Box<Node>(leaf(i)) }
     }
-    return move(acc)
+    return acc
 }
 
 fn grown(n: i32) !-> Node {
@@ -1855,7 +1855,7 @@ fn grown(n: i32) !-> Node {
 
 fn named(n: i32) !-> (i32, Node) {
     let t = grown(n) or return
-    return (n, move(t))
+    return (n, t)
 }
 
 fn skipped() -> i32 {
@@ -1888,7 +1888,7 @@ struct Circle : Shape {
 
 fn wrap(given: Node) -> i32 {
     // What the box holds was built by the caller, wherever that was.
-    let b = Box<Node>(move(given))
+    let b = Box<Node>(given)
     return size(b or unreachable)
 }
 
@@ -2035,7 +2035,7 @@ fn parts() -> i32 {
 fn assigned(s: String) -> usize {
     let mut xs = List<String>()
     xs.push(String::from("x"))
-    xs[0] = move(s)
+    xs[0] = s
     return xs.len()
 }
 
@@ -2043,7 +2043,7 @@ fn through_a_ref(s: String) -> usize {
     let mut xs = List<String>()
     xs.push(String::from("x"))
     let r = &mut xs[0]
-    r = move(s)
+    r = s
     return xs.len()
 }
 
@@ -2057,7 +2057,7 @@ fn handed_on() -> usize {
 fn part_assigned(s: String) -> usize {
     let mut us = List<Unit>()
     us.push(Unit{ hp: 1, name: String::from("u") })
-    us[0].name = move(s)
+    us[0].name = s
     return us.len()
 }
 
@@ -2092,7 +2092,7 @@ fn replaced_through_a_let(s: String) -> usize {
     let mut xs = List<String>()
     xs.push(String::from("x"))
     let r = xs[0]
-    r = move(s)
+    r = s
     return xs.len()
 }
 
@@ -2191,16 +2191,16 @@ fn grown(n: i32) -> Tree {
     let mut t = leaf(0)
     for i in 0..n {
         let next = leaf(i)
-        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+        t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(next) }
     }
-    return move(t)
+    return t
 }
 
 fn counted(n: i32) -> i32 {
     let mut t = leaf(0)
     for i in 0..n {
         let next = leaf(i)
-        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+        t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(next) }
     }
     return size(&t)
 }
@@ -2208,7 +2208,7 @@ fn counted(n: i32) -> i32 {
 fn reset(n: i32) -> i32 {
     let mut t = leaf(0)
     for i in 0..n {
-        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+        t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(leaf(i)) }
         if i % 10 == 0 {
             t = leaf(0)
         }
@@ -2223,7 +2223,7 @@ fn skipped(n: i32) -> i32 {
         if i == 3 {
             continue
         }
-        t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(move(next)) }
+        t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(next) }
     }
     return size(&t)
 }
@@ -2233,7 +2233,7 @@ fn per_round(n: i32) -> i32 {
     for _ in 0..n {
         let mut t = leaf(0)
         for i in 0..n {
-            t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+            t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(leaf(i)) }
         }
         total += size(&t)
     }
@@ -2244,10 +2244,10 @@ fn first_big(n: i32) -> Tree {
     for _ in 0..n {
         let mut t = leaf(0)
         for i in 0..n {
-            t = Tree::Node{ lhs: Box<Tree>(move(t)), rhs: Box<Tree>(leaf(i)) }
+            t = Tree::Node{ lhs: Box<Tree>(t), rhs: Box<Tree>(leaf(i)) }
         }
         if size(&t) > 2 {
-            return move(t)
+            return t
         }
     }
     return leaf(0)
@@ -2367,7 +2367,7 @@ fn tag(names: &mut List<String>) kills names@items {
 
 fn take_last(from: &mut List<String>, into: &mut List<String>) kills from@items, from[*], into@items sends from[*] to into {
     let s = from.pop() or return
-    into.push(move(s))
+    into.push(s)
 }
 
 fn read_only() -> usize {
@@ -2420,7 +2420,7 @@ fn built(n: i32) -> usize {
         for step in 0..4 {
             path.push(i + step)
         }
-        paths.push(move(path))
+        paths.push(path)
     }
     return paths.len()
 }
@@ -2433,7 +2433,7 @@ fn skipped(n: i32) -> usize {
         if i == 3 {
             continue
         }
-        paths.push(move(path))
+        paths.push(path)
     }
     return paths.len()
 }
@@ -2444,7 +2444,7 @@ fn sometimes(n: i32) -> usize {
         let mut path = List<i32>()
         path.push(i)
         if i % 2 == 0 {
-            paths.push(move(path))
+            paths.push(path)
         }
     }
     return paths.len()
@@ -2456,7 +2456,7 @@ fn replaced(n: i32) -> usize {
         let mut path = List<i32>()
         path.push(i)
         path = List<i32>()
-        paths.push(move(path))
+        paths.push(path)
     }
     return paths.len()
 }

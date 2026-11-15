@@ -106,7 +106,7 @@ fn generate(statements: i64) -> String {
         generate_expr(&mut f, &mut rng, i, 5, 0)
         f.write_char('\n')
     }
-    return move(text)
+    return text
 }
 
 // --- tokens ------------------------------------------------------------------------------
@@ -201,7 +201,7 @@ fn tokenize(source: &String) !-> List<Token> {
         }
         tokens.push(Token{ kind: kind, start: start, end: i })
     }
-    return move(tokens)
+    return tokens
 }
 
 // --- the tree ------------------------------------------------------------------------
@@ -261,7 +261,7 @@ view struct Parser {
         let _ = self.expect(.Assign) or return
         let value = self.expr() or return
         let _ = self.expect(.End) or return
-        return (m_source.cut_bytes(name.start, name.end), move(value))
+        return (m_source.cut_bytes(name.start, name.end), value)
     }
 
     fn expr(&mut self) !-> Expr {
@@ -272,11 +272,11 @@ view struct Parser {
             let rhs = self.term() or return
             lhs = Expr::Binary{
                 op: op,
-                lhs: Box<Expr>(move(lhs)),
-                rhs: Box<Expr>(move(rhs)),
+                lhs: Box<Expr>(lhs),
+                rhs: Box<Expr>(rhs),
             }
         }
-        return move(lhs)
+        return lhs
     }
 
     fn term(&mut self) !-> Expr {
@@ -287,18 +287,18 @@ view struct Parser {
             let rhs = self.unary() or return
             lhs = Expr::Binary{
                 op: op,
-                lhs: Box<Expr>(move(lhs)),
-                rhs: Box<Expr>(move(rhs)),
+                lhs: Box<Expr>(lhs),
+                rhs: Box<Expr>(rhs),
             }
         }
-        return move(lhs)
+        return lhs
     }
 
     fn unary(&mut self) !-> Expr {
         if self.peek_operator('-' as u8, '-' as u8, '-' as u8) != none {
             m_at += 1
             let inner = self.unary() or return
-            return Expr::Negate{ inner: Box<Expr>(move(inner)) }
+            return Expr::Negate{ inner: Box<Expr>(inner) }
         }
         return self.primary() or return
     }
@@ -318,7 +318,7 @@ view struct Parser {
                 m_at += 1
                 let inner = self.expr() or return
                 let _ = self.expect(.Close) or return
-                return move(inner)
+                return inner
             }
             default {
                 return error(Failure::Syntax, "expected a number, a name or `(`")

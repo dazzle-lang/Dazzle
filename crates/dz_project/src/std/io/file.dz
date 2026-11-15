@@ -82,7 +82,7 @@ pub struct File {
             got += n
         }
         bytes.truncate(got)
-        return move(bytes)
+        return bytes
     }
 
     /// The whole file as text, which must be UTF-8 (`IoError::InvalidData` otherwise).

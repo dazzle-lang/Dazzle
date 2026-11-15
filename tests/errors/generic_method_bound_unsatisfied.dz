@@ -12,5 +12,5 @@ struct Shelf {
 fn main() {
     let s = Shelf{}
     let pair = s.keep_two(Box<i32>(5))
-    let _ = move(pair)
+    let _ = pair
 }

@@ -153,6 +153,12 @@ fn slices(xs: &mut []Text) kills xs[*]@chars {}
 fn iterable(xs: &mut HashMap<i32, i32>) kills xs[*] {}
 fn observe(p: ^Text) {}
 fn observe_byte(p: ^u8) {}
+pub struct Kept {
+    pub text: Text
+}
+impl Drop for Kept {
+    fn drop(&mut self) {}
+}
 "#;
 
 fn place(local: u32, steps: &[Step]) -> Place {
@@ -595,9 +601,9 @@ fn scoped() {
     observe(p)
 }
 fn moved() {
-    let x = Text{}
-    let p = &x
-    let y = move(x)
+    let x = Kept{ text: Text{} }
+    let p = &x.text
+    let y = x
     observe(p)
 }
 fn replaced(w: &mut World) kills w.bag {
@@ -613,7 +619,7 @@ fn scalar(x: &mut i32) {
 }
 fn moving_a_reference(x: &Text) {
     let p = x
-    let q = move(p)
+    let q = p
     observe(q)
     observe(x)
 }

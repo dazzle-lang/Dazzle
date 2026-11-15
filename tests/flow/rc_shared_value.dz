@@ -13,7 +13,7 @@ fn append_copy(dst: &mut List<String>, src: &List<String>) kills dst@items {
 fn two_handles() {
     let mut list = List<String>()
     list.push(String::from("a"))
-    let mut a = Rc<List<String>>(move(list))
+    let mut a = Rc<List<String>>(list)
     let b = a.clone()
     if let &mut dst = a {
         if let &src = b {
@@ -56,7 +56,7 @@ fn main() {
     two_handles()
     let mut list = List<String>()
     list.push(String::from("a"))
-    let a = Rc<List<String>>(move(list))
+    let a = Rc<List<String>>(list)
     let mut c = a.clone()
     kept_across_a_kill(a.clone(), &mut c)
     one_handle(&mut c)

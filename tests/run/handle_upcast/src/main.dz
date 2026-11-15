@@ -86,14 +86,14 @@ fn main() {
 
     items.clear()
     println!("weak alive {}", weak != null)
-    let _ = move(b)
+    let _ = b
     println!("weak after {}", weak != null)
 
     let plain: Rc<Plain> = Rc<Fancier>(Fancier{ x: 3, label: Label{ text: "rc fancier" } })
     if let &p = plain {
         println!("plain {}", p.x)
     }
-    let _ = move(plain)
+    let _ = plain
     let fancy: Box<Fancy> = Box<Fancier>(Fancier{ x: 4, label: Label{ text: "box fancier" } })
     if let &f = fancy {
         f.show()
