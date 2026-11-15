@@ -129,8 +129,16 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   1.07×. A hand-written version of its four hot functions on the same types shows what is
   left is the shape of the generated code:
   [T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md).
-- **`json`** (added 2026-11-14, T-0173) is 1.08× its C++ half on clang++ and 1.21× on g++,
-  the furthest behind. It was 1.70× and 1.91× when added. On the way: `{}` writes a float's
+- **`json`** (added 2026-11-14, T-0173) is 1.06× its C++ half on clang++ and 1.13× on g++,
+  the furthest behind. It was 1.70× and 1.91× when added, and 1.08× and 1.21× until
+  2026-11-15, when its gap and `raytrace`'s were measured not to be the cost of safety:
+  with every bounds check and panic compiled out of the generated C++, and the flags that
+  define overflow, aliasing and endless loops reversed, neither ran faster on either
+  compiler ([T-0234](../../docs/tasks/T-0234-what-kept-json-raytrace-behind-c.md)). What
+  was found instead, with what each is worth, is in that task; two were fixed with it, a
+  pushed element moved once less and g++'s limit on how far a whole program may grow by
+  inlining. About 10 ms of what is left is the benchmark's own: this half writes through
+  reflection and the C++ half's writer is by hand. On the way before that: `{}` writes a float's
   shortest digits through `std::to_chars` (r130, D-0101), where it was `snprintf("%g")`; a
   moved-from local that nothing can see is not reset, and `let v = f() or return` names the
   value where it is; `List` starts small; and a `^mut Allocator` is one word (r132,

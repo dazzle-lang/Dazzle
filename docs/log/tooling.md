@@ -1918,3 +1918,51 @@ Measured against `8a126fa`, no benchmark moved: none grows a deque or a map of
 non-trivial elements far enough to show. Filed on the way: T-0230, a `List` of an imported
 C++ class with no default constructor does not compile, since an instance has `resize`
 whenever any `List` calls it (T-0199).
+
+## The gap to C++ is not safety; a parameter used in place, g++'s unit-growth limit (T-0234; 2026-11-15)
+
+The user asked whether `json` and `raytrace` behind their C++ halves is the price of being
+safe. Measured first, then two fixes. Compiler work; no program behaves differently.
+
+**It is not safety.** With `panic`, `panic_bounds` and `panic_len` made
+`__builtin_unreachable()` in the generated C++, so every bounds, division and assert test
+is deleted, and `-fwrapv -fno-finite-loops -fno-strict-aliasing` reversed, neither program
+ran faster on either compiler (`json` 1.07× and 1.24×, `raytrace` 1.07× and 1.07×, as
+before). The C++ halves given the three flags did not slow down, and with libstdc++'s
+bounds checks on, `json`'s ran 5% faster, which is how much a build moves for no reason.
+T-0234 has the tables, `json` by phase, and each cause with what it is worth.
+
+**What it is**: the generated C++ is lowered a statement at a time and the C++ optimiser
+clears most of it up, not all. Two of the causes are fixed:
+
+- **A by-value parameter the body moves on, on every path, is used where it is**
+  (`moved_out_params` in `dz_cpp/src/lib.rs`). `take_ownership_of_params` moves each owning
+  parameter into a binding of the body's own, so it drops at the body's end under every
+  ABI. One the body always moves out is empty by then, so where its drop is silent
+  (`drops_silently`) the body binds a reference to the parameter. `List::push` moved its
+  element into the parameter, into the binding and into the list; now into the parameter
+  (built there, when the argument is a temporary) and into the list. The signature is
+  unchanged, so trait and `virtual` methods and copyable values qualify. A value with a
+  `drop` of the program's own keeps the binding: the first version left it out, and
+  `tests/run/discarded_move` failed with one `drop 0` fewer after `push(move(c))`, which is
+  what that test is for. `a_parameter_moved_on_is_used_in_place` in `dz/tests/run.rs` holds
+  the four cases. Taking the caller's value by `&&`, as a constructor does (T-0097), was 1–2
+  ms more on `json` by hand and is not built: a copyable argument that no copy was placed
+  for is passed as an lvalue.
+- **g++ gets `--param inline-unit-growth=100` in an optimised build** (`dz/src/build.rs`).
+  Asked why it left `String::push_str` a call, g++ named `early-inlining-insns`, which
+  changed nothing, as `max-inline-insns-single` at 120, 200 and 400 and `-O3` did not. The
+  limit that binds is the unit's growth, 40%, which applies to a unit over 10,000
+  instructions: under LTO the unit is the program, and with `std` in it a Dazzle program is
+  always over, a small C++ program never. At 100, 300 and 1000 the binary is the same one.
+  `always_inline` on the nine text functions was 12–14 ms on `json`; this is 17, and
+  leaves the choice with the compiler, as §12.8 says.
+
+`RESULTS.md` is the run after both: `json` 257 → 233 ms on g++ (1.21× → 1.13×) and 242 →
+234 ms on clang++ (1.08× → 1.06×); the other four programs within a percent, and build
+times as they were (`json`'s release build on g++ 1.17 → 1.12 s).
+
+The experiments were whole runs of the generated C++ patched by hand, as T-0222's were.
+`perf` was not available (`perf_event_paranoid` is 3 again), so instruction counts came
+from `valgrind --tool=callgrind`, which reads the `#line` directives and so reports by
+Dazzle source line, and the phases from a timer added to both halves' `main`.

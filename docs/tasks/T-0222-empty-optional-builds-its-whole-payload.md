@@ -129,3 +129,11 @@ zeroes then assigns, `if` and `switch` expressions without `_dz_val` temporaries
 `let` taken out of an optional bound in place. Clean code reaches 475 / 625 ms, so about 10
 ms on clang++ and 40 on g++ is there to win; the empty `Opt` with nothing initialised (no
 time here, 170 M fewer instructions) belongs in the same change.
+
+**2026-11-15: not safety (T-0234).** With every panic made unreachable in the generated
+C++, so no bounds or division test is left, and `-fno-wrapv -ffinite-loops
+-fstrict-aliasing`, `raytrace` ran in the same time: 486 ms against 486 on clang++, and
+670 against 668 on g++ (683 with the checks alone removed, which is layout, not work). The
+C++ half given Dazzle's three flags and libstdc++'s bounds checks did not move either (454
+and 619 ms). So what is left here is the shape above and nothing else; T-0234's two fixes,
+for `List::push` and g++'s inlining limit, did not move this program.

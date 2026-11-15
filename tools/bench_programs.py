@@ -429,7 +429,8 @@ def report(info, results, mode, runs):
     lines += [
         f"- Mode: `--{mode}`. C++ flags: `{flags}`; Dazzle's generated code gets the same "
         "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`, and with g++ in an optimised "
-        "build `--param max-inline-insns-auto=70` (T-0190). A program's `cxx_flags.txt` adds "
+        "build `--param max-inline-insns-auto=70` (T-0190) and `--param inline-unit-growth=100` "
+        "(T-0234). A program's `cxx_flags.txt` adds "
         "flags to both of its halves: `raytrace` has `-ffp-contract=off` (T-0174).",
         f"- Dazzle: commit {info['commit']}",
         f"- Load average before / after: {info['load_before']} / {info['load_after']}",

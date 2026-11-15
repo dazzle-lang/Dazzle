@@ -4035,10 +4035,22 @@ impl<'a> Emitter<'a> {
     /// the body on every ABI, and what the ABI eventually destroys is the moved-from
     /// husk, whose `drop` §6.4 already guarantees is a harmless no-op. The cost is a move
     /// per owning parameter, which is what the language promised anyway.
+    ///
+    /// A parameter the body moves out on every path is that husk already when the body
+    /// ends. Where its drop is `std`'s own and so does nothing then, it is used where it
+    /// is, with no move ([`moved_out_params`]).
     fn take_ownership_of_params(&mut self, body: &'a hir::Body) {
         let names = param_names(body);
         let uses = hir::local_uses(body);
-        let consumed = consumed_params(body, self.table);
+        // By reference (a constructor's), or by value and left empty by the body, when
+        // nothing the program wrote runs as the emptied parameter is destroyed: with a
+        // `drop` of the program's own, when that runs is what the binding is there to fix.
+        let mut consumed = consumed_params(body, self.table);
+        for p in moved_out_params(body, self.table) {
+            if !consumed.contains(&p) && self.drops_silently(&body.local(p).ty) {
+                consumed.push(p);
+            }
+        }
         for p in &body.params {
             let local = body.local(*p);
             if local.name == "self" || !self.table.needs_drop(&local.ty) {
@@ -4049,7 +4061,8 @@ impl<'a> Emitter<'a> {
             let arg = incoming_name(name, self.table, &local.ty);
             let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
             if consumed.contains(p) {
-                // The caller's value, which the body moves out on every path (T-0097).
+                // The parameter itself, or for a constructor the caller's value, which the
+                // body moves out on every path (T-0097, T-0234).
                 self.line(&format!("{unused}{ty}& {name} = {arg};"));
             } else {
                 self.line(&format!("{unused}{ty} {name} = ::dz::rt::mv({arg});"));
@@ -7343,6 +7356,26 @@ fn consumed_params(body: &hir::Body, table: &TypeTable) -> Vec<LocalId> {
     if !matches!(body.owner, BodyOwner::Ctor { .. }) {
         return Vec::new();
     }
+    let mut params = moved_out_params(body, table);
+    params.retain(|p| !table.copyable(&body.local(*p).ty));
+    params
+}
+
+/// The parameters a body moves out of on every path: a value that owns something, named
+/// once, by a `move` that every path through the body reaches before any `return`.
+///
+/// Such a parameter needs no binding of the body's own, where destroying it empty runs no
+/// code of the program's ([`Emitter::drops_silently`]; T-0234). The binding is there so the
+/// value drops at the end of the body under every ABI
+/// ([`Emitter::take_ownership_of_params`]); one the body always moves out is an empty husk
+/// by then, and when its drop prints nothing it does not matter which side destroys it, or
+/// when, so the body uses the parameter where it is. `List::push(v: T)` is the case: by
+/// value, C++ moved the element into the parameter, then into the body's binding, then into
+/// the list; now it is built in the parameter, by the caller, and moved once, into the
+/// list. The C++ signature does not change, so this holds for any function, a trait's or a
+/// `virtual` one included, and for a value that can be copied; [`consumed_params`] is the
+/// further step for a constructor, which takes the caller's own value.
+fn moved_out_params(body: &hir::Body, table: &TypeTable) -> Vec<LocalId> {
     let returns: Vec<u32> = body
         .exprs
         .iter()
@@ -7355,7 +7388,7 @@ fn consumed_params(body: &hir::Body, table: &TypeTable) -> Vec<LocalId> {
         .copied()
         .filter(|p| {
             let local = body.local(*p);
-            if local.name == "self" || !table.needs_drop(&local.ty) || table.copyable(&local.ty) {
+            if local.name == "self" || !table.needs_drop(&local.ty) {
                 return false;
             }
             let uses: Vec<hir::ExprId> = ids()

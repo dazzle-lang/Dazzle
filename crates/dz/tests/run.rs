@@ -1532,6 +1532,53 @@ fn a_union_switch_ends_in_else() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A by-value parameter the body moves on, on every path, is used where it is (T-0234):
+/// the body's own binding, which fixes when a parameter drops under every ABI, cost a
+/// second move of every element pushed to a `List`. Not one the body only reads or moves on
+/// one path, which still drops at the body's end, nor one holding a `drop` of the program's
+/// own, which would run on the emptied parameter at a time the ABI chooses
+/// (`tests/run/discarded_move` holds that order).
+#[test]
+fn a_parameter_moved_on_is_used_in_place() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_param_in_place",
+        "[module]\nname = \"shelving\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "struct Loud {\n    pub id:  i32\n    m_owned: own ^mut i32 = null\n\n    Loud(id: i32) {\n        self.id = id\n    }\n}\n\nimpl Drop for Loud {\n    fn drop(&mut self) {\n        println!(\"drop {}\", id)\n    }\n}\n\nfn shelve(name: String, shelf: &mut List<String>) kills shelf@items sends name to shelf {\n    shelf.push(move(name))\n}\n\nfn shelve_loud(l: Loud, shelf: &mut List<Loud>) kills shelf@items sends l to shelf {\n    shelf.push(move(l))\n}\n\nfn measure(name: String) -> usize {\n    return name.byte_len()\n}\n\nfn shelve_some(name: String, shelf: &mut List<String>, keep: bool) kills shelf@items sends name to shelf {\n    if keep {\n        shelf.push(move(name))\n    }\n}\n\nfn main() {\n    let mut shelf = List<String>()\n    shelve(String(\"a name long enough to be on the heap\"), &mut shelf)\n    shelve_some(String(\"another that is on the heap as well\"), &mut shelf, true)\n    shelve_some(String(\"and one dropped where it was passed\"), &mut shelf, false)\n    println!(\"{} {} {}\", shelf.len(), shelf[1], measure(String(\"four\")))\n    let mut loud = List<Loud>()\n    shelve_loud(Loud(7), &mut loud)\n    println!(\"shelved\")\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["run", "--track-memory", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(!stderr.contains("leak"), "{stderr}");
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert_eq!(lines.first(), Some(&"2 another that is on the heap as well 4"), "{stdout}");
+    assert_eq!(lines.last(), Some(&"drop 7"), "{stdout}");
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/shelving.cpp")).unwrap();
+    let body = |name: &str| {
+        let start = cpp
+            .match_indices(&format!(" {name}("))
+            .map(|(i, _)| i)
+            .find(|&i| cpp[i..].lines().next().is_some_and(|l| l.ends_with('{')))
+            .expect(name);
+        let end = cpp[start..].find("\n}\n").map_or(cpp.len(), |e| start + e);
+        cpp[start..end].to_owned()
+    };
+    let shelve = body("shelve");
+    assert!(shelve.contains("& name = name__arg;"), "moved into a binding:\n{shelve}");
+    for kept in ["measure", "shelve_some"] {
+        let b = body(kept);
+        assert!(b.contains(" name = ::dz::rt::mv(name__arg);"), "{kept} has no binding:\n{b}");
+    }
+    let loud = body("shelve_loud");
+    assert!(loud.contains(" l = ::dz::rt::mv(l__arg);"), "a drop that prints, unbound:\n{loud}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The whole-program benchmarks (`tests/bench_programs`, T-0090): each program's Dazzle half
 /// and its C++ half must print the same checksum, on the small input in `quick_args.txt`.
 /// The timings belong to `tools/bench_programs.py`; this keeps the pairs honest, since a

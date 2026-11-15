@@ -100,3 +100,34 @@ question about regions, not about `List`.
 So the gap is now 196 MiB against 180 and, on g++, 256 ms against 211: about 10 MiB of
 region chunks, the input and output text a few MiB larger than C++'s, and malloc's own
 overhead on the heap build.
+
+**Progress, 2026-11-15: not safety, and two causes fixed (T-0234).** With every panic made
+unreachable in the generated C++ and the three flags that define overflow, aliasing and
+endless loops reversed, `json` ran no faster on either compiler. Timed by phase, parsing was
+already level on clang++ (107 ms against 108); the gap was in converting (29 against 20)
+and writing (38 against 26), and on g++ in parsing too (105 against 93). T-0234 fixed a
+pushed element's extra move and g++'s unit-growth limit, which had left `String::push_str` a
+call: `json` is 1.06× on clang++ and 1.13× on g++ (`RESULTS.md`). What is left, each
+measured by a patch to the generated C++:
+
+- **The writer is reflective and the C++ half's is by hand: 10 ms on clang++, 13 on g++.**
+  `write_value` looks the type up, tests `info.name.starts_with("List<")` and scans the
+  fields for `m_data` and `m_len` for every value. A `record_json` written by hand in Dazzle
+  writes in 27.7 ms against C++'s 25.7. Whether the benchmark is meant to price reflection
+  is the user's call; if it is, the report should say so, and if not, the writer is by hand
+  on both sides as the reader already is.
+- **A float's text takes a round trip: 2.5 ms on clang++.** `shortest_digits` asks
+  `std::to_chars` for the scientific form and reads the exponent back with `atoi` (44 M
+  instructions in `strtol`), and `shortest_fixed` lays the digits out again. For a value
+  between 1e-3 and 1e15 whose `std::to_chars` text has no exponent, that text is already
+  what D-0101 asks for; taking it there gave the same checksum.
+- **Converting, 7–8 ms on both**: about 4–5 in the bare loop, a 144-byte `Res<Record>`
+  built per record and five destructors run on values already moved from (T-0231), and
+  about 3 in the tags lists, which take 3,800 page faults against the C++ half's 2,000,
+  with regions on or off, for a reason not found.
+  Forcing `text_of` and `String`'s constructor and moves inline was worth 1 ms.
+- **`main`'s region, 4 ms** (T-0233): with `DZ_REGIONS=0`, parsing is 4–7 ms faster and
+  converting 2 slower.
+
+With the first two and T-0234's fixes done by hand, `json` ran 0.99× on clang++ and 1.08×
+on g++.

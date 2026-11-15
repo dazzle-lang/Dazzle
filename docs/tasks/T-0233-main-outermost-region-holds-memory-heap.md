@@ -35,6 +35,14 @@ weigh, consistency first (regions are architecture, not only speed):
 
 Measure each on `json` (memory and time, both compilers) and on every benchmark.
 
+**2026-11-15, time as well as memory (T-0234).** Timed by phase with `DZ_REGIONS=0`
+against the default, both on the hand-patched build T-0234 ends its table with: parsing 95
+ms against 101 on clang++ and 94 against 98 on g++, converting 30 against 28 and 31 against
+29, the whole run 4–5 ms faster on both and the peak 187 MiB against 196. One thing regions
+do not explain: the convert phase takes about 3,800 page faults against the C++ half's
+2,000, and 2,250 when the records' tags lists are not built, but as many with regions off
+(3,950), so the tags lists' fresh pages are not the region's doing.
+
 ## Where the code is
 
 | What | Where |

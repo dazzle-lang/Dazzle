@@ -31,6 +31,14 @@ storage) or the move lowered so nothing is left behind. `move(x)` of a copyable 
 already skips the reset where it cannot be seen (T-0225's progress); this is the next step.
 Measure on `expr` and `json` first, both compilers.
 
+**2026-11-15, from T-0234.** `json`'s convert phase shows the same cost: each record is
+built in a struct literal, moved into a `Res<Record>`, and moved into the list, and
+`List<String>`'s destructor is called five times a record on values already moved from,
+500,000 calls that free nothing. T-0234 removed one of those moves where the value goes
+through a by-value parameter the body moves on (`moved_out_params`), under
+`drops_silently`, the same guard this task would need; the bare convert loop is still
+4–5 ms behind its C++ half's 11.
+
 ## Where the code is
 
 | What | Where |

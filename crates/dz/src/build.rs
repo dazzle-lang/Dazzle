@@ -492,6 +492,17 @@ pub fn compile(
     if gcc {
         if module.build.optimize != Optimize::Debug {
             args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
+            // g++ stops inlining once the unit has grown by 40%, but only in a unit of more
+            // than 10,000 instructions, and with link-time optimisation the unit is the
+            // whole program. A C++ program of one small file is under that size and never
+            // meets the limit; a Dazzle program always carries `std`, so it always does,
+            // and `std`'s own inlining spent the budget before the program's hot calls were
+            // reached: `json` built text through 24 calls to `String::push_str`, which is
+            // `#[inline]`, where its C++ half's `std::string::append` was inlined. At 100%
+            // the inliner takes every call it finds worth it (the binary is the same at 100,
+            // 300 and 1000): `json` parses in 96 ms where it took 106, against 94 for its
+            // C++ half (T-0234).
+            args.extend(["--param".to_owned(), "inline-unit-growth=100".to_owned()]);
         }
         // GCC needs this both when building and when using a precompiled header. Otherwise
         // its depfile can omit the headers inside the PCH, leaving the object cache unaware
