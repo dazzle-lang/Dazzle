@@ -214,19 +214,73 @@ struct Error {
     const SourceLocation* location{};
 };
 
-template <class T>
-struct Opt {
+// What an empty optional of plain data holds in place of a payload: nothing. Its
+// constructor is written out so that it is not zeroed, and `constexpr` so that the
+// optional's still is, which C++17 allows only when a member of the union is initialised.
+struct OptEmpty { constexpr OptEmpty() {} };
+struct OptSome {};
+
+// An optional's storage. A payload that owns something is always built, empty or not, so
+// that every `T` in the program is one its destructor may meet.
+template <class T, bool Plain = __is_trivially_copyable(T)>
+struct OptStore {
     T value;
     bool has;
 
-    constexpr Opt() : value(), has(false) {}
+    constexpr OptStore() : value(), has(false) {}
+    template <class U> OptStore(OptSome, U&& v) : value(static_cast<U&&>(v)), has(true) {}
+    template <class U> DZ_INLINE void set(U&& v) { value = static_cast<U&&>(v); has = true; }
+};
+
+// Plain data has no destructor to meet, so an empty optional builds no payload: `return
+// none` from a ray tracer's `intersect` wrote 48 bytes of zeros for every shape a ray missed
+// (T-0222). The bytes of an empty one are whatever was there, and nothing reads them: `has`
+// is tested first, everywhere.
+template <class T>
+struct OptStore<T, true> {
+    union {
+        OptEmpty empty_;
+        T value;
+    };
+    bool has;
+
+    constexpr OptStore() : empty_(), has(false) {}
+    template <class U> OptStore(OptSome, U&& v) : value(static_cast<U&&>(v)), has(true) {}
+    // Built in place, since there may be no payload yet to assign to. Not from itself:
+    // `if let &h = best { best = h }` hands the payload its own address.
+    template <class U> DZ_INLINE void set(U&& v) {
+        if (static_cast<const void*>(&v) != static_cast<const void*>(&value)) {
+            ::new (static_cast<void*>(&value)) T(static_cast<U&&>(v));
+        }
+        has = true;
+    }
+};
+
+template <class A, class B> struct SameType {};
+template <class A> struct SameType<A, A> { using yes = int; };
+
+template <class T>
+struct Opt : OptStore<T> {
+    constexpr Opt() : OptStore<T>() {}
     // Not explicit: `return v` from a `?T` function is the success case (spec §9.1).
-    Opt(T v) : value(static_cast<T&&>(v)), has(true) {}
+    // By reference rather than by value, as `Res` takes its value: a value parameter is one
+    // more copy of `T` each time.
+    Opt(T&& v) : OptStore<T>(OptSome{}, static_cast<T&&>(v)) {}
+    Opt(const T& v) : OptStore<T>(OptSome{}, v) {}
     // A slice of writable elements where a `^[]T` of read-only ones is wanted: `return
     // m_data[a..b]` from a function returning `^[]T`. C++ will not chain `Slice<T>` to
     // `Slice<const T>` into `Opt(T)`, a second user-defined conversion (spec §5.3).
     template <class U>
-    Opt(const Slice<U>& v) : value(v), has(true) {}
+    Opt(const Slice<U>& v) : OptStore<T>(OptSome{}, v) {}
+    // `best = hit`: the payload is written where it goes. Through the constructor above it
+    // was copied into a temporary optional and that copied into `best`, which g++ did not
+    // see through: with this and the empty payload, `raytrace` ran 10% faster on it
+    // (T-0222). A template taking exactly a `T`, as `std::optional`'s is a template, so that
+    // `x = {}` still means an empty optional: braces deduce no `U`.
+    template <class U, typename SameType<U, T>::yes = 0>
+    DZ_INLINE Opt& operator=(const U& v) { this->set(v); return *this; }
+    template <class U, typename SameType<U, T>::yes = 0>
+    DZ_INLINE Opt& operator=(U&& v) { this->set(static_cast<U&&>(v)); return *this; }
     static Opt some(T v) { return Opt(static_cast<T&&>(v)); }
     static Opt none() { return Opt(); }
 };

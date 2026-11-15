@@ -1,0 +1,272 @@
+// The shapes the C++ generator gives a value (T-0222), each with the case that would go
+// wrong if the shape changed what the program means: a struct literal built by position, a
+// `let` assigned by the branches of its `if` or `switch`, a value named where an optional
+// holds it, and an optional of plain data, which builds no payload while it is empty.
+
+struct Point {
+    pub x: i32 = 3
+    pub y: i32 = 7
+    pub z: f32 = 1.5
+}
+
+struct Small {
+    pub a: i8
+    pub b: u16
+    pub c: f32
+}
+
+struct Hit {
+    pub t:     f32
+    pub point: Point
+}
+
+/// Owns its text, so a `Named?` is not plain data.
+struct Named {
+    pub name: String
+    pub n:    i32
+}
+
+/// Its `drop` prints, so where a value is dropped can be seen. A value at its defaults says
+/// nothing: one that was moved from, or a temporary the generated code never filled, and
+/// how many of those there are is not what this pins (T-0231).
+struct Loud {
+    pub id: i32 = 0
+}
+
+impl Drop for Loud {
+    fn drop(&mut self) {
+        if id != 0 {
+            println!("  drop {}", id)
+        }
+    }
+}
+
+union Shape {
+    Dot {}
+    Circle { r: i32 }
+    Box { w: i32, h: i32 }
+}
+
+fn say(n: i32) -> i32 {
+    println!("  step {}", n)
+    return n
+}
+
+fn find(n: i32) -> i32? {
+    if n < 0 {
+        return none
+    }
+    return n * 2
+}
+
+fn hit(t: f32) -> Hit? {
+    if t < 0 {
+        return none
+    }
+    return Hit{ t: t, point: Point{ x: 1, y: 2, z: t } }
+}
+
+fn named(n: i32) -> Named? {
+    if n < 0 {
+        return none
+    }
+    return Named{ name: format!("name {}", n), n: n }
+}
+
+fn loud(n: i32) -> Loud? {
+    if n < 0 {
+        return none
+    }
+    return Loud{ id: n }
+}
+
+fn literals() {
+    println!("literals")
+    // Every field, the first ones only, and one from the middle, whose neighbours keep
+    // their defaults.
+    let a = Point{ x: 1, y: 2, z: 3 }
+    let b = Point{ x: 4 }
+    let c = Point{ y: 5 }
+    println!("{} {} {} | {} {} {} | {} {} {}", a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z)
+    // Written out of order: evaluated as written, stored as declared (spec §7.2).
+    let d = Point{ z: say(1) as f32, x: say(2), y: say(3) }
+    println!("{} {} {}", d.x, d.y, d.z)
+    // Narrow integers from arithmetic, which C++ computes as `int`, and a block whose value
+    // is an untyped number, in a field of another type.
+    let i: i8 = 100
+    let u: u16 = 65000
+    let s = Small{
+        a: i + 100,
+        b: u + 1000,
+        c: if i > 0 {
+            2
+        } else {
+            3
+        },
+    }
+    println!("{} {} {}", s.a, s.b, s.c)
+    // A literal inside a literal, and one that is an argument.
+    let h = Hit{ t: 0.5, point: Point{ x: 9, y: 8 } }
+    println!("{} {} {} {}", h.t, h.point.x, h.point.y, h.point.z)
+}
+
+fn area(s: &Shape) -> i32 {
+    // Each arm assigns `a`; one of them is itself an `if`, and one a block with a local
+    // named like the `let`.
+    let a = switch s {
+        case Dot {
+            0
+        }
+        case Circle(c) {
+            if c.r > 10 {
+                c.r * c.r * 3
+            } else {
+                let a = c.r * 3
+                a * c.r
+            }
+        }
+        case Box(b) {
+            b.w * b.h
+        }
+    }
+    return a
+}
+
+fn branches(flag: bool) {
+    println!("branches {}", flag)
+    // The branches read the `x` outside, not the one they fill.
+    let x = 10
+    {
+        let x = if flag {
+            x + 1
+        } else {
+            x - 1
+        }
+        println!("{}", x)
+    }
+    // An `if let` binding named like the `let` it fills.
+    let v = if let v = find(x) {
+        v + 1
+    } else {
+        0
+    }
+    println!("{}", v)
+    // An `or` with a value, inside a branch, and an untyped number in an `i64`.
+    let w: i64 = if flag {
+        "12".parse_i64() or 5
+    } else {
+        7
+    }
+    println!("{}", w)
+    // A value that owns something is moved into the `let`, once.
+    let n = if flag {
+        Named{ name: format!("yes {}", x), n: 1 }
+    } else {
+        Named{ name: String("no"), n: 0 }
+    }
+    println!("{} {}", n.name, n.n)
+    // A `T?` filled with a `T` in one branch and `none` in the other.
+    let maybe = if flag {
+        x
+    } else {
+        none
+    }
+    println!("{}", maybe or -1)
+    // A branch that leaves the function: the `let` is never read.
+    let l = if flag {
+        Loud{ id: 1 }
+    } else {
+        println!("  leaving")
+        return
+    }
+    println!("{}", l.id)
+}
+
+fn closest(ts: &[]f32) -> Hit? {
+    let mut best: Hit? = none
+    let mut limit: f32 = 100
+    for &t in ts {
+        if let h = hit(t) {
+            if h.t < limit {
+                limit = h.t
+                best = h
+            }
+        }
+    }
+    return best
+}
+
+fn optionals() {
+    println!("optionals")
+    // Plain data taken out of an optional is named where the optional holds it; changing
+    // it changes no other value.
+    let first = hit(2) or return
+    let mut second = hit(3) or return
+    second.t = 9
+    println!("{} {} {}", first.t, second.t, first.point.z)
+    if let mut h = hit(4) {
+        h.point.x += 10
+        println!("{} {}", h.t, h.point.x)
+    }
+    let ts: [4]f32 = [5, -1, 2, 8]
+    let near = closest(&ts) or return
+    println!("{} {}", near.t, near.point.z)
+    let nothing: [2]f32 = [-1, -2]
+    println!("{}", closest(&nothing) == none)
+
+    // An optional assigned its own payload, through a reference into it.
+    let mut kept: Hit? = hit(6)
+    if let &k = kept {
+        kept = k
+    }
+    println!("{}", (kept or return).t)
+    // Emptied, filled, and emptied again.
+    kept = none
+    println!("{}", kept == none)
+    kept = Hit{ t: 1, point: Point{ x: 3 } }
+    println!("{}", (kept or return).point.y)
+
+    // A `let` of an optional's type takes the optional, not its payload.
+    let whole: i32? = find(4) or return
+    println!("{}", whole or -1)
+
+    // A value that owns something lives as long as its `if let`.
+    if let n = named(3) {
+        println!("{} {}", n.name, n.n)
+    }
+    let mut names: List<Named>
+    if let n = named(4) {
+        names.push(n)
+    }
+    let n = named(5) or return
+    names.push(n)
+    println!("{} {} {}", names.len(), names[0].name, names[1].name)
+
+    // One whose drop can be seen is dropped where it was: at the end of its `if let`.
+    if let l = loud(7) {
+        println!("  holding {}", l.id)
+    }
+    println!("  after")
+    let l = loud(8) or return
+    println!("  holding {}", l.id)
+}
+
+static LAST: Hit? = none
+
+fn statics() {
+    println!("statics")
+    unsafe {
+        println!("{}", LAST == none)
+        LAST = hit(1.5)
+        println!("{}", (LAST or return).t)
+    }
+}
+
+fn main() {
+    literals()
+    println!("areas {} {} {} {}", area(&Shape::Dot{}), area(&Shape::Circle{ r: 2 }), area(&Shape::Circle{ r: 11 }), area(&Shape::Box{ w: 3, h: 4 }))
+    branches(true)
+    branches(false)
+    optionals()
+    statics()
+}

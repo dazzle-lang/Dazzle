@@ -2222,6 +2222,7 @@ const WARNING_CLEAN: &[&str] = &[
     "inline",
     "moves",
     "names",
+    "value_shapes",
 ];
 
 #[test]
@@ -2882,12 +2883,22 @@ pub struct Vec3 {
     pub z: f32 = 0
 }
 
+pub struct Tuned {
+    pub a: f32 = 1
+    pub b: f32 = 2
+    pub c: f32 = 3
+}
+
 fn main() {
     let a = Vec3{ y: 2, x: 1 }
-    println!(\"{} {}\", a.x, a.y)
+    let t = Tuned{ a: 4, c: 5 }
+    println!(\"{} {} {} {} {}\", a.x, a.y, t.a, t.b, t.c)
 }
 ";
 
+/// A struct literal in C++20 names its fields. In C++17 it is the same braces by position
+/// where the fields written are the first ones, so the rest keep their defaults, and a
+/// lambda that assigns each where one in the middle is left out (T-0222).
 #[test]
 fn cpp20_uses_designated_initialisers_and_cpp17_does_not() {
     for (std_name, expect_designated) in [("c++17", false), ("c++20", true)] {
@@ -2909,18 +2920,27 @@ fn cpp20_uses_designated_initialisers_and_cpp17_does_not() {
                 cpp.contains("Vec3{ .x = 1.0f, .y = 2.0f }"),
                 "expected designated init:\n{cpp}"
             );
+            assert!(
+                cpp.contains("Tuned{ .a = 4.0f, .c = 5.0f }"),
+                "expected designated init:\n{cpp}"
+            );
         } else {
             // Match the designated form exactly: the lambda form legitimately contains
-            // `_dz_lit1.x = 1`, which has `.x = 1` as a substring.
+            // `_dz_lit1.a = 4`, which has `.a = 4` as a substring.
             assert!(!cpp.contains("Vec3{ ."), "C++17 cannot use designated init:\n{cpp}");
-            assert!(cpp.contains("_dz_lit"), "expected the lambda form:\n{cpp}");
+            assert!(!cpp.contains("Tuned{ ."), "C++17 cannot use designated init:\n{cpp}");
+            assert!(cpp.contains("Vec3{1.0f, 2.0f}"), "expected the fields by position:\n{cpp}");
+            assert!(
+                cpp.contains("_dz_lit") && cpp.contains(".c = 5.0f"),
+                "expected the lambda form where `b` is left out:\n{cpp}"
+            );
         }
 
         // Whichever form is used, the program must behave the same.
         if have_compiler() {
             let run = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
             assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
-            assert_eq!(normalise(&String::from_utf8_lossy(&run.stdout)), "1 2");
+            assert_eq!(normalise(&String::from_utf8_lossy(&run.stdout)), "1 2 4 2 5");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -126,11 +126,16 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   generated C++ ([T-0221](../../docs/tasks/T-0221-module-private-functions-have-external-linkage.md)),
   and it was 1.10× on both. With a number on the left of an operator typed as the right
   operand (`0.5 * x` was computed in `double`) and a union's `switch` ending in `else`, it is
-  1.07×. A hand-written version of its four hot functions on the same types shows what is
-  left is the shape of the generated code:
-  [T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md).
-- **`json`** (added 2026-11-14, T-0173) is 1.06× its C++ half on clang++ and 1.13× on g++,
-  the furthest behind. It was 1.70× and 1.91× when added, and 1.08× and 1.21× until
+  1.07×. A hand-written version of its four hot functions on the same types showed the
+  shape of the generated code was most of what was left, and on g++ it was one shape: an
+  optional assigned its value was built as a temporary through a by-value parameter and
+  copied in, and an empty one built its whole payload. With both gone from the runtime
+  (2026-11-15) it is 0.97× on g++ and 1.06× on clang++, where what is left is the layout
+  of the types
+  ([T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md)).
+- **`json`** (added 2026-11-14, T-0173) is 0.99× its C++ half on clang++ and 1.07× on g++,
+  since values move by default (r135, T-0235); it was 1.06× and 1.13× before that, the
+  furthest behind. It was 1.70× and 1.91× when added, and 1.08× and 1.21× until
   2026-11-15, when its gap and `raytrace`'s were measured not to be the cost of safety:
   with every bounds check and panic compiled out of the generated C++, and the flags that
   define overflow, aliasing and endless loops reversed, neither ran faster on either

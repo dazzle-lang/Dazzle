@@ -18,10 +18,12 @@ new language: `move` is removed, plain data copies, and every other copy is writ
 0.2. T-0234 measured that the benchmarks' gap is not the cost of safety but the
 shape of the generated code, and fixed two causes. The rest, largest measured gain first:
 
-1. T-0222, the generated code's shape: struct literals as aggregate initialisation, `if`
-   and `switch` expressions without `_dz_val` temporaries, an optional's value bound in
-   place, measured as one change. Clean C++ on Dazzle's own types reaches 475 / 625 ms on
-   `raytrace` against 487 / 668 (clang++ / g++).
+1. T-0222, the generated code's shape, is done (2026-11-15): struct literals by position,
+   a `let` assigned by the branches of its `if` or `switch`, and an optional's value named
+   in place were worth 5 ms on clang++; g++'s 40 ms was the runtime's optional, now built
+   and assigned from its value by reference, with no payload built while it is empty.
+   `raytrace` is 0.97× its C++ half on g++ and 1.06× on clang++, from 1.07× on both. Left:
+   clang++'s 25 ms, which is the layout of the types, not the shape of the code.
 2. T-0220, a `SourceLocation` stored on every pass of a loop that only a failure reads: in
    every `List::push` and, on g++, every checked index. Not measured; small to fix.
 3. T-0231, destructors run on values already moved from, and `Res<T>` built for every
@@ -243,7 +245,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
 - **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (11 open)
+## M15 — `dz bench`, and the C++ comparison (10 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -252,7 +254,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0220](tasks/T-0220-call-sourcelocation-stored-stack-on-every.md)** A call's SourceLocation is stored to the stack on every pass, though only a cold path reads it · feature, codegen
-- **[T-0222](tasks/T-0222-empty-optional-builds-its-whole-payload.md)** "raytrace's gap: the shape of the generated code (struct literals, expression temporaries, optionals)" · feature, codegen
 - **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 - **[T-0231](tasks/T-0231-moved-from-value-drop-called-though.md)** A moved-from value's drop is called though flow knows it is empty · feature, codegen
 - **[T-0233](tasks/T-0233-main-outermost-region-holds-memory-heap.md)** main's outermost region holds memory the heap would have reused · design, placement

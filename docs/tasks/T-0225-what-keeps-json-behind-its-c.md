@@ -131,3 +131,9 @@ measured by a patch to the generated C++:
 
 With the first two and T-0234's fixes done by hand, `json` ran 0.99× on clang++ and 1.08×
 on g++.
+
+**2026-11-15, where it stands.** Measured on `e2fb6f3`, after values moved by default
+(T-0235) and before T-0222, which did not move it: 224 ms against 222 for the C++ half on
+clang++, 1.01×, and 222 against 209 on g++, 1.06×, at 185 MiB against 180. The run before
+that, at `7875aab` with T-0234, had 234 against 221, 233 against 207, and 195 MiB. What
+is listed above as left was not measured again.

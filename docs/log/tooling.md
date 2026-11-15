@@ -1966,3 +1966,50 @@ The experiments were whole runs of the generated C++ patched by hand, as T-0222'
 `perf` was not available (`perf_event_paranoid` is 3 again), so instruction counts came
 from `valgrind --tool=callgrind`, which reads the `#line` directives and so reports by
 Dazzle source line, and the phases from a timer added to both halves' `main`.
+
+## Values in the shape a C++ programmer writes, and an optional that is not rebuilt (T-0222; 2026-11-15)
+
+Compiler work, no language change: no program behaves differently, and
+`tests/run/value_shapes` prints what it printed before, on clang++ and g++. `raytrace` is
+0.97× its C++ half on g++ and 1.06× on clang++, from 1.07× on both.
+
+**Three shapes in the generator** (`dz_cpp/src/lib.rs`), the ones T-0222 named after its
+hand-written bound:
+
+- **A struct literal by position.** `Vec3{x, y, z}` for a type C++ calls an aggregate,
+  where the fields written are the first ones (`struct_literal`). The lambda that zeroed
+  a value and assigned each field stays for a field left out in the middle, an imported
+  struct, an allocator and a union's variant. Spec §16's sentence on C++20 says so now.
+- **A `let` assigned by its branches.** `let x = if …`, `if let`, `switch`, a block or
+  an `or` with a value declares `x` and assigns it in each branch (`fills`, `fill`), and
+  a block whose value is such a construct writes where its own value goes (`assign_into`).
+  The `_dz_val` temporary is left for a `return`, an argument and an operand. The local is
+  in scope in its own branches, so `Namer::stmt` claims its name before theirs.
+- **A value named where an optional holds it.** `if let h = f()` and `let h = f() or
+  return` bind a reference to the payload of the temporary optional, for plain data
+  always, and for a value that owns something where `drops_silently` allows, in a block of
+  its own so it dies where the `if let` ends.
+
+Measured as one change, 486 → 481 ms on clang++ and nothing on g++. Patching the generated
+C++ by hand again found g++'s 40 ms in the runtime (`dz_cpp/src/runtime.rs`):
+
+- **`Opt` is built and assigned from its value by reference**: `Opt(const T&)` and
+  `Opt(T&&)` where there was `Opt(T)`, and an assignment from exactly a `T` that writes
+  the payload in place. `best = hit` had copied 48 bytes three times.
+- **An empty optional of plain data builds no payload** (`OptStore`): a union of the
+  payload and an empty struct, so `Opt()` is still `constexpr` in C++17 and writes nothing.
+
+Neither moves g++ alone (668 and 647 ms); together 601, on the old generator's output as
+on the new, against 623 for the C++ half. T-0222 has the table, and two things to know
+before patching generated C++ again: `dz cpp` writes debug-mode C++, and g++ under LTO
+has two layouts of this program that a small edit can flip.
+
+`cpp20_uses_designated_initialisers_and_cpp17_does_not` now pins the positional form and
+the lambda where a middle field is left out. The whole suite passes on clang++, `dz`'s own
+tests on g++, and every program under AddressSanitizer and UBSan.
+
+`RESULTS.md` is the run after it: `raytrace` 670 → 602 ms on g++ (C++: 623) and 487 →
+479 on clang++ (C++: 454). Nothing else moved, measured against the compiler before the
+change on the same day. The file's last run was at `7875aab`, before values moved by
+default (T-0235), and `json` had gone from 1.06× and 1.13× to 1.01× and 1.06× with that,
+and from 195 MiB to 185; this run records it as 0.99× and 1.07×.

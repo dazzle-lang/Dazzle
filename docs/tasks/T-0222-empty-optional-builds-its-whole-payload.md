@@ -2,11 +2,28 @@
 id: T-0222
 title: "raytrace's gap: the shape of the generated code (struct literals, expression temporaries, optionals)"
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
-where: `crates/dz_cpp/src/lib.rs`: `switch` (the union `else`), struct literals, `if`/`switch` expressions (`_dz_val`), `if let` and `or` bindings; `crates/dz_cpp/src/runtime.rs`: `Opt`; `crates/dz_check/src/check.rs`: `literal_on_left`
+where: `crates/dz_cpp/src/lib.rs`: `struct_literal`, `fills` and `fill`, the `let` in `stmt_inner`, `if let` in `control_flow`, `or_in_place`, `switch` (the union `else`); `crates/dz_cpp/src/runtime.rs`: `OptStore`, `Opt`; `crates/dz_check/src/check.rs`: `literal_on_left`
 ---
+
+**Done 2026-11-15.** `raytrace` is 0.97× its C++ half on g++ and 1.06× on clang++, from
+1.07× on both. The three shapes this task named are built and are worth 5 ms on clang++;
+g++'s 40 ms was how an optional is built and assigned, in the runtime. The last section has
+both, with what is left.
+
+**Where the code is**
+
+| Piece | Where |
+|---|---|
+| A struct literal by position, `Vec3{x, y, z}` | `struct_literal` in `dz_cpp/src/lib.rs` |
+| A `let`, or a block's value, assigned by the branches of its `if`, `switch` or `or` | `fills`, `fill`, `assign_into` and the `let` in `stmt_inner`, in `dz_cpp/src/lib.rs`; the `let`'s name claimed before its branches' in `Namer::stmt` |
+| A value named where an optional holds it | `if let` in `control_flow`; `or_in_place`, `or_reads_in_place` and the `let` that binds to it in `stmt_inner` |
+| An empty optional of plain data builds nothing; an optional is built and assigned from its value by reference | `OptEmpty`, `OptStore`, `Opt` in `dz_cpp/src/runtime.rs` |
+| A union's `switch` ends in `else` | `switch` in `dz_cpp/src/lib.rs` |
+| A number on the left typed as the right operand | `literal_on_left` in `dz_check/src/check.rs` |
+| The tests | `tests/run/value_shapes`, `tests/run/literal_left`; `cpp20_uses_designated_initialisers_and_cpp17_does_not` and `a_union_switch_ends_in_else` in `dz/tests/run.rs` |
 
 What T-0221 left of `raytrace`'s gap (T-0174). With private functions `static`, it runs
 1.10× its C++ half on both compilers (`RESULTS.md`, 2026-11-14): 500 ms against 454 on
@@ -137,3 +154,83 @@ C++, so no bounds or division test is left, and `-fno-wrapv -ffinite-loops
 C++ half given Dazzle's three flags and libstdc++'s bounds checks did not move either (454
 and 619 ms). So what is left here is the shape above and nothing else; T-0234's two fixes,
 for `List::push` and g++'s inlining limit, did not move this program.
+
+**2026-11-15: the three shapes, and what g++'s 40 ms was.** The three shapes are built, in
+`dz_cpp/src/lib.rs`, and measured as one change:
+
+- **A struct literal is its fields by position**, `Vec3{x, y, z}`, for a type C++ calls an
+  aggregate (no constructor, `copy`, `drop`, base or `virtual`, and copyable) when the
+  fields written are the first ones, so the rest keep their defaults. A field left out in
+  the middle, an imported struct, an allocator (its vtable pointer is a member ahead of its
+  fields) and a union's variant are still the lambda. A number field whose value is not of
+  the field's own type gets a cast, since braces refuse a narrowing the assignment allowed.
+- **A `let` is assigned by the branches of its `if`, `if let`, `switch`, block or
+  `or`**: `float lit{}; if (blocked) { lit = 0; } else { lit = …; }`, where a `_dz_val`
+  was declared, assigned and copied or moved into the local. A block whose value is another
+  such construct writes where its own value goes, so an `else { if … }` has no temporary a
+  level. The local is in scope in its branches, so its name is claimed before theirs:
+  `let x = if let x = f() { x } else { 0 }` gives the binding the suffix.
+- **A value taken out of an optional is named where the optional holds it**: `if let h =
+  f()` and `let h = f() or return` bind a reference to the payload of the temporary the
+  optional is already in. Always for plain data; for a value that owns something only where
+  a moved-from copy left behind would have dropped unseen (`drops_silently`), and then the
+  `if let` is in a block of its own, so the value still dies where the `if let` ends.
+
+Together: **486 → 481 ms on clang++, and nothing on g++** (670 → 668 to 670), short of the
+475 / 625 the hand-written functions reached. So the generated C++ was patched by hand
+again, on top of the three (g++, ms; clang++ stayed between 478 and 481 for every row):
+
+| On top of the three shapes | g++ |
+|---|---:|
+| As generated | 670 |
+| An empty `Opt` of plain data builds no payload (this task's first idea) | 668 |
+| `closest`'s loop over the list's array by index, not through `SliceIter` | 757 |
+| `best = hit` assigning the optional `hit` came out of | 700 |
+| Those three together | 622 |
+| `Opt` built and assigned from a `T` by reference, the payload still built when empty | 647 |
+| By reference and building nothing when empty | 601 |
+| The same two, on the C++ generated before the three shapes | 601 |
+| The same two with the list's loop by index, or `SliceIter::get` unchecked | 601 |
+| C++ half | 623 |
+
+**Both halves of the row that reaches 601 are in the runtime's `Opt`**, and neither does
+much alone:
+
+- `Opt(T v)` took its value by value and `best = hit` went through it: `hit` copied into
+  the parameter, the parameter into a temporary optional, the temporary into `best`, 48
+  bytes three times, which g++ kept. It is now `Opt(const T&)` and `Opt(T&&)`, as `Res`
+  already was, and an optional assigned a `T` writes the payload where it is. That
+  assignment is a template taking exactly a `T`, as `std::optional`'s is, so `x = {}`
+  still means an empty optional and every conversion (`i32` into `i64?`, a writable slice
+  into a read-only one) goes where it went.
+- An empty optional of a trivially copyable `T` builds no payload: the storage is a union
+  of the payload and an empty struct, whose `constexpr` constructor keeps `Opt()` a
+  constant expression in C++17 (a `static X: T? = none` needs no code run) without writing
+  a byte. The one-byte placeholder tried on 2026-11-14 cost a store that could not be
+  forwarded; this writes none. A payload that owns something is still always built.
+
+The loop over the list and `SliceIter`'s bounds check, which `valid` has just made, cost
+nothing once the optional is right; no change to either is built.
+
+**Two things to know before patching generated C++ again.** `dz cpp` writes the C++ of a
+debug build, which keeps `#[inline]` bodies out of headers: copy `build/cpp` after `dz
+build --release` instead. The debug-mode C++ of this program at `-O2` ran in 781 ms on
+g++, against 668 for the release build's. And on g++ under LTO this program has two
+layouts, `intersect` out of line with `closest` inlined into `trace` twice (both halves as
+they were), or `closest` out of line with `intersect` inside it (what it picks now, and what
+clang++ always picked for both halves); a hand edit that flips it moves the time by more
+than the edit is worth, which is why single edits pointed both ways.
+
+**Result** (`RESULTS.md`): `raytrace` 670 → 602 ms on g++ against 623 for its C++ half,
+0.97×, and 487 → 479 ms on clang++ against 454, 1.06×. The other four programs did not
+move: measured the same day on the compiler before this change, `astar` 0.80× and 0.84×,
+`expr` 1.04× and 0.86×, `json` 1.01× and 1.06×, `words` 0.87× and 0.88× (clang++ and
+g++), each within a point of what `RESULTS.md` has now. `json` is 12 ms and 10 MiB under
+the run recorded before it, which was made at `7875aab`: that is T-0235's, values moving
+by default, not this task's.
+
+**What is left, none of it measured to matter here.** clang++'s 25 ms is not the shape of
+the code, since no hand edit moved it: it is the layout of the types (a union `Shape` alone
+cost the C++ half 16 ms on clang++, above). `return if …` and `return switch …`, and such
+a construct as an argument, still go through a `_dz_val`; pushing the `return` into the
+branches needs the `unreachable` after a chain that C++ cannot see is exhaustive.

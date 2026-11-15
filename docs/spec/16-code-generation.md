@@ -153,7 +153,9 @@ cxx = "g++"                     # except here
 
 **C++20 is supported and opt-in**, via `cpp_standard = "c++20"` in `dazzle.toml`. The
 only thing it changes is readability: struct literals become designated initialisers,
-`Vec3{ .x = 1, .y = 2 }`, instead of the immediately-invoked lambda C++17 forces. Runtime
+`Vec3{ .x = 1, .y = 2 }`, instead of C++17's `Vec3{1, 2}` by position, or the
+immediately-invoked lambda C++17 forces where a field before the last one written is left
+to its default. Runtime
 behaviour and performance are identical, so C++17 stays the default for the widest
 toolchain reach. `[DECIDED]`
 

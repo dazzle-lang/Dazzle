@@ -1,0 +1,43 @@
+literals
+1 2 3 | 4 7 1.5 | 3 5 1.5
+  step 1
+  step 2
+  step 3
+2 3 1
+-56 464 2
+0.5 9 8 1.5
+areas 0 12 363 12
+branches true
+11
+21
+12
+yes 10 1
+10
+1
+  drop 1
+branches false
+9
+21
+7
+no 0
+-1
+  leaving
+optionals
+2 9 2
+4 11
+2 2
+true
+6
+true
+7
+8
+name 3 3
+2 name 4 name 5
+  holding 7
+  drop 7
+  after
+  holding 8
+  drop 8
+statics
+true
+1.5

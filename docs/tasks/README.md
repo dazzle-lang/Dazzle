@@ -29,10 +29,12 @@ new language: `move` is removed, plain data copies, and every other copy is writ
 0.2. T-0234 measured that the benchmarks' gap is not the cost of safety but the
 shape of the generated code, and fixed two causes. The rest, largest measured gain first:
 
-1. T-0222, the generated code's shape: struct literals as aggregate initialisation, `if`
-   and `switch` expressions without `_dz_val` temporaries, an optional's value bound in
-   place, measured as one change. Clean C++ on Dazzle's own types reaches 475 / 625 ms on
-   `raytrace` against 487 / 668 (clang++ / g++).
+1. T-0222, the generated code's shape, is done (2026-11-15): struct literals by position,
+   a `let` assigned by the branches of its `if` or `switch`, and an optional's value named
+   in place were worth 5 ms on clang++; g++'s 40 ms was the runtime's optional, now built
+   and assigned from its value by reference, with no payload built while it is empty.
+   `raytrace` is 0.97× its C++ half on g++ and 1.06× on clang++, from 1.07× on both. Left:
+   clang++'s 25 ms, which is the layout of the types, not the shape of the code.
 2. T-0220, a `SourceLocation` stored on every pass of a loop that only a failure reads: in
    every `List::push` and, on g++, every checked index. Not measured; small to fix.
 3. T-0231, destructors run on values already moved from, and `Res<T>` built for every

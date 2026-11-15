@@ -4365,6 +4365,15 @@ impl<'a> Emitter<'a> {
     fn assign_into(&mut self, e: ExprId, dest: Dest<'_>) {
         match dest {
             Dest::None => self.stmt_expr(e),
+            // A block's value that is itself an `if`, a `switch`, a block or an `or` writes
+            // where the block's goes: `else { if a { x } else { y } }` needs no temporary of
+            // its own to carry the value one level out (T-0222).
+            // A bare block here is the last thing in the braces it is in, so its statements
+            // need none of their own.
+            Dest::Var(name) if self.fills(e) => match self.cur().expr(e).kind {
+                hir::ExprKind::Block(b) => self.block_into(b, dest),
+                _ => self.fill(e, name),
+            },
             Dest::Var(name) => {
                 let moved = !self.table.copyable(self.cur().ty(e));
                 let v = self.expr(e);
@@ -4378,6 +4387,43 @@ impl<'a> Emitter<'a> {
                 let v = self.ptr_expr(e);
                 self.line(&format!("{name} = {v};"));
             }
+        }
+    }
+
+    /// Whether `e` is a construct that is statements in C++ and can leave its value in a
+    /// variable that is already declared, rather than in a temporary of its own that is then
+    /// copied or moved out: an `if`, `if let`, `switch` or block with a value, or an `or`
+    /// whose clause gives one. Not a reference, which is held as a pointer until it is bound
+    /// ([`Self::expr_node`]); not a copy the compiler placed, which is built by its type's
+    /// placed constructor; and not `x or return`, which reads the value where the result
+    /// holds it ([`Self::or_in_place`]).
+    fn fills(&self, e: ExprId) -> bool {
+        let body = self.cur();
+        let ty = body.ty(e);
+        if matches!(ty, Ty::Void | Ty::Never | Ty::Error | Ty::Ref { .. })
+            || self.materialized.contains_key(&e)
+            || self.kept.contains_key(&e)
+            || self.placement.is_some_and(|p| p.placed(e).is_some())
+        {
+            return false;
+        }
+        match &body.expr(e).kind {
+            hir::ExprKind::Block(_)
+            | hir::ExprKind::If { .. }
+            | hir::ExprKind::IfLet { .. }
+            | hir::ExprKind::Switch { .. } => true,
+            hir::ExprKind::Or { operand, clause } => !self.or_reads_in_place(*operand, clause, ty),
+            _ => false,
+        }
+    }
+
+    /// Emit `e`, which [`Self::fills`] accepted, leaving its value in the variable `name`.
+    fn fill(&mut self, e: ExprId, name: &str) {
+        match &self.cur().expr(e).kind {
+            hir::ExprKind::Or { operand, clause } => {
+                self.or_expr(e, *operand, clause, Dest::Var(name));
+            }
+            _ => self.control_flow(e, Dest::Var(name)),
         }
     }
 
@@ -4480,6 +4526,32 @@ impl<'a> Emitter<'a> {
                     let name = self.names[l.index()].clone();
                     let local_ty = body.local(*l).ty.clone();
                     let (owners, guards) = (self.owners_made, self.guards_made);
+                    // `let x = if … { a } else { b }`, and a `switch`, a block or an `or`
+                    // with a value: `x` is declared and each branch assigns it, where a
+                    // temporary was declared, assigned, and copied or moved into `x`
+                    // (T-0222). `x` is in scope in the branches, which is why its name is
+                    // claimed before theirs are ([`Namer::stmt`]). A value whose drop is
+                    // skipped is built in storage of its own, below.
+                    if self.fills(*init)
+                        && self.declare_then_assign(&local_ty)
+                        && !self.placement.is_some_and(|p| p.skips_drop(*l))
+                    {
+                        let unused = self.unused_attr(l.index());
+                        self.line(&format!("{unused}{ty} {name}{{}};"));
+                        let (text, ()) = self.capture(|e| e.fill(*init, &name));
+                        // As below: an owner a view was taken from dies with the statement.
+                        let scoped = self.owners_made != owners && self.guards_made == guards;
+                        if scoped {
+                            self.line("{");
+                            self.indent += 1;
+                        }
+                        self.write_captured(&text);
+                        if scoped {
+                            self.indent -= 1;
+                            self.line("}");
+                        }
+                        return;
+                    }
                     self.in_place_source = None;
                     let (pre, v) = self.capture(|e| e.stored(&local_ty, *init));
                     let in_place = self.in_place_source.take();
@@ -4527,7 +4599,13 @@ impl<'a> Emitter<'a> {
                         // dies with the temporary, right after where `v` would have, so
                         // the drops run in the order they did; one move of a union per
                         // element of a JSON parse is gone (T-0225).
-                        match in_place.filter(|src| v == format!("::dz::rt::mv({src})")) {
+                        // Only a `let` of the value's own type: a reference to the payload is
+                        // not the `T?` that `let x: T? = f() or return` declares.
+                        let whole = |src: &String| {
+                            (v == *src || v == format!("::dz::rt::mv({src})"))
+                                && body.ty(*init) == &local_ty
+                        };
+                        match in_place.filter(whole) {
                             Some(src) => self.line(&format!("{unused}{ty}& {name} = {src};")),
                             None => self.line(&format!("{unused}{ty} {name} = {v};")),
                         }
@@ -4928,7 +5006,25 @@ impl<'a> Emitter<'a> {
                 // `if let &x = make().first()`: what `x` points into lives as long as the
                 // `if let`, in the same block of its own (T-0178).
                 let kept = self.owners_to_keep(*operand);
-                let scoped = guarded || !kept.is_empty();
+                // A value taken out of an optional by a plain binding is named where the
+                // optional holds it rather than copied or moved out: the optional is a
+                // temporary of this `if let` that nothing else reads, so the two cannot be
+                // told apart, and a ray tracer copied 48 bytes of `Hit` for every shape a
+                // ray met (T-0222). One that owns something then lives as long as the
+                // temporary, so the `if let` gets a block of its own and it still dies where
+                // the `if let` ends; and only where a moved-from copy left behind would
+                // have dropped unseen (`drops_silently`), as for `let v = f() or return`.
+                let in_place = match &operand_ty {
+                    Ty::Optional(inner) if !by_ref => {
+                        self.copy_is_free(inner) || self.drops_silently(inner)
+                    }
+                    _ => false,
+                };
+                let owning = match &operand_ty {
+                    Ty::Optional(inner) => in_place && !self.copy_is_free(inner),
+                    _ => false,
+                };
+                let scoped = guarded || !kept.is_empty() || owning;
                 if scoped {
                     self.line("{");
                     self.indent += 1;
@@ -4960,12 +5056,13 @@ impl<'a> Emitter<'a> {
                         self.line(&format!("::dz::rt::Opt<{cpp}> {tmp} = {v};"));
                         self.line(&format!("if ({tmp}.has) {{"));
                         self.indent += 1;
-                        let value = if self.table.copyable(&inner) {
+                        let value = if in_place || self.table.copyable(&inner) {
                             format!("::dz::rt::opt_get({tmp})")
                         } else {
                             format!("::dz::rt::mv(::dz::rt::opt_get({tmp}))")
                         };
-                        self.line(&format!("{unused}{cpp} {name} = {value};"));
+                        let amp = if in_place { "&" } else { "" };
+                        self.line(&format!("{unused}{cpp}{amp} {name} = {value};"));
                     }
                     // A `&T?`: the checker allows a plain binding only for a copyable `T`.
                     Ty::Ref { inner, .. } if matches!(*inner, Ty::Optional(_)) => {
@@ -5881,8 +5978,34 @@ impl<'a> Emitter<'a> {
             return format!("{ty}{{ {} }}", parts.join(", "));
         }
 
-        // C++17 has no designated initialisers, so build the value in a lambda. It costs
-        // nothing after inlining and keeps field defaults working.
+        // C++17 has no designated initialisers, but the same types are aggregates there too,
+        // built by position: `Vec3{x, y, z}`. A field left out keeps its default only at the
+        // end of the list (an empty `{}` in the middle would value-initialise it instead), so
+        // the fields written must be the first ones. Not an imported struct, whose C++ members
+        // need not be the fields Dazzle sees (spec §15.2), nor an allocator, whose vtable
+        // pointer is a member ahead of them (D-0103). The lambda below zeroed the value and
+        // then assigned each field, which the C++ compiler did not always see through
+        // (T-0222).
+        let leading = values.iter().map(|v| v.0).eq(0..values.len());
+        if aggregate && leading && !self.is_foreign(sym) && self.thin_impl(sym).is_none() {
+            let mut parts = Vec::new();
+            for (i, v) in &values {
+                // A braced list refuses a narrowing conversion that the assignment allowed:
+                // a block whose value is an untyped `0`, in an `f32` field, is an `int32_t`.
+                let field = &order[*i].1;
+                let written = fields[*i].map(|f| self.cur().ty(f).clone());
+                let numeric = matches!(field, Ty::Int(_) | Ty::Float(_));
+                if numeric && written.as_ref() != Some(field) {
+                    let cpp = self.cpp_ty(field);
+                    parts.push(format!("static_cast<{cpp}>({v})"));
+                } else {
+                    parts.push(v.clone());
+                }
+            }
+            return format!("{ty}{{{}}}", parts.join(", "));
+        }
+
+        // Anything else is built in a lambda, which keeps field defaults working.
         let tmp = self.fresh("lit");
         let mut out = format!("[&] {{ {ty} {tmp}{{}}; ");
         for (i, v) in &values {
@@ -6817,23 +6940,11 @@ impl<'a> Emitter<'a> {
         clause: &hir::OrClause,
         ty: &Ty,
     ) -> Option<String> {
-        let body = self.cur();
-        let diverges = match clause {
-            hir::OrClause::Value(v) => {
-                matches!(body.expr(*v).kind, hir::ExprKind::Return(None))
-                    || matches!(body.ty(*v), Ty::Never)
-            }
-            hir::OrClause::Unreachable => true,
-            hir::OrClause::Block { .. } | hir::OrClause::Ignore => false,
-        };
-        let (is_res, inner) = match body.ty(operand) {
-            Ty::Fallible(inner) => (true, inner.as_ref().clone()),
-            Ty::Optional(inner) => (false, inner.as_ref().clone()),
-            _ => return None,
-        };
-        if !diverges || matches!(ty, Ty::Ref { .. }) || inner != *ty {
+        if !self.or_reads_in_place(operand, clause, ty) {
             return None;
         }
+        let body = self.cur();
+        let is_res = matches!(body.ty(operand), Ty::Fallible(_));
         let span = body.expr(e).span;
         let cpp = self.cpp_ty(ty);
         let v = self.expr(operand);
@@ -6855,15 +6966,38 @@ impl<'a> Emitter<'a> {
         self.clause(clause, Dest::None, is_res.then_some(error.as_str()), span);
         self.indent -= 1;
         self.line("}");
+        // A `let` may name the value where it is: always when it is plain data, which the
+        // `let` would otherwise copy out, 48 bytes of a ray tracer's `Hit` for every ray
+        // (T-0222); and for a value that owns something only if leaving no moved-from copy
+        // behind changes nothing a program sees (`drops_silently`).
         if self.copy_is_free(ty) {
+            self.in_place_source = Some(source.clone());
             return Some(source);
         }
-        // A `let` may name the value where it is only if leaving no moved-from copy behind
-        // changes nothing a program sees (`drops_silently`).
         if self.drops_silently(ty) {
             self.in_place_source = Some(source.clone());
         }
         Some(format!("::dz::rt::mv({source})"))
+    }
+
+    /// Whether `operand or clause`, of type `ty`, is read straight out of the result or
+    /// optional that holds it ([`Self::or_in_place`]): the clause never falls through, and
+    /// the value is the payload itself rather than a reference to it.
+    fn or_reads_in_place(&self, operand: ExprId, clause: &hir::OrClause, ty: &Ty) -> bool {
+        let body = self.cur();
+        let diverges = match clause {
+            hir::OrClause::Value(v) => {
+                matches!(body.expr(*v).kind, hir::ExprKind::Return(None))
+                    || matches!(body.ty(*v), Ty::Never)
+            }
+            hir::OrClause::Unreachable => true,
+            hir::OrClause::Block { .. } | hir::OrClause::Ignore => false,
+        };
+        let inner = match body.ty(operand) {
+            Ty::Fallible(inner) | Ty::Optional(inner) => inner.as_ref(),
+            _ => return false,
+        };
+        diverges && !matches!(ty, Ty::Ref { .. }) && inner == ty
     }
 
     /// Whether destroying a `ty` that was moved from, or is at its defaults, runs no code the
@@ -7660,12 +7794,16 @@ impl Namer<'_> {
 
     fn stmt(&mut self, id: StmtId) {
         match &self.body.stmt(id).kind {
+            // The local claims its name before its initialiser's own scopes do: `let x = if
+            // let x = f() { x } else { 0 }` declares the outer `x` first and assigns it in
+            // the branches (`stmt_inner`), where an inner local of the same C++ name would
+            // hide it. What the initialiser reads is another local, with its own name.
             hir::StmtKind::Let { local, init } => {
-                if let Some(e) = init {
-                    self.expr(*e);
-                }
                 if let Some(l) = local {
                     self.declare(*l);
+                }
+                if let Some(e) = init {
+                    self.expr(*e);
                 }
             }
             hir::StmtKind::LetTuple { locals, init } => {
