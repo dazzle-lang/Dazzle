@@ -382,9 +382,18 @@ pub struct HashMap<K: Hash + Eq, V> {
                 let h = key_hash(unsafe { &old_keys[i] })
                 let slot = self.free_slot(h)
                 self.set_ctrl(slot, tag_of(h))
+                // Moved as bytes when they may be, with no reset of the old (D-0105).
                 unsafe {
-                    construct(m_keys[slot], move_out(old_keys[i]))
-                    construct(m_values[slot], move_out(old_values[i]))
+                    if K::is_relocatable {
+                        memcpy(&mut m_keys[slot], &old_keys[i], sizeof(K))
+                    } else {
+                        construct(m_keys[slot], move_out(old_keys[i]))
+                    }
+                    if V::is_relocatable {
+                        memcpy(&mut m_values[slot], &old_values[i], sizeof(V))
+                    } else {
+                        construct(m_values[slot], move_out(old_values[i]))
+                    }
                 }
             }
         }

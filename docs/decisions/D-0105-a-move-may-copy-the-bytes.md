@@ -36,6 +36,10 @@ with the byte moves and a first allocation of 2, 240 ms and 196 MiB, and 256 ms.
 byte moves and the old 4, 236 and 248 ms and the old memory: the user chose the memory.
 The other benchmarks did not move.
 
+**The same evening**, at the user's word to proceed: `Deque` grows by copying its ring as
+two runs of bytes, and `HashMap` moves each key and value into its new table as bytes, for
+relocatable elements. Neither moved a benchmark; `tests/run/relocate` holds both.
+
 **The options weighed** (T-0225):
 
 - **Byte moves, and a first allocation of 2** — this one.

@@ -87,6 +87,16 @@ named:
   first allocation), and was not kept. The 10 MiB regions add to `json` is in its chunks:
   the larger chunks are mostly empty while the program runs, not yet measured further.
 
+**Then what regions add, measured again** (resident memory sampled every half millisecond,
+regions on and off): 195.6 MiB against 185.6. The gap opens while the tree is turned into
+records, and stays to the end, yet the live heap `massif` counts at that point is no
+larger with regions (171 MiB against 178, at slightly different moments). What the evidence
+points to: in the heap build the records' small tag lists are allocated into the holes
+freeing the parse's temporaries left in `malloc`'s heap, and in the region build they go
+into fresh region chunks, which touch new pages while those holes sit unused. It is what an
+arena costs when it lives as long as the program, `main`'s outermost region here, and a
+question about regions, not about `List`.
+
 So the gap is now 196 MiB against 180 and, on g++, 256 ms against 211: about 10 MiB of
 region chunks, the input and output text a few MiB larger than C++'s, and malloc's own
 overhead on the heap build.

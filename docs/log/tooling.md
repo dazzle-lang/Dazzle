@@ -1908,3 +1908,13 @@ machine (`RESULTS.md` is the after):
 
 With the byte moves and the old first allocation of 4, `json` was 236 and 248 ms and kept
 its memory: the user chose the memory.
+
+**Then `Deque` and `HashMap`.** `Deque` grows a relocatable element type by copying its
+ring as two runs, from the head to the end of the old array and then from its start;
+`HashMap`'s rehash moves each key and value into its new slot with one `memcpy`.
+`tests/run/relocate` gained a deque that wraps around before it grows and a map of
+`Noisy` values that rehashes, the same on clang++ and g++ and as the compiler before.
+Measured against `8a126fa`, no benchmark moved: none grows a deque or a map of
+non-trivial elements far enough to show. Filed on the way: T-0230, a `List` of an imported
+C++ class with no default constructor does not compile, since an instance has `resize`
+whenever any `List` calls it (T-0199).

@@ -3,6 +3,47 @@ word 1  word 39 nnnnnnnnnnnnnnnnnnn
 noisy 7 0
 area 344
 forest 70
+ring 809
+named 39 4680
+drop 104 in a map
+drop 108 in a map
+drop 139 in a map
+drop 101 in a map
+drop 125 in a map
+drop 110 in a map
+drop 107 in a map
+drop 122 in a map
+drop 132 in a map
+drop 115 in a map
+drop 130 in a map
+drop 133 in a map
+drop 131 in a map
+drop 106 in a map
+drop 116 in a map
+drop 135 in a map
+drop 124 in a map
+drop 112 in a map
+drop 123 in a map
+drop 127 in a map
+drop 137 in a map
+drop 121 in a map
+drop 114 in a map
+drop 103 in a map
+drop 119 in a map
+drop 102 in a map
+drop 109 in a map
+drop 118 in a map
+drop 126 in a map
+drop 134 in a map
+drop 136 in a map
+drop 138 in a map
+drop 111 in a map
+drop 128 in a map
+drop 129 in a map
+drop 113 in a map
+drop 120 in a map
+drop 105 in a map
+drop 117 in a map
 drop 1 a longer name than fifteen bytes
 drop 2 a longer name than fifteen bytes
 drop 9 short

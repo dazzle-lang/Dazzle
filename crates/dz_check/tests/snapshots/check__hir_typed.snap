@@ -1179,25 +1179,98 @@ body method Deque::grow_to -> void
                 type-query T::size: usize
               type-query T::align: usize
               local _2 loc: SourceLocation
-    for _7 i
-      range: usize..usize
-        int 0: i32
-        field #2: usize
-          local _0 self: Deque<T>
+    if: void
+      type-query T::is_relocatable: bool
+      block
+        if: void
+          binary >: bool
+            field #2: usize
+              local _0 self: Deque<T>
+            int 0: usize
+          block
+            let _7 first: usize
+              if: usize
+                binary <: bool
+                  binary -: usize
+                    field #3: usize
+                      local _0 self: Deque<T>
+                    field #1: usize
+                      local _0 self: Deque<T>
+                  field #2: usize
+                    local _0 self: Deque<T>
+                block
+                  binary -: usize
+                    field #3: usize
+                      local _0 self: Deque<T>
+                    field #1: usize
+                      local _0 self: Deque<T>
+                block
+                  block-value: usize
+                    block
+                      field #2: usize
+                        local _0 self: Deque<T>
+            block-value: void
+              block
+                builtin memcpy: void
+                  ref mut: &mut T
+                    index: T
+                      local _6 fresh: ^mut T
+                      int 0: usize
+                  ref: &T
+                    index: T
+                      field #0: own ^mut T
+                        local _0 self: Deque<T>
+                      field #1: usize
+                        local _0 self: Deque<T>
+                  binary *: usize
+                    local _7 first: usize
+                    type-query T::size: usize
+            if: void
+              binary >: bool
+                field #2: usize
+                  local _0 self: Deque<T>
+                local _7 first: usize
+              block
+                block-value: void
+                  block
+                    builtin memcpy: void
+                      ref mut: &mut T
+                        index: T
+                          local _6 fresh: ^mut T
+                          local _7 first: usize
+                      ref: &T
+                        index: T
+                          field #0: own ^mut T
+                            local _0 self: Deque<T>
+                          int 0: usize
+                      binary *: usize
+                        binary -: usize
+                          field #2: usize
+                            local _0 self: Deque<T>
+                          local _7 first: usize
+                        type-query T::size: usize
       block
         block-value: void
           block
-            builtin construct: void
-              index: T
-                local _6 fresh: ^mut T
-                local _7 i: usize
-              builtin move_out: T
-                index: T
-                  field #0: own ^mut T
-                    local _0 self: Deque<T>
-                  call-method Deque::slot: usize
-                    local _0 self: Deque<T>
-                    local _7 i: usize
+            for _8 i
+              range: usize..usize
+                int 0: i32
+                field #2: usize
+                  local _0 self: Deque<T>
+              block
+                block-value: void
+                  block
+                    builtin construct: void
+                      index: T
+                        local _6 fresh: ^mut T
+                        local _8 i: usize
+                      builtin move_out: T
+                        index: T
+                          field #0: own ^mut T
+                            local _0 self: Deque<T>
+                          call-method Deque::slot: usize
+                            local _0 self: Deque<T>
+                            local _8 i: usize
     if: void
       binary !=: bool
         field #0: own ^mut T
@@ -2780,24 +2853,58 @@ body method HashMap::grow_to -> void
                 local _11 h: u64
             block-value: void
               block
-                builtin construct: void
-                  index: K
-                    field #1: own ^mut K
-                      local _0 self: HashMap<K, V>
-                    local _12 slot: usize
-                  builtin move_out: K
-                    index: K
-                      local _6 old_keys: ^mut K
-                      local _10 i: usize
-                builtin construct: void
-                  index: V
-                    field #2: own ^mut V
-                      local _0 self: HashMap<K, V>
-                    local _12 slot: usize
-                  builtin move_out: V
-                    index: V
-                      local _7 old_values: ^mut V
-                      local _10 i: usize
+                if: void
+                  type-query K::is_relocatable: bool
+                  block
+                    builtin memcpy: void
+                      ref mut: &mut K
+                        index: K
+                          field #1: own ^mut K
+                            local _0 self: HashMap<K, V>
+                          local _12 slot: usize
+                      ref: &K
+                        index: K
+                          local _6 old_keys: ^mut K
+                          local _10 i: usize
+                      type-query K::size: usize
+                  block
+                    block-value: void
+                      block
+                        builtin construct: void
+                          index: K
+                            field #1: own ^mut K
+                              local _0 self: HashMap<K, V>
+                            local _12 slot: usize
+                          builtin move_out: K
+                            index: K
+                              local _6 old_keys: ^mut K
+                              local _10 i: usize
+                if: void
+                  type-query V::is_relocatable: bool
+                  block
+                    builtin memcpy: void
+                      ref mut: &mut V
+                        index: V
+                          field #2: own ^mut V
+                            local _0 self: HashMap<K, V>
+                          local _12 slot: usize
+                      ref: &V
+                        index: V
+                          local _7 old_values: ^mut V
+                          local _10 i: usize
+                      type-query V::size: usize
+                  block
+                    block-value: void
+                      block
+                        builtin construct: void
+                          index: V
+                            field #2: own ^mut V
+                              local _0 self: HashMap<K, V>
+                            local _12 slot: usize
+                          builtin move_out: V
+                            index: V
+                              local _7 old_values: ^mut V
+                              local _10 i: usize
     call-method Allocator::free: void
       local _4 a: &mut Allocator
       local _5 old_ctrl: ^mut u8

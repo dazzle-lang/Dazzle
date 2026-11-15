@@ -323,7 +323,9 @@ then forgotten, never dropped or read: every type Dazzle defines, since a Dazzle
 fields' moves and a reset of the source, never code of the program's own. Not an imported C++
 class with a destructor, whose move constructor is C++ code, nor an opaque C handle. `List`
 grows, shifts and appends with one `realloc`, `memmove` or `memcpy` for a relocatable
-element, and with `construct` and `move_out` one at a time for any other. Moved as bytes, a
+element, `Deque` grows with two copies of its ring, and `HashMap` moves each entry into
+its new table with one; any other element moves with `construct` and `move_out`, one at a
+time. Moved as bytes, a
 value leaves no reset source behind, so no `drop` runs on one. `[DECIDED — D-0105, revising
 D-0081]`
 

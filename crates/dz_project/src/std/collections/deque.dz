@@ -189,9 +189,29 @@ pub struct Deque<T> {
         let fresh = unsafe {
             a.alloc(cap * sizeof(T), alignof(T), loc) as ^mut T
         }
-        for i in 0..m_len {
-            unsafe {
-                construct(fresh[i], move_out(m_data[self.slot(i)]))
+        if T::is_relocatable {
+            // The ring as two runs of bytes, from the head to the end of the old array and
+            // then from its start: each a move with no reset (D-0105).
+            if m_len > 0 {
+                let first = if m_cap - m_head < m_len {
+                    m_cap - m_head
+                } else {
+                    m_len
+                }
+                unsafe {
+                    memcpy(&mut fresh[0], &m_data[m_head], first * sizeof(T))
+                }
+                if m_len > first {
+                    unsafe {
+                        memcpy(&mut fresh[first], &m_data[0], (m_len - first) * sizeof(T))
+                    }
+                }
+            }
+        } else {
+            for i in 0..m_len {
+                unsafe {
+                    construct(fresh[i], move_out(m_data[self.slot(i)]))
+                }
             }
         }
         if m_data != null {

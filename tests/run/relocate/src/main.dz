@@ -109,4 +109,38 @@ fn main() {
         s += sum(&t)
     }
     println!("forest {}", s)
+
+    // A deque that wraps around its array before it grows: the ring moves as two runs.
+    let mut ring = Deque<String>()
+    for _ in 0..3 {
+        ring.push_back(String::from("a string longer than fifteen bytes"))
+        ring.push_front(String::from("short"))
+    }
+    for _ in 0..2 {
+        let _ = ring.pop_back()
+    }
+    for _ in 0..20 {
+        ring.push_front(String::from("front"))
+        ring.push_back(String::from("back, and long enough to allocate"))
+    }
+    let mut chars: usize = 0
+    loop {
+        let s = ring.pop_front() or break
+        chars += s.byte_len()
+    }
+    println!("ring {}", chars)
+
+    // A map that grows rehashes every entry into its new table.
+    let mut named = HashMap<String, Noisy>()
+    for i in 1..40 {
+        let mut key = String::from("key number ")
+        key.push((97 + i % 26) as u32 as char)
+        key.push((65 + i / 26) as u32 as char)
+        named.insert(move(key), Noisy{ id: 100 + i, name: String::from("in a map") })
+    }
+    let mut ids = 0
+    for &v in named.values() {
+        ids += v.id
+    }
+    println!("named {} {}", named.len(), ids)
 }
