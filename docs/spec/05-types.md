@@ -87,9 +87,10 @@ Five ways to refer to something — the model your samples already use, plus `&m
 
 **Reading through a reference.** A `&T` or `&mut T` is accepted where a `T` is wanted, and
 copies the value it refers to — `return m` in a function returning `Movie`, `let v: Vec3 =
-r`, an argument, a field. Reading cannot fail, so it is not spelled out. Only a copyable `T`
-can be read this way: a move-only one would have to be moved, and nothing may be moved out
-of a borrow (`DZ0402`, §6.4), and in a generic body that means `T: Copy`. Where no type is
+r`, an argument, a field. Reading cannot fail, so it is not spelled out. Only plain data
+can be read this way (§6.3): any other value would have to be moved, and nothing may be
+moved out of a borrow (`DZ0402`, §6.4), so a copy of it is written `r.clone()`, and in a
+generic body that means `T: Clone` (D-0106). Where no type is
 wanted, a reference stays a reference: `let r2 = r` is another `&T`. `[DECIDED — §18.35]`
 
 An operand of a comparison, an arithmetic or a bitwise operator is read the same way when

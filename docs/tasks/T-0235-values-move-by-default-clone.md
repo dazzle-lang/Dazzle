@@ -2,13 +2,13 @@
 id: T-0235
 title: "Values move by default, `clone` replaces `copy`, and `move` is removed (D-0106)"
 milestone: none
-status: open
+status: done
 kind: feature
 area: language
 where: `crates/dz_check/src/lib.rs` (`copyable`, `copy_trait`, `move_only_because`); `crates/dz_flow/src/lib.rs` (`value`, `DZ0401`, `DZ0403`); `crates/dz_project/src/std/core/ownership.dz` (`Copy`); `docs/spec/06-value-semantics-ownership-copy.md`
 ---
 
-**Decided by the user on 2026-11-15: D-0106.** The user's idea, from T-0234's follow-up, and
+**Done 2026-11-15** (r135; `docs/log/m5.md`). **Decided by the user on 2026-11-15: D-0106.** The user's idea, from T-0234's follow-up, and
 first in the backlog ahead of the performance work ("First, before the perf work"), so that
 work and the new benchmarks are written once, in the new language. A language change: spec
 §6 and a §21 row land with the compiler change that makes them true.
@@ -65,7 +65,11 @@ Each stage its own commit, `master` green after each, whole suite on both compil
 Open while building, for the user if they matter: whether `take` and `drop` keep those
 names, whether a generic `T` with no bound can still be copied when its instance is plain
 (D-0106 says no: a generic body moves a `T` always), and whether an inlay hint shows a move
-the source no longer spells.
+the source no longer spells. **As built:** neither `take` nor `drop` was needed — no code
+moved out of a field of `self`, and `let _ = x` ends a value early as `let _ = move(x)` did
+— so neither is in `std`, and both stay proposals; a generic body moves a `T` always; no
+inlay hint shows a move. The user settled two more questions (D-0106): `for r in rs` is
+the consuming loop, and a by-value binding never copies a value that is not plain.
 
 ## Where the code is
 
@@ -78,3 +82,6 @@ the source no longer spells.
 | `move` in the lexer, parser and tree | `crates/dz_lex/src/token.rs`, `crates/dz_parse/src/expr.rs`, `crates/dz_ast/src/lib.rs` (`ExprKind::Move`) |
 | How a move and a placed copy lower | `crates/dz_cpp/src/lib.rs`: the `Move` lowering, `copy_tag` |
 | The rules | `docs/spec/06-value-semantics-ownership-copy.md`; D-0106, D-0033 |
+| Moves written into the tree | `crates/dz_check/src/moves.rs`; `TypeTable::plain` in `crates/dz_check/src/lib.rs` |
+| `a.clone()`, `move(x)` retired, the consuming loop, by-value bindings | `crates/dz_check/src/check.rs`: `clone_call`, `move_removed`, `for_stmt`, `bind_for`, `if_let_binding`, `case_binding_type` |
+| The `.clone()` fixes | `crates/dz_flow/src/lib.rs`: `clone_fix`, `check_live` |

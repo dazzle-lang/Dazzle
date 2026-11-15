@@ -394,7 +394,7 @@ union ButtonState {
 visibility rules as a struct's (§4), and a method without `self` is called through the
 union's name, `ButtonState::initial()`. A union declares methods only: its fields are its
 variants, it is built from a variant, and copying and dropping it are already defined by
-its variants (§18.52), so a union has no constructors, `copy` or `drop` of its own. `kind`
+its variants (§18.52), so a union has no constructors, `clone` or `drop` of its own. `kind`
 is taken by the generated `s.kind()`. `[DECIDED — §18.78]`
 
 Untagged/overlapping storage, should interop ever need it, is a separate `#[raw] union`.
@@ -484,8 +484,8 @@ type at the same arguments are an error; at different arguments they are how a t
 several right-hand sides (§11.2).
 
 **A type's own method wins over a trait's** of the same name. When two traits both provide a
-method, the call names the one it means: `Describe::name(&v)`. `drop` and `copy` are never
-called by name (§6.1). `[DECIDED — §18.31]`
+method, the call names the one it means: `Describe::name(&v)`. `drop` and an `impl Clone`'s
+`clone` are never called by name (§6.1); `a.clone()` is the copy. `[DECIDED — §18.31]`
 
 **Static dispatch** happens whenever the trait is a generic bound (§8): the call is
 monomorphized and direct.

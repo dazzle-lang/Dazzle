@@ -7,8 +7,8 @@ concrete C++ types. They do not become C++ templates. `[DECIDED]`
 
 ```dz
 fn max<T: Ord>(a: T, b: T) -> T {
-    if a > b { return move(a) }       // `T` may be move-only (§8.2)
-    return move(b)
+    if a > b { return a }             // a `T` moves (§8.2)
+    return b
 }
 
 pub struct Buffer<T> { ... }
@@ -27,8 +27,8 @@ because it knows exactly what `T` can do.
 
 ```dz
 pub struct List<T> {
-    pub fn fold<A: Copy>(&self, start: A, step: fn(A, &T) -> A) -> A { ... }
-    pub fn filled<V: Copy>(n: usize, value: V, make: fn(V) -> T) -> List<T> { ... }
+    pub fn fold<A: Clone>(&self, start: A, step: fn(A, &T) -> A) -> A in start@home { ... }
+    pub fn filled<V: Clone>(n: usize, value: V, make: fn(V) -> T) -> List<T> { ... }
 }
 
 let total = scores.fold(0, add)                    // A inferred as i32
@@ -57,32 +57,33 @@ default-initialised, dropped, and queried via `T::` (§5.5). That is precisely e
 `Buffer` — your implementation only ever branches on `T::is_trivially_copyable` and calls
 `construct` / `destroy`, all of which are universal.
 
-Being *copied* is not on that list, so inside the body an unbounded `T` is a move-only type
-(§6.3) and every rule for one applies: returning or passing a `T` by value is a move, and is
-written `move(x)` as it is anywhere else (§6.4). The instantiation may well be `Buffer<f32>`,
-where the copy would have been free — but the body is checked once, for every `T`.
+Being *copied* is not on that list, so inside the body a `T` is never plain data (§6.3):
+returning, passing or binding a `T` by value moves it, as any value that owns something
+moves (§6.4). The instantiation may well be `Buffer<f32>`, where a copy would have been free
+— but the body is checked once, for every `T`, and means one thing for each.
 
-A bound says otherwise: **a `T: Copy` may be copied.** Every copyable type (§6.3) satisfies
-`Copy`, primitives included, whether or not it has an `impl Copy`. `[DECIDED — §18.26]`
+A bound says otherwise: **a `T: Clone` may be cloned**, `x.clone()`. Every cloneable type
+(§6.3) satisfies `Clone`, primitives and plain data included, whether or not it has an
+`impl Clone`. `[DECIDED — §18.26, D-0106]`
 
-**A container is copyable exactly when its elements are** by bounding its `impl Copy` rather
-than the container: `impl<T: Copy> Copy for Buffer<T>` gives `Buffer<f32>` a `copy` and
-leaves `Buffer<File>` move-only — while `Buffer<File>` remains a perfectly good type.
-Bounding the struct instead, `Buffer<T: Copy>`, would shut out every element that owns a
-resource. Inside that `copy`, `T` is `Copy` because the implementation says so.
+**A container is cloneable exactly when its elements are** by bounding its `impl Clone`
+rather than the container: `impl<T: Clone> Clone for Buffer<T>` gives `Buffer<f32>` a
+`clone` and leaves `Buffer<File>` move-only — while `Buffer<File>` remains a perfectly good
+type. Bounding the struct instead, `Buffer<T: Clone>`, would shut out every element that owns
+a resource. Inside that `clone`, `T` is `Clone` because the implementation says so.
 `[DECIDED — §18.26]`
 
 ## 8.3 Compile-time branches
 
 ```dz
-impl<T: Copy> Copy for Buffer<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Buffer<T> {
+    fn clone(&mut self, other: &Self) {
         m_data = self.take(other.m_cap)         // raw room for `m_cap` elements
         unsafe {
             if T::is_trivially_copyable {
                 memcpy(m_data, other.m_data, other.m_len * sizeof(T))
             } else {
-                for i in 0..other.m_len { construct(m_data[i], other.m_data[i]) }
+                for i in 0..other.m_len { construct(m_data[i], other.m_data[i].clone()) }
             }
         }
         m_cap = other.m_cap
@@ -99,8 +100,8 @@ value is an ordinary `if`, and both branches are emitted. `[PROPOSED]`
 Folding happens *after* checking, not instead of it. Both branches are checked against the
 bounds, for every `T`, exactly as the rest of the body is (§8.1) — a branch that only makes
 sense for some `T` is still an error in the others. That is what keeps a generic's errors at
-its definition. The `else` branch above copies an element, which it may because the
-implementation is bounded `T: Copy` (§8.2).
+its definition. The `else` branch above clones an element, which it may because the
+implementation is bounded `T: Clone` (§8.2).
 
 ## 8.4 Monomorphization
 
@@ -197,7 +198,7 @@ fn first<view T: Iterate>(it: &T) -> T::Item {
 }
 
 fn each<C: Iterable>(xs: &C, f: fn(C::Iter::Item)) {
-    for x in xs { f(move(x)) }                // x is a C::Iter::Item
+    for x in xs { f(x) }                      // x is a C::Iter::Item, moved into `f`
 }
 
 impl<view I: Iterate> Iterate for Numbered<I> {

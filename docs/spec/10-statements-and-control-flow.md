@@ -134,12 +134,12 @@ that should be read again on every pass is a `while` loop's condition. `[DECIDED
 **How a binding holds its element** is written on the binding, as C++ writes `auto`,
 `const auto&` and `auto&` — not on the sequence. `[DECIDED — §18.42]`
 
-- **`e`** is a copy that cannot be changed. Writing `e.hp -= 1` would change a copy and
-  nothing else, so it is an error, with a help pointing at `&mut e`. An element that cannot
-  be copied — a type with a `drop` — cannot be bound this way either (`DZ0403`); refer to it
-  with `&e`, or consume the sequence. A copy is always a real copy — its `copy` runs, and
-  its `drop` at the end of the pass — so the compiler never quietly reads through a
-  reference instead: with RAII that would change what the program does.
+- **`e`** is a copy that cannot be changed, of an element that is plain data (§6.3). Writing
+  `e.hp -= 1` would change a copy and nothing else, so it is an error, with a help pointing
+  at `&mut e`. An element that is not plain — a `String`, a type with a `drop` — is never
+  copied by a binding (`DZ0403`): refer to it with `&e`, and write `e.clone()` where a copy
+  is wanted. Over an array the function owns, such a loop consumes the array instead
+  (below). `[DECIDED — D-0106]`
 - **`&e`** refers to the element, read-only. Nothing is copied.
 - **`&mut e`** refers to the element and may change it: `e.hp -= 1`, or `e = 0` for a number,
   writes into the sequence (§5.2). The sequence must be writable — a `let mut` array, a
@@ -162,8 +162,11 @@ names always mean the parts of one element and never anything else.
 passes from zero, then the element with the same choice of `e`, `&e` or `&mut e`. It works on
 anything `for` does. For now `indexed()` is known only in a loop's head.
 
-**Consuming.** `for e in move(entities)` moves each element out into `e` and leaves
-`entities` moved-from (§6.4) — the one way to take move-only elements by value.
+**Consuming.** `for e in entities` over an array the function owns — a local, a by-value
+parameter, a field of either — whose elements are not plain moves each element out into
+`e` and leaves `entities` moved-from (§6.4): a value used by value moves, and the loop uses
+the array so. It is the one way to take such elements by value. A loop over an iterator moves
+the iterator into it. `[DECIDED — D-0106]`
 
 `for e in xs` desugars to the three `Iterate` methods, with the iterator in a scope of its
 own so the loop variable may shadow anything outside it:

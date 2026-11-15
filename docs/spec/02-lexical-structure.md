@@ -133,7 +133,8 @@ switch   static    tie      trait    true      unreachable         union     uns
 while
 ```
 
-`copy` and `drop` are not keywords: they are the methods of the `Copy` and `Drop` traits
-(§6.1), and ordinary names otherwise.
+`clone` and `drop` are not keywords: they are the methods of the `Clone` and `Drop` traits
+(§6.1), and ordinary names otherwise. `move` is a keyword that nothing uses any more: values
+move by default, and `move(x)` is an error saying so (§6.4, D-0106).
 
 Reserved for future use: `async`, `await`, `impl`, `where`, `yield`, `comptime`, `collect`.

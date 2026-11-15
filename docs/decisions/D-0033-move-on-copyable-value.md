@@ -4,7 +4,7 @@ title: `move` on a copyable value
 status: decided
 ---
 
-**Superseded by D-0106 (2026-11-15, by the user), once T-0235 builds it:** values move by
+**Superseded by D-0106 (2026-11-15, by the user), built by T-0235 (r135):** values move by
 default, `move` is removed, and plain data copies; a copy of anything else is
 `a.clone()`.
 

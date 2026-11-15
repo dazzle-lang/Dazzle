@@ -9,10 +9,10 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
-**First: values move by default (T-0235, D-0106)**, decided by the user on 2026-11-15 and
-put ahead of the performance work, so that work and the new benchmarks are written once in
-the new language: `move` is removed, plain data copies, and every other copy is written
-`a.clone()`. Then:
+**Done 2026-11-15: values move by default (T-0235, D-0106, r135)**, decided by the user and
+put ahead of the performance work, so that work and the new benchmarks are written in the
+new language: `move` is removed, plain data copies, and every other copy is written
+`a.clone()`. Next:
 
 **Run time and memory against C++**, set by the user the same day, ahead of the rest of
 0.2. T-0234 measured that the benchmarks' gap is not the cost of safety but the
@@ -270,7 +270,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (30 open)
+## none — not scheduled (29 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -301,4 +301,3 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
 - **[T-0227](tasks/T-0227-move-on-path-that-ends-in.md)** A move on a path that ends in return is counted when a loop body runs again · feature, flow
-- **[T-0235](tasks/T-0235-values-move-by-default-clone.md)** "Values move by default, `clone` replaces `copy`, and `move` is removed (D-0106)" · feature, language

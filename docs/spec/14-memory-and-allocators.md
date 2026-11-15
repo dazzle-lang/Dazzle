@@ -134,7 +134,7 @@ pushed.
 What needs more of the element than the list does is a trait implemented for `List<T>`
 with that bound, since a method cannot require more of `T` than its type does — as `sort`
 is (§14.4). **`Search<T>`**, for an `Eq` element: `contains(&v)`, and `index_of(&v)`, a
-`usize?`. **`Extend<T>`**, for a `Copy` one: `extend(xs)` and `insert_slice(i, xs)` copy a
+`usize?`. **`Extend<T>`**, for a `Clone` one: `extend(xs)` and `insert_slice(i, xs)` copy a
 slice in — one that must not be a view of the list itself, which growing would free — and
 `fill(v)` overwrites every element. A list of `Eq` elements is `Eq`, and of `Hash`
 elements `Hash`, so a list can key a map. `[DECIDED — D-0081]`
@@ -332,7 +332,7 @@ D-0081]`
 ## 14.4 The standard library: `std`
 
 The standard library is **one module, `std`**, carried by the compiler as Dazzle source:
-the language's traits (`Drop`, `Copy`, `Eq`, `Ord`, the operators, `Iterate`, `Format`,
+the language's traits (`Drop`, `Clone`, `Eq`, `Ord`, the operators, `Iterate`, `Format`,
 `ImplicitAs`), the allocators, the containers and the math below. Its names are flat — `std::String`,
 `std::List`, `std::Vec2` — with one declaration to a file, as any project may organise
 itself (§3.1). A module names it in its manifest like any dependency, and usually opens it
@@ -659,7 +659,7 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A placement is checked like a reference** (§6.7): a region is a tie that dies when its
   scope ends, so a placement that would leave a value in memory that dies too soon fails the
   check, and the value goes to the heap. No placement changes what a program does.
-- **A value's owned parts live where the value lives.** A constructor and `copy` build into
+- **A value's owned parts live where the value lives.** A constructor and `clone` build into
   wherever `self` is placed.
 - **A copy is a value of its own**, placed like any other, never where the value it copies
   lives: `let names = other.names` or `counts.insert(word, 1)` builds its copy in a region
@@ -684,7 +684,7 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A value assigned to a local lives where the local lives**, as a `let`'s does, and so
   does each part of a tuple `let`. Built on every pass of a loop the local outlives, it goes
   there only when the local grows from itself: every assignment holds the value it
-  replaces, as `lhs = Expr::Binary{ lhs: Box(move(lhs)), rhs: Box(move(rhs)) }` does, and
+  replaces, as `lhs = Expr::Binary{ lhs: Box(lhs), rhs: Box(rhs) }` does, and
   nothing else drops or gives away what the local holds. Nothing a pass makes then dies
   before the region does, so a parser's nodes go into the region of the statement they
   belong to. `[DECIDED — D-0091, T-0146]`
@@ -704,7 +704,7 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A memory budget or a program with no heap** is not expressible yet.
 
 **A container reads where it was placed as `#placement`** (§12.7), in `unsafe`: in a
-constructor, where the value being made goes; in a `copy`, where the copy goes; in a
+constructor, where the value being made goes; in a `clone`, where the copy goes; in a
 function returning something that owns memory, where its result goes; anywhere else, the
 heap. `std`'s containers store it and
 allocate from it, and a program's own container can do the same, and is then placed as

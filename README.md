@@ -147,7 +147,7 @@ that make it hard. Its principles, in priority order:
 1. **You can always see the machine.** No hidden allocations, no hidden control flow, no
    garbage collector, no runtime you did not ask for.
 2. **Destruction is deterministic and automatic.** RAII with three special members: a
-   constructor, `copy` and `drop`.
+   constructor, `clone` and `drop`.
 3. **Encapsulation is enforced, not conventional.** Private is the default.
 4. **Errors point at your code**, never at generated code or a 400-line template trace.
 5. **The escape hatch is a door, not a hole.** C++ interop is a first-class feature: an
@@ -311,7 +311,7 @@ error[DZ0510]: fallible call not consumed
 ### Ownership: `own`, three special members, and no rule of five
 
 A struct has at most three special members, and that is the whole list: a **constructor**
-(named after the struct), a **`drop`** (the destructor) and a **`copy`** (the copy
+(named after the struct), a **`drop`** (the destructor) and a **`clone`** (the copy
 constructor). There is no move constructor, no move assignment, no copy assignment and no
 default constructor to write; the compiler derives them. A field marked **`own`** is a
 pointer the struct is responsible for releasing, such as a handle a C library gave it:
@@ -335,8 +335,8 @@ impl Drop for Image {                        // runs exactly once, at the end of
     }
 }
 
-impl Copy for Image {                        // opt-in: without it, Image is move-only
-    fn copy(&mut self, other: &Self) {
+impl Clone for Image {                       // opt-in: without it, Image is move-only
+    fn clone(&mut self, other: &Self) {
         width = other.width
         height = other.height
         m_surface = sdl::SDL_DuplicateSurface(other.m_surface)
@@ -345,8 +345,8 @@ impl Copy for Image {                        // opt-in: without it, Image is mov
 
 fn main() {
     let a = Image(64, 64)
-    let b = a                                // a copy: runs `copy`
-    let c = move(a)                          // a move: `a` is reset to its defaults
+    let b = a.clone()                        // a copy: runs `clone`
+    let c = a                                // a move: `a` is reset to its defaults
     println!("{} {}", b.width, c.width)
 }                                            // c, b and a are dropped, in that order
 ```
@@ -355,13 +355,17 @@ fn main() {
 file, a window or a GPU buffer from a C library, used as it is from its own source
 ([below](#use-c-and-c-libraries-as-they-are)). Dazzle code never names an allocator, and its
 own data needs none of the three members: a struct of `List` and `String` fields is freed,
-copied and moved with no code at all.
+moved and cloned with no code at all.
 
 The rules that hold this together:
 
+- **A value that owns something moves; plain data copies.** `let c = a` moves `a`, with
+  nothing written, whenever its type owns anything — a `String`, a `List`, an `Image` — and a
+  copy is always written, `a.clone()`, so no line copies a buffer without saying so. A
+  struct of numbers and other plain fields copies as C does.
 - **`own` makes the struct move-only.** A struct with an `own` field, or a `drop`, can only
-  be moved (`move(x)`) unless it implements `Copy`. A plain struct of copyable fields is
-  copyable with no code at all.
+  be moved unless it implements `Clone`. A struct of cloneable fields is cloneable with no
+  code at all.
 - **An `own` field with no `drop` is a compile error**, so a resource cannot be acquired and
   forgotten:
 
@@ -383,16 +387,16 @@ The rules that hold this together:
   error[DZ0401]: `a` was moved and cannot be used again
      ┌─ src/main.dz:31:26
      │
-  30 │     let c = move(a)                          // a move: `a` is reset to its defaults
-     │             ------- moved here
+  30 │     let c = a                                // a move: `a` is reset to its defaults
+     │             - moved here
   31 │     println!("{} {} {}", a.width, b.width, c.width)
-     │                          ^^^^^^^ used here after the move
+     │                          ^ used here after the move
      │
-     = help: a moved-from value is left at its defaults, and reading it back would almost never be what was meant (spec §6.4)
+     = help: a value that is not plain data moves when it is used by value, and a moved-from value is left at its defaults (spec §6.4); to keep this one, move a copy of it: write `.clone()` where it moved
   ```
 
 - **Every value is initialised.** `let img: Image` is an empty image, never garbage memory,
-  and `copy` always runs on a defaults-initialised value, so returning early from it
+  and `clone` always runs on a defaults-initialised value, so returning early from it
   leaves something valid.
 
 **What it becomes in C++.** The three members map onto C++ special members, and the rest of
@@ -434,7 +438,7 @@ Image& Image::operator=(const Image& other) {
 |---|---|
 | `Image(w, h)` | `Image(int32_t w, int32_t h)` |
 | `impl Drop`'s `drop` | `~Image()` |
-| `impl Copy`'s `copy` | `Image(const Image&)`, run on a defaults-initialised `*this` |
+| `impl Clone`'s `clone` | `Image(const Image&)`, run on a defaults-initialised `*this` |
 | move | `Image(Image&&)`: memberwise steal, then reset the source to its defaults |
 | copy and move assignment | destroy, reset, then copy or steal, with a self-assignment guard |
 | a move-only type | its copy constructor and copy assignment `= delete`d |

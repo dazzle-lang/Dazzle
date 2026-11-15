@@ -213,18 +213,17 @@
           "match": "\\bor\\b"
         },
         {
-          "comment": "`wordlike`, `cast` and `expression` are the keyword-operator scopes themes colour as keywords; plain `keyword.operator` renders like ordinary text.",
-          "name": "keyword.operator.expression.move.dazzle",
-          "match": "\\bmove\\b"
+          "comment": "`cast` is a keyword-operator scope themes colour as a keyword; plain `keyword.operator` renders like ordinary text.",
+          "name": "keyword.operator.cast.dazzle",
+          "match": "\\bas\\b"
         },
-        { "name": "keyword.operator.cast.dazzle", "match": "\\bas\\b" },
         { "name": "keyword.other.dazzle", "match": "\\b(?:import|module|impl|let|static|unsafe|extern|kills|sends|tie)\\b" },
         { "name": "storage.type.dazzle", "match": "\\b(?:fn|struct|union|enum|trait|const|macro)\\b" },
         { "name": "storage.modifier.dazzle", "match": "\\b(?:pub|mut|own|protected|virtual|override)\\b" },
         { "name": "storage.modifier.dazzle", "match": "\\bview(?=\\s+(?:struct|type)\\b|\\s+[A-Za-z_]\\w*\\s*[:,>])" },
         { "name": "constant.language.dazzle", "match": "\\b(?:true|false|null|none)\\b" },
         { "name": "variable.language.self.dazzle", "match": "\\bself\\b" },
-        { "name": "keyword.other.reserved.dazzle", "match": "\\b(?:async|await|where|yield|comptime)\\b" }
+        { "name": "keyword.other.reserved.dazzle", "comment": "`move` is reserved: values move by default, and `move(x)` is an error (D-0106).", "match": "\\b(?:async|await|where|yield|comptime|move)\\b" }
       ]
     },
     "types": {

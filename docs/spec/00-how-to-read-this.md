@@ -34,15 +34,15 @@ impl<T> Drop for Buffer<T> {                    // destructor -> deterministic, 
     fn drop(&mut self) { ... }
 }
 
-impl<T: Copy> Copy for Buffer<T> {              // copy constructor -> copyable when T is
-    fn copy(&mut self, other: &Self) { ... }
+impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone()` when T is
+    fn clone(&mut self, other: &Self) { ... }
 }
 ```
 
 | Concept | Syntax | One-line rule |
 |---|---|---|
 | Refer to a value | `&T` `&mut T` `^T` `^mut T` `own ^mut T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer, read-only unless `^mut`; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free, and reading or writing *through* a pointer is `unsafe` |
-| Copy vs move | `let b = a` / `let b = move(a)` | if the type owns anything, copying needs an `impl Copy`; otherwise `move()` |
+| Move vs copy | `let b = a` / `let b = a.clone()` | a value that owns anything moves when it is used by value, and is copied only by `.clone()`; plain data copies (§6.3, §6.4) |
 | Invalidation | `fn push(&mut self, v: T) kills self@items` | every function says which ties (`@items`) it may end; a reference into a killed tie is an error to use; aliasing stays legal (§6.7) |
 | Memory | `List<T>()` | no allocator in ordinary code: the compiler places each value — the scope's region, the caller's result, else the heap (§14.6) |
 | Homes | `fn push(&mut self, v: T) sends v to self` / `fn pop(&mut self) -> T? in self@home` | a value's memory stays where it was placed, its home; a function says where it hands what its inputs own (`sends`) and which input's home an owned result is in (`in x@home`), and callers place by it (§6.4, §6.7) |

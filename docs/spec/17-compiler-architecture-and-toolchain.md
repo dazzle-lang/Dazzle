@@ -90,8 +90,8 @@ priority order:
    `rl::DrawLine` (§3.2). In `dazzle.toml`, a header in a recipe's `import` and a
    dependency's `path` are links to what they name.
 5. Completion inside macro invocations, using the macro's declared grammar (§12).
-6. Code actions: fill missing `switch` arms, add a missing trait method, insert `move()` on
-   a use-after-move error, add a missing `impl Drop`.
+6. Code actions: fill missing `switch` arms, add a missing trait method, write `.clone()` at
+   a move a later use needs kept, remove a `move(…)` that is no longer written, add a missing `impl Drop`.
 7. Inlay hints: inferred types on `let`, and — specific to this language — a marker where
    the compiler inserts an implicit `drop`.
 8. Semantic tokens, document symbols, workspace symbols, formatting.

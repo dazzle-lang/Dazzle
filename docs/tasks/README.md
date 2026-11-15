@@ -20,10 +20,10 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
-**First: values move by default (T-0235, D-0106)**, decided by the user on 2026-11-15 and
-put ahead of the performance work, so that work and the new benchmarks are written once in
-the new language: `move` is removed, plain data copies, and every other copy is written
-`a.clone()`. Then:
+**Done 2026-11-15: values move by default (T-0235, D-0106, r135)**, decided by the user and
+put ahead of the performance work, so that work and the new benchmarks are written in the
+new language: `move` is removed, plain data copies, and every other copy is written
+`a.clone()`. Next:
 
 **Run time and memory against C++**, set by the user the same day, ahead of the rest of
 0.2. T-0234 measured that the benchmarks' gap is not the cost of safety but the

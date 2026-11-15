@@ -11,7 +11,7 @@ The principles, in priority order. When two conflict, the earlier one wins.
    garbage collector, no runtime you did not ask for. If a line of Dazzle allocates, it
    says so.
 2. **Destruction is deterministic and automatic.** RAII, but with exactly three special
-   member functions instead of C++'s five-and-a-half: a constructor, `copy`, and `drop`.
+   member functions instead of C++'s five-and-a-half: a constructor, `clone`, and `drop`.
 3. **Encapsulation is enforced, not conventional.** Private is the default. The compiler,
    not a naming convention, is what stops layer N+1 from reaching into layer N's guts.
 4. **Errors point at your code.** Definition-site generic checking, monomorphization under

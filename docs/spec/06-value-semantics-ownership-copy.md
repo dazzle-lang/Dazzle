@@ -4,7 +4,7 @@ This is the heart of the language. Everything else is ordinary.
 
 ## 6.1 The three special members
 
-A struct has at most one of each — a constructor, a `drop` and a `copy`:
+A struct has at most one of each — a constructor, a `drop` and a `clone`:
 
 ```dz
 struct Buffer<T> {
@@ -15,20 +15,20 @@ impl<T> Drop for Buffer<T> {        // destructor
     fn drop(&mut self) { ... }
 }
 
-impl<T: Copy> Copy for Buffer<T> {  // copy constructor, for the instances it covers
-    fn copy(&mut self, other: &Self) { ... }
+impl<T: Clone> Clone for Buffer<T> {  // copy constructor, for the instances it covers
+    fn clone(&mut self, other: &Self) { ... }
 }
 ```
 
-The constructor is a member, since it is how a value comes to exist. `drop` and `copy` are
-implementations of the standard library's `Drop` and `Copy` traits (§7.6): they are behaviour a type
-has, and a bound can then ask for it — `T: Copy`. They are stricter than other
-implementations, because they become the struct's C++ destructor and copy constructor and
-so are part of its definition: written in the struct's own module, for the struct itself —
-every instance, `impl<T> Drop for Buffer<T>`, never one — and `impl Drop`'s parameters take
+The constructor is a member, since it is how a value comes to exist. `drop` and `clone` are
+implementations of the standard library's `Drop` and `Clone` traits (§7.6): they are
+behaviour a type has, and a bound can then ask for it — `T: Clone`. They are stricter than
+other implementations, because they become the struct's C++ destructor and copy constructor
+and so are part of its definition: written in the struct's own module, for the struct itself
+— every instance, `impl<T> Drop for Buffer<T>`, never one — and `impl Drop`'s parameters take
 no bounds, since a destructor cannot exist for some instances and not others. Neither is
-ever called by name: `drop` runs at the end of a scope, and `copy` on every copy.
-`[DECIDED — §18.31]`
+ever called by name: `drop` runs at the end of a scope, and `clone` on every `a.clone()`
+(§6.3). `[DECIDED — §18.31, D-0106]`
 
 That is the complete list. There is no move constructor, no move assignment, no copy
 assignment, no default constructor to write, no rule of five. The compiler synthesises
@@ -54,21 +54,32 @@ binds the reference first (§6.7).
 constructor, or has one callable with zero arguments. Otherwise the error names the
 constructor you have to call. `[PROPOSED]`
 
-This is what makes the comment in your `Buffer::copy` true *and checkable*: `copy` always
+This is what makes the comment in your `Buffer::clone` true *and checkable*: `clone` always
 runs on a defaults-initialised object, so an early `return` out of it leaves a valid empty
 value rather than a half-built one.
 
-## 6.3 Copyability
+## 6.3 Plain data, and `clone`
 
-A type is **copyable** if:
+A type is **plain data** if it has no `drop`, no `own` field and no `impl Clone` of its own,
+and every field is plain: the numbers, `bool`, `char`, an enum, a pointer `^T`, a reference,
+a `&str`, a slice, and a struct, tuple, array, optional or union of them, such as a `Vec3`.
+**Plain data copies** wherever it is used by value: a copy and a move of it are the same
+bytes, so a program cannot tell them apart. A type parameter is never plain, whatever it is
+given: a generic body means one thing for every instance (§6.4).
 
-- it has an `impl Copy` that applies to it — `impl<T: Copy> Copy for Buffer<T>` covers
+**Everything else moves** when it is used by value (§6.4), and is copied only when the copy is
+written: `a.clone()`. A type is **cloneable** — it is `Clone` — when
+
+- it is plain data, **or**
+- it has an `impl Clone` that applies to it — `impl<T: Clone> Clone for Buffer<T>` covers
   `Buffer<f32>` and not `Buffer<File>` — **or**
-- it implements neither `Copy` nor `Drop`, has no `own` field, and every field is copyable.
+- it has no `drop` and no `own` field, and every field is cloneable: a struct of `String`s
+  clones field by field.
 
-Every copyable type satisfies a `T: Copy` bound, whether or not it has an `impl Copy`.
-Otherwise it is **move-only**, and assignment or passing by value requires an explicit
-`move`:
+Every cloneable type satisfies a `T: Clone` bound, whether or not it has an `impl Clone`, and
+`a.clone()` is a method of each, so it chains: `names[i].clone()`. Calling it on a value that
+is not cloneable is an error (`DZ0403`). One that is not is **move-only**: it can be moved and
+never copied.
 
 ```dz
 struct File {
@@ -80,11 +91,18 @@ impl Drop for File {
 }
 
 let f  = File("save.dat")
-let f2 = f              // error: File is move-only because it owns a resource.
-                        //   help: use `move(f)` to transfer ownership, or implement
-                        //         `Copy` for File to make it copyable.
-let f3 = move(f)        // ok
+let f2 = f              // moves: `f` is gone
+let f3 = f2.clone()     // error: File cannot be cloned
+                        //   help: it declares a `drop`, so copying it would release the
+                        //         same resource twice: move the value instead, or give
+                        //         `File` an `impl Clone`
 ```
+
+**A binding never copies a value that is not plain.** `for s in names` over a
+`List<String>`, `if let s = self.name` and `case Circle(c)` would each be a copy, and are an
+error (`DZ0403`): refer to the value with `&s`, and write `s.clone()` where a copy is wanted.
+A loop over an array the function owns is the exception: it moves the elements out (§6.4).
+`[DECIDED — D-0106]`
 
 `own` on a field is what flips the switch. It is not a comment — it is the declaration that
 this struct is responsible for a resource, and it makes the whole struct move-only.
@@ -101,24 +119,34 @@ field, which is what keeping the pointer a C library's create function or `mallo
 
 ## 6.4 Move semantics
 
-`move(x)` transfers ownership out of `x`. Afterwards `x` is **moved-from**, and the
-compiler tracks that with flow analysis:
+**A value that is not plain data moves when it is used by value**: bound by `let`, assigned,
+passed to a parameter, returned, put in a literal or a container. Nothing is written for it;
+the compiler always knows, and there is one way a value moves. Afterwards the source is
+**moved-from**, and the compiler tracks that with flow analysis:
 
 ```dz
 let a = String("hello")
-let b = move(a)
+let b = a
 println!("{}", a.length())   // error: `a` was moved on line 2 and cannot be used
+                             //   fix: `let b = a.clone()`
 ```
 
-The analysis is flow-sensitive and handles branches:
+A use after a move is `DZ0401`, and its fix writes `.clone()` where the value moved. The
+analysis is flow-sensitive and handles branches:
 
 ```dz
 let s = String("x")
 if cond {
-    consume(move(s))
+    consume(s)
 }
 use(s)                      // error: `s` is moved on some paths reaching here
 ```
+
+What is not used by value is not moved: a method's receiver, the operand of `&`, the base of
+a `.` or an index, a comparison's operands, a formatting macro's arguments. A loop over an
+array the function owns, binding each element by value, moves the elements out when they are
+not plain: `for r in rs` consumes `rs`, and a later use of it is `DZ0401`. A loop over an
+iterator moves the iterator into the loop. `[DECIDED — D-0106]`
 
 At runtime a moved-from value is left **at its defaults** — not in some unspecified state.
 This is a deliberate divergence from C++: the source of a move is reset to exactly the
@@ -126,20 +154,24 @@ state a freshly declared value would have, which means running its `drop` is alw
 and always a no-op for the resource. It costs a few stores; it removes an entire category
 of bug. `[DECIDED]`
 
-**This holds for every type.** `move` on a copyable value — an `i32`, a `&str` — is still a
-move: the source is moved-from afterwards, a later use of it is an error, and at runtime it
-is reset to its defaults. To go on using a copyable value, copy it instead: leave out
-`move`. One rule for every type is also what keeps a generic body honest: `move(v)` in a
-`Buffer<T>` means the same for `Buffer<i32>` as for `Buffer<File>`. `[DECIDED — §18.33]`
+**A generic body moves a `T` always**, since `T` may not be plain: `let b = a` in a
+`Buffer<T>` moves `a` for `Buffer<i32>` as for `Buffer<File>`, and the body writes
+`a.clone()` under `T: Clone` to keep it. One rule for every instance is what keeps a generic
+body honest. `[DECIDED — §18.33, D-0106]`
 
-**A move needs a place the function owns.** `move` resets its source, and a `&`, a `^` or an
-array element is not something the function has the right to reset — so `move(p^)`,
-`move(r.field)` through a reference, and `move(xs[i])` are errors. A local, a by-value
-parameter, and a field of either are fine. `[DECIDED]`
+**A move needs a place the function owns.** A move resets its source, and a `&`, a `^`, a
+`static` or an array element is not something the function has the right to reset — so
+reading a `String` by value through `p^`, through a reference's field, or out of `xs[i]` is an
+error (`DZ0402`), whose fix writes `.clone()`. A local, a by-value parameter, and a field of
+either are fine, and a field moved out of a local is tracked per field. `[DECIDED]`
+
+**`move(x)` is not written any more** (`DZ0423`, whose fix removes it). It was how a value was
+moved before values moved by default; `move` stays a reserved word, so old code gets that
+error rather than an unknown name. `[DECIDED — D-0106]`
 
 **A move hands on ownership, not memory.** The value's memory stays in its **home**, the
-region or heap the compiler placed it in (§14.6), so `let b = move(a)` is a pointer steal
-however much `a` owns. Ownership may therefore move only to an owner whose home dies no
+region or heap the compiler placed it in (§14.6), so `let b = a` is a pointer steal however
+much `a` owns. Ownership may therefore move only to an owner whose home dies no
 later than the value's. Inside one function the compiler sees every move and places the
 value at its birth in a home that outlives everywhere it goes; across a call, the
 signature says where ownership goes, with `sends` and `in x@home` (§6.7). A move never
@@ -210,15 +242,15 @@ does, correctly, and every C++ debugger and profiler already understands it.
 | Dazzle | Generated C++ |
 |---|---|
 | `Buffer(cap)` | `Buffer(uint32_t cap)` |
-| `impl Copy`'s `copy` | `Buffer(const Buffer& other)` — body runs on a defaults-initialised `*this` |
+| `impl Clone`'s `clone` | `Buffer(const Buffer& other)` — body runs on a defaults-initialised `*this`; `a.clone()` calls it |
 | `impl Drop`'s `drop` | `~Buffer()` |
 | any other `impl`'s method | a free function taking the receiver first: `Mul_f32__Vec2__mul(const Vec2& self, float rhs)` |
-| move | `Buffer(Buffer&& o)` — memberwise steal, then reset `o` to defaults |
-| copy assignment | `~Buffer(); new (this) Buffer{}; copy(other);` + self-assignment guard |
+| a move (any by-value use of a value that is not plain) | `Buffer(Buffer&& o)` — memberwise steal, then reset `o` to defaults |
+| `b = a.clone()` | `~Buffer(); new (this) Buffer{}; clone(other);` + self-assignment guard |
 | move assignment | `~Buffer(); new (this) Buffer{}; steal(o); reset(o);` |
 | move-only type | copy constructor and copy assignment `= delete`d |
 
-The copy-assignment lowering is exactly the `drop() + reset-to-defaults + copy()` sequence
+The copy-assignment lowering is exactly the `drop() + reset-to-defaults + clone()` sequence
 your `Buffer` comment describes, so the invariant it relies on is guaranteed by codegen.
 
 Deleting the C++ copy constructor for move-only types means that even if Dazzle's own flow
