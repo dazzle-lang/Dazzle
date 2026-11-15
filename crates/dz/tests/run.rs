@@ -2160,6 +2160,7 @@ const WARNING_CLEAN: &[&str] = &[
     "files",
     "utf8",
     "handle_upcast",
+    "relocate",
     "sorting",
     "breakout_sim",
     "text",

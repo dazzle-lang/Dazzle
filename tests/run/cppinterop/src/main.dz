@@ -53,6 +53,19 @@ fn main() {
     buf.fill(3)
     println!("buffer {} {}", buf.len(), buf.sum())
 
+    // A class whose move is C++ code is not moved as bytes: a growing list moves each one
+    // through its move constructor, which keeps it pointing at itself (D-0105).
+    let mut anchors = List<shp::shapes::Anchored>()
+    for i in 1..8 {
+        anchors.push(shp::shapes::Anchored(i))
+    }
+    anchors.insert(0, shp::shapes::Anchored(100))
+    let mut ids = 0
+    for &x in anchors {
+        ids += x.id()
+    }
+    println!("anchored {} {}", anchors.len(), ids)
+
     // A named template instantiation is an ordinary type (spec §15.4).
     let pair = shp::IntPair(3, 9)
     println!("pair {} {}", pair.first(), pair.sum())

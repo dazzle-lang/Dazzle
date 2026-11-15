@@ -11,7 +11,7 @@ status: decided
 - **Looking up a `String` key by `str` is a trait implemented for `HashMap<String, V>` alone** — `StrKeys<V>`: `get_str`, `get_mut_str`, `contains_str`, `remove_str` — and `StrSet` for `HashSet<String>`. Chosen over a `Borrow` trait, which would be a promise nothing checks that two types hash alike, and over overloading, which 18.5 rules out (T-0043).
 - **`HashSet<T: Hash + Eq>`** is a `HashMap<T, bool>` underneath: the same table, one byte a slot for values that say nothing.
 - **A runtime `str` reaches C through a `String`**: `let owned = String::from(name)` then `owned.as_cstr()`. No `CString` type; the `String` already keeps a zero after its bytes. Passing `String::from(name).as_cstr()` straight to a call is fine, since the `String` lives to the end of the statement; binding that `cstr` with `let` is not (T-0006).
-- **`memmove(dst, src, bytes)`** joins the placement primitives (§14.3): an overlapping copy, `unsafe` as `memcpy` is. `List` shifts elements with it when `T::is_trivially_copyable` and one at a time otherwise (T-0042).
+- **`memmove(dst, src, bytes)`** joins the placement primitives (§14.3): an overlapping copy, `unsafe` as `memcpy` is. `List` shifts elements with it when `T::is_trivially_copyable` and one at a time otherwise (T-0042). *Revised by D-0105 (2026-11-14): a move may copy the bytes of any relocatable type, so `List` moves with `memmove` when `T::is_relocatable`.*
 - **`hash_combine` relies on plain `+` wrapping**, which 18.63 promises; it is not rewritten with `wrapping_add`, which would imply plain `+` might not wrap (T-0044).
 
 **Two follow-ups, the same day (r68)**, from what writing this exposed, fixed at the user's word ("fix the issues you found"):

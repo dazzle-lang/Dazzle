@@ -455,8 +455,15 @@ pub const STD_BUILTIN_FNS: &[&str] = &["dyn_sizeof", "dyn_alignof"];
 /// `dz_hir::TypeQuery::from_name` is the authority on what each one means, and a test there
 /// keeps the two lists in step. `T::fields` is absent: it is a compile-time sequence for
 /// macros and reflection, which are M10 and M11.
-pub const TYPE_QUERIES: &[&str] =
-    &["size", "align", "name", "is_trivially_copyable", "is_copyable", "has_drop"];
+pub const TYPE_QUERIES: &[&str] = &[
+    "size",
+    "align",
+    "name",
+    "is_trivially_copyable",
+    "is_relocatable",
+    "is_copyable",
+    "has_drop",
+];
 
 /// Resolve every module in the workspace.
 pub fn resolve(ws: &Workspace, files: &HashMap<ModuleId, Vec<ParsedFile>>) -> Resolution {

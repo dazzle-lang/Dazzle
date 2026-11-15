@@ -4346,7 +4346,7 @@ body method List::append -> void
       local _3 n: usize
       local _2 loc: SourceLocation
     if: void
-      type-query T::is_trivially_copyable: bool
+      type-query T::is_relocatable: bool
       block
         block-value: void
           block
@@ -4458,7 +4458,7 @@ body method List::shift_up -> void
       block
         return: !
     if: void
-      type-query T::is_trivially_copyable: bool
+      type-query T::is_relocatable: bool
       block
         block-value: void
           block
@@ -4520,7 +4520,7 @@ body method List::shift_down -> void
       block
         return: !
     if: void
-      type-query T::is_trivially_copyable: bool
+      type-query T::is_relocatable: bool
       block
         block-value: void
           block
@@ -5289,7 +5289,7 @@ body method List::grow_to -> void
               type-query T::size: usize
               int 1024: usize
             block
-              int 4: usize
+              int 2: usize
             block
               block-value: usize
                 block
@@ -5365,7 +5365,7 @@ body method List::move_to -> void
           null: own ^mut T
       block
         if: void
-          type-query T::is_trivially_copyable: bool
+          type-query T::is_relocatable: bool
           block
             let _4 old: ^mut u8
               block-value: ^mut u8
@@ -20105,6 +20105,26 @@ body fn queries -> usize
       binary +: usize
         type-query i32::size: usize
         type-query Vec3::align: usize
+body fn relocated -> bool
+  param _0 dst: ^mut T
+  param _1 src: ^mut T
+  block
+    if: void
+      type-query T::is_relocatable: bool
+      block
+        block-value: void
+          block
+            builtin memcpy: void
+              local _0 dst: ^mut T
+              local _1 src: ^mut T
+              type-query T::size: usize
+        return: !
+          bool true: bool
+    return: !
+      binary &&: bool
+        type-query String::is_relocatable: bool
+        unary !: bool
+          type-query T::is_trivially_copyable: bool
 body const ROWS -> void
   block
     int 4: i32

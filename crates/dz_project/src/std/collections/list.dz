@@ -195,7 +195,8 @@ pub struct List<T> {
             return
         }
         self.reserve(n, loc)
-        if T::is_trivially_copyable {
+        // Moved, not copied: `other` forgets them, so their bytes may go (D-0105).
+        if T::is_relocatable {
             unsafe { memcpy(&mut m_data[m_len], &other.m_data[0], n * sizeof(T)) }
         } else {
             for i in 0..n {
@@ -235,8 +236,9 @@ pub struct List<T> {
         if at >= m_len {
             return
         }
-        if T::is_trivially_copyable {
-            // Bytes can move anywhere, so the whole tail goes in one overlapping copy.
+        if T::is_relocatable {
+            // A value's bytes can move anywhere, so the whole tail goes in one overlapping
+            // copy, and the gap it leaves is raw (D-0105).
             unsafe { memmove(&mut m_data[at + n], &m_data[at], (m_len - at) * sizeof(T)) }
             return
         }
@@ -253,7 +255,7 @@ pub struct List<T> {
         if from >= m_len {
             return
         }
-        if T::is_trivially_copyable {
+        if T::is_relocatable {
             unsafe { memmove(&mut m_data[from - n], &m_data[from], (m_len - from) * sizeof(T)) }
             return
         }
@@ -478,15 +480,17 @@ pub struct List<T> {
     /// A new allocation of at least `wanted` elements — doubling, so pushing one at a time
     /// costs amortised constant time — with the elements moved into it.
     ///
-    /// The first allocation is sized by the element, as Rust's `Vec` sizes it: 8 bytes, 4
-    /// elements up to a KiB, and 1 beyond. It used to be 8 elements of any size, so a JSON
-    /// tree's three-member object kept room for eight 88-byte members, and the `json`
-    /// benchmark's tree took 100 MiB more than its C++ half's (T-0173).
+    /// The first allocation is sized by the element: 8 bytes, 2 elements up to a KiB, and 1
+    /// beyond. It used to be 8 elements of any size, so a JSON tree's three-member object
+    /// kept room for eight 88-byte members, and the `json` benchmark's tree took 100 MiB more
+    /// than its C++ half's (T-0173); then 4, as Rust's `Vec` starts, until growing moved
+    /// elements as bytes (D-0105), which made a second growth cheap enough that 2 holds 13
+    /// MiB less of `json`'s short lists in the same time (T-0225).
     fn grow_to(&mut self, wanted: usize, loc: SourceLocation) kills self@items {
         let first: usize = if sizeof(T) == 1 {
             8
         } else if sizeof(T) <= 1024 {
-            4
+            2
         } else {
             1
         }
@@ -503,8 +507,9 @@ pub struct List<T> {
                 a.free(unsafe { m_data as ^mut u8 }, m_cap * sizeof(T), alignof(T), loc)
             }
             m_data = null
-        } else if T::is_trivially_copyable {
-            // Bytes can move anywhere, so the allocator may resize the memory in place.
+        } else if T::is_relocatable {
+            // A value's bytes can move anywhere, so the allocator may resize the memory in
+            // place, or copy it and free the old, which is the move with no reset (D-0105).
             let old = unsafe { m_data as ^mut u8 }
             m_data = unsafe { a.realloc(old, m_cap * sizeof(T), cap * sizeof(T), alignof(T), loc) as ^mut T }
         } else if m_data != null && cap >= m_len &&

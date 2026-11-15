@@ -5,7 +5,7 @@ milestone: M15
 status: open
 kind: feature
 area: codegen
-where: `tests/bench_programs/json/`; `crates/dz_cpp/src/lib.rs`: the lowering of `or return` on a `!->` call, `let` of its value and `push(move(v))`; `crates/dz_cpp/src/runtime.rs`: `Res`, `format_float`
+where: `tests/bench_programs/json/`; `crates/dz_project/src/std/collections/list.dz` (`grow_to`, `move_to`: the first allocation and byte moves, D-0105); `crates/dz_project/src/std/memory/scope_arena.dz` (region chunks); `crates/dz_cpp/src/lib.rs`: the lowering of `or return` on a `!->` call, `let` of its value and `push(move(v))`; `crates/dz_cpp/src/runtime.rs`: `Res`, `format_float`
 ---
 
 What the `json` benchmark (T-0173) left, measured 2026-11-14 on clang++ with `perf` (IBS
@@ -59,3 +59,34 @@ the writer's per-value type lookups are the rest.
 from 1.15× to 1.07× on clang++ and 1.32× to 1.24× on g++, and its peak memory from 236 MiB
 to 208 against 181. The 27 MiB left is not the types' size; what a region keeps of a list
 that grew is the suspect, not yet measured on its own.
+
+**Progress, the evening of 2026-11-14: the memory, measured.** The 28 MiB left, taken
+apart with `valgrind --tool=massif` on the Dazzle half with regions on and off
+(`DZ_REGIONS=0`) and on a C++ half built with `-g -fno-inline` so its allocations are
+named:
+
+| `json`, g++ | Time | Peak |
+|---|---:|---:|
+| regions (the default) | 238 ms | 207.7 MiB |
+| every value on the heap | 232 ms | 197.8 MiB |
+| the C++ half | 210 ms | 179.7 MiB |
+
+- **Most of it was how big a new `List` starts**: room for 4 elements, as Rust's `Vec`,
+  where libstdc++'s `vector` starts at 1 and doubles. A third of the records hold a
+  two-member `meta` object, each holds 0 to 4 tags and a third 1 to 3 `seen` numbers, so
+  about 14 MB of short lists' room the C++ half does not have; the tags lists measured
+  9.7 MiB against 6.7.
+- **A first allocation of 2 cost time** (247 ms, 196 MiB on clang++), because a `List<Json>`
+  that grows moved each element through a switch on its tag that resets the source. D-0105
+  (r134, the user's choice) lets a move copy the bytes of any type Dazzle defines: with
+  that, 2 costs nothing (240 ms, 196 MiB, against 239 and 209), and 4 would have been 10 ms
+  faster on g++.
+- **Not what the region keeps of an outgrown list**, the suspect before: a region that
+  reused its freed small blocks by size class changed nothing on any benchmark, since no
+  benchmark grows small lists inside a region (`json`'s tags lists never outgrow their
+  first allocation), and was not kept. The 10 MiB regions add to `json` is in its chunks:
+  the larger chunks are mostly empty while the program runs, not yet measured further.
+
+So the gap is now 196 MiB against 180 and, on g++, 256 ms against 211: about 10 MiB of
+region chunks, the input and output text a few MiB larger than C++'s, and malloc's own
+overhead on the heap build.

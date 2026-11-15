@@ -627,6 +627,16 @@ fn queries<T>(x: &T) -> usize {
     return i32::size + Vec3::align
 }
 
+// §5.5, §14.3: whether a move may copy the bytes and forget the source, a container's
+// question when it moves its elements (D-0105).
+fn relocated<T>(dst: ^mut T, src: ^mut T) -> bool {
+    if T::is_relocatable {
+        unsafe { memcpy(dst, src, sizeof(T)) }
+        return true
+    }
+    return String::is_relocatable && !T::is_trivially_copyable
+}
+
 // §5.3, §8.3: array lengths and un-annotated constants fold at compile time.
 const ROWS = 4
 const CELLS = ROWS * ROWS + 1

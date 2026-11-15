@@ -7,4 +7,5 @@ describe 7 30 6 300
 halved 0.5 0.25 0.125 total 0.875
 counter 18
 buffer 4 12
+anchored 8 128
 pair 3 12

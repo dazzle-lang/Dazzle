@@ -1,6 +1,6 @@
-// The collections pass (spec §14.3, §14.4): `List`'s editing methods on both of their paths
-// — one `memmove` for elements whose bytes can move, element by element for one with a
-// `drop` — and its `Search`, `Extend`, `Eq` and `Hash`; `HashMap`'s `get_or_insert`,
+// The collections pass (spec §14.3, §14.4): `List`'s editing methods, which move elements
+// with one `memmove`, a `drop` type's too since it is relocatable (D-0105; a C++ class
+// with a move of its own takes the element-by-element path, in `tests/run/cppinterop`), and its `Search`, `Extend`, `Eq` and `Hash`; `HashMap`'s `get_or_insert`,
 // `retain` and key and value iterators; looking up `String` keys by `str` without
 // allocating; `HashSet`; `String`'s editing; `Join` and the newer `Text` methods; a
 // runtime `str` handed to C as a `cstr`; and `hash_combine` pinned to known outputs.
@@ -8,7 +8,7 @@
 
 static DROPS: i32 = 0
 
-/// Move-only, so a `List<Token>` takes the element-by-element path.
+/// Move-only, with a `drop`: a `List<Token>` moves it as bytes, and drops each once.
 struct Token {
     pub id: i32 = 0
     pub live: bool = false

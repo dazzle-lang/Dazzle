@@ -317,10 +317,15 @@ elements carries them to the new memory. `[DECIDED — §18.16, §18.50]`
 Beside them, two that copy bytes: `memcpy(dst, src, n)` copies `n` bytes between places
 that do not overlap, and `memmove(dst, src, n)` between places that may — what shifts a
 list's tail along by a slot. Both are `unsafe`, and `dst` must be a pointer that may be
-written through. Copying bytes is moving only for a type whose bytes may be relocated,
-which `T::is_trivially_copyable` answers; `List` shifts its elements with one `memmove`
-when it is, and with `construct` and `move_out` one at a time when it is not.
-`[DECIDED — D-0081]`
+written through. Copying bytes is a copy only for a type `T::is_trivially_copyable` says
+yes to. **It is a move for any type `T::is_relocatable` says yes to**, when the source is
+then forgotten, never dropped or read: every type Dazzle defines, since a Dazzle move is its
+fields' moves and a reset of the source, never code of the program's own. Not an imported C++
+class with a destructor, whose move constructor is C++ code, nor an opaque C handle. `List`
+grows, shifts and appends with one `realloc`, `memmove` or `memcpy` for a relocatable
+element, and with `construct` and `move_out` one at a time for any other. Moved as bytes, a
+value leaves no reset source behind, so no `drop` runs on one. `[DECIDED — D-0105, revising
+D-0081]`
 
 ## 14.4 The standard library: `std`
 

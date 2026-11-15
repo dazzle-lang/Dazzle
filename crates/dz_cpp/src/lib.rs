@@ -7017,10 +7017,18 @@ impl<'a> Emitter<'a> {
             "str_from_utf8" => format!("::dz::rt::str_from_utf8({})", rendered[0]),
             // `typeinfo(id)` reads the table codegen writes (spec §13.1).
             "typeinfo" => self.typeinfo_by_id(&rendered[0]),
-            "memcpy" => format!("::memcpy({}, {}, {})", rendered[0], rendered[1], rendered[2]),
+            // Through `void*`: a relocation copies a type C++ does not call trivially
+            // copyable (D-0105), which g++'s `-Wclass-memaccess` warns of otherwise.
+            "memcpy" => format!(
+                "::memcpy((void*)({}), (const void*)({}), {})",
+                rendered[0], rendered[1], rendered[2]
+            ),
             // The ranges may overlap: what shifts a list's tail by one slot (spec §14.3).
             "memmove" => {
-                format!("::memmove({}, {}, {})", rendered[0], rendered[1], rendered[2])
+                format!(
+                    "::memmove((void*)({}), (const void*)({}), {})",
+                    rendered[0], rendered[1], rendered[2]
+                )
             }
             // The optimiser barrier a benchmark needs (spec §19 M15).
             "blackbox" => format!("::dz::rt::blackbox({})", rendered[0]),
@@ -7158,6 +7166,7 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::TypeQuery { ty, query } => {
                 let v = match query {
                     hir::TypeQuery::IsTriviallyCopyable => self.table.trivially_copyable(ty),
+                    hir::TypeQuery::IsRelocatable => self.table.relocatable(ty),
                     hir::TypeQuery::IsCopyable => self.table.copyable(ty),
                     hir::TypeQuery::HasDrop => self.table.needs_drop(ty),
                     _ => return None,
@@ -7192,6 +7201,7 @@ impl<'a> Emitter<'a> {
                 format!("::dz::rt::str({}, {})", quote_cpp(&n), n.len())
             }
             IsTriviallyCopyable => self.table.trivially_copyable(ty).to_string(),
+            IsRelocatable => self.table.relocatable(ty).to_string(),
             IsCopyable => self.table.copyable(ty).to_string(),
             HasDrop => self.table.needs_drop(ty).to_string(),
         }

@@ -1053,6 +1053,36 @@ impl TypeTable {
     /// Spec §5.5's `is_trivially_copyable`: no `drop`, no `copy`, and every field trivially
     /// copyable — a type `memcpy` may duplicate. Stricter than [`TypeTable::copyable`],
     /// which a user-written `copy` satisfies.
+    /// Whether a value of `ty` may be moved by copying its bytes and forgetting the source
+    /// (`T::is_relocatable`, spec §14.3, D-0105). A Dazzle move is its fields' moves and a
+    /// reset of the source, never code of the program's own, so for every type Dazzle
+    /// defines, copying the bytes into raw memory and not dropping the source is the same
+    /// move, less the reset nobody reads. Not for an imported C++ class with a destructor,
+    /// whose move constructor is C++ code, nor an opaque C handle, nor a type parameter.
+    pub fn relocatable(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Named { sym, args } => match self.get(*sym) {
+                Some(ItemSig::Struct(s)) => {
+                    !s.opaque
+                        && !s.cpp_owned
+                        && self
+                            .field_types(*sym, args, &s.fields)
+                            .iter()
+                            .all(|t| self.relocatable(t))
+                }
+                Some(ItemSig::Union { variants, .. }) => variants
+                    .iter()
+                    .all(|v| self.payload_types(*sym, args, v).iter().all(|t| self.relocatable(t))),
+                _ => true,
+            },
+            Ty::Array { elem, .. } => self.relocatable(elem),
+            Ty::Tuple(parts) => parts.iter().all(|t| self.relocatable(t)),
+            Ty::Optional(inner) | Ty::Fallible(inner) => self.relocatable(inner),
+            Ty::Param(_) | Ty::Assoc(_) => false,
+            _ => true,
+        }
+    }
+
     pub fn trivially_copyable(&self, ty: &Ty) -> bool {
         match ty {
             Ty::Named { sym, args } => match self.get(*sym) {

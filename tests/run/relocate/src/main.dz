@@ -1,0 +1,112 @@
+// A list moves its elements as bytes when it grows, shifts or appends (D-0105): short text
+// kept inside a `String` and long text behind a pointer, a type with a `drop`, one with a
+// vtable, and a union of nested lists must each come out the same and be dropped once.
+// Leak-free under `--track-memory`; `tests/run/cppinterop` has the C++ class that is not
+// moved this way.
+
+struct Noisy {
+    pub id:   i32 = 0
+    pub name: String
+}
+
+impl Drop for Noisy {
+    // Only a live one: a moved-from value is left at its defaults, id 0.
+    fn drop(&mut self) {
+        if id != 0 {
+            println!("drop {} {}", id, name)
+        }
+    }
+}
+
+struct Shape {
+    pub n: i32 = 0
+
+    pub virtual fn area(&self) -> i32 {
+        return n
+    }
+}
+
+struct Square : Shape {
+    pub side: i32 = 2
+
+    override fn area(&self) -> i32 {
+        return side * side + n
+    }
+}
+
+union Tree {
+    Leaf { value: i32 }
+    Node { kids: List<Tree> }
+}
+
+fn sum(t: &Tree) -> i32 {
+    switch t {
+        case Leaf(&l) {
+            return l.value
+        }
+        case Node(&n) {
+            let mut s = 0
+            for &k in n.kids {
+                s += sum(&k)
+            }
+            return s
+        }
+    }
+}
+
+fn main() {
+    // Short text lives inside each String, long text behind a pointer.
+    let mut words = List<String>()
+    for i in 0..40 {
+        let mut w = String()
+        for _ in 0..i % 20 {
+            w.push((97 + i % 26) as u32 as char)
+        }
+        words.push(move(w))
+    }
+    words.insert(0, String::from("first"))
+    let gone = words.remove(5)
+    let mut total: usize = 0
+    for &w in words {
+        total += w.byte_len()
+    }
+    println!("words {} {} removed {}", words.len(), total, gone)
+    println!("word 1 {} word 39 {}", words[1], words[39])
+
+    let mut noisy = List<Noisy>()
+    for i in 1..6 {
+        noisy.push(Noisy{ id: i, name: String::from("a longer name than fifteen bytes") })
+    }
+    noisy.insert(2, Noisy{ id: 9, name: String::from("short") })
+    let mut more = List<Noisy>()
+    more.push(Noisy{ id: 7, name: String::from("appended") })
+    noisy.append(&mut more)
+    println!("noisy {} {}", noisy.len(), more.len())
+
+    let mut shapes = List<Square>()
+    for i in 0..9 {
+        shapes.push(Square{ n: i, side: i })
+    }
+    shapes.insert(0, Square{ n: 100 })
+    let mut area = 0
+    for &s in shapes {
+        let as_shape: &Shape = &s
+        area += as_shape.area()
+    }
+    println!("area {}", area)
+
+    let mut forest = List<Tree>()
+    for i in 0..6 {
+        let mut kids = List<Tree>()
+        for j in 0..i {
+            kids.push(Tree::Leaf{ value: j })
+        }
+        forest.push(Tree::Node{ kids: move(kids) })
+    }
+    forest.insert(1, Tree::Leaf{ value: 50 })
+    let mut s = 0
+    for &t in forest {
+        s += sum(&t)
+    }
+    println!("forest {}", s)
+}

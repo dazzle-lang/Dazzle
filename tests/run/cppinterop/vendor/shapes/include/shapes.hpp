@@ -87,6 +87,25 @@ private:
     int count;
 };
 
+// A class whose move is code of its own: it keeps its own address, and its move constructor
+// sets it again. Copying its bytes would leave it pointing at the old object, so a `List`
+// of it moves each element through its move constructor (D-0105).
+class Anchored {
+public:
+    Anchored();
+    explicit Anchored(int id);
+    Anchored(Anchored&& other);
+    Anchored(const Anchored&) = delete;
+    ~Anchored();
+
+    // Its id, or -1 if it was moved without its move constructor.
+    int id() const;
+
+private:
+    const Anchored* self;
+    int value;
+};
+
 // A template: not imported on its own. `[cpp.instantiate]` names the instantiations a
 // project wants, and each comes in as an ordinary concrete type (spec §15.4).
 template <class T>

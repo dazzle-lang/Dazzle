@@ -508,6 +508,7 @@ impl Frees<'_, '_> {
             K::Bool(b) => Some(*b),
             K::TypeQuery { ty, query } if !ty.has_params() => match query {
                 hir::TypeQuery::IsTriviallyCopyable => Some(self.d.table.trivially_copyable(ty)),
+                hir::TypeQuery::IsRelocatable => Some(self.d.table.relocatable(ty)),
                 hir::TypeQuery::IsCopyable => Some(self.d.table.copyable(ty)),
                 hir::TypeQuery::HasDrop => Some(self.d.table.needs_drop(ty)),
                 _ => None,

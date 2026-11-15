@@ -630,6 +630,10 @@ pub enum TypeQuery {
     Name,
     /// `T::is_trivially_copyable` — no drop, no copy, every field trivially copyable.
     IsTriviallyCopyable,
+    /// `T::is_relocatable` — a value may be moved by copying its bytes and forgetting the
+    /// source: every type but a type parameter and an imported C++ class that runs code of
+    /// its own when moved or destroyed.
+    IsRelocatable,
     /// `T::is_copyable` — has an implicit or explicit copy (§6.3).
     IsCopyable,
     /// `T::has_drop`.
@@ -643,6 +647,7 @@ impl TypeQuery {
             "align" => TypeQuery::Align,
             "name" => TypeQuery::Name,
             "is_trivially_copyable" => TypeQuery::IsTriviallyCopyable,
+            "is_relocatable" => TypeQuery::IsRelocatable,
             "is_copyable" => TypeQuery::IsCopyable,
             "has_drop" => TypeQuery::HasDrop,
             _ => return None,
@@ -655,6 +660,7 @@ impl TypeQuery {
             TypeQuery::Align => "align",
             TypeQuery::Name => "name",
             TypeQuery::IsTriviallyCopyable => "is_trivially_copyable",
+            TypeQuery::IsRelocatable => "is_relocatable",
             TypeQuery::IsCopyable => "is_copyable",
             TypeQuery::HasDrop => "has_drop",
         }
@@ -665,7 +671,10 @@ impl TypeQuery {
         match self {
             TypeQuery::Size | TypeQuery::Align => Ty::Int(ty::IntTy::Usize),
             TypeQuery::Name => Ty::Str,
-            TypeQuery::IsTriviallyCopyable | TypeQuery::IsCopyable | TypeQuery::HasDrop => Ty::Bool,
+            TypeQuery::IsTriviallyCopyable
+            | TypeQuery::IsRelocatable
+            | TypeQuery::IsCopyable
+            | TypeQuery::HasDrop => Ty::Bool,
         }
     }
 }

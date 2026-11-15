@@ -395,6 +395,7 @@ T::size                    usize, like sizeof(T)
 T::align                   usize
 T::name                    str, the source-level name
 T::is_trivially_copyable   bool — no drop, no copy, all fields trivially copyable
+T::is_relocatable          bool — a move may copy the bytes and forget the source (§14.3)
 T::is_copyable             bool — has an implicit or explicit copy
 T::has_drop                bool
 T::fields                  a compile-time sequence of the fields — deferred (§12.11, §13.4)

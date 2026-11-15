@@ -47,6 +47,16 @@ void Counter::add(int by) { total += by; }
 
 void Counter::add(Point p) { total += p.x + p.y; }
 
+Anchored::Anchored() : self(this), value(0) {}
+
+Anchored::Anchored(int id) : self(this), value(id) {}
+
+Anchored::Anchored(Anchored&& other) : self(this), value(other.value) { other.value = 0; }
+
+Anchored::~Anchored() {}
+
+int Anchored::id() const { return self == this ? value : -1; }
+
 Buffer::Buffer(int count) : data((int*)calloc((size_t)count, sizeof(int))), count(count) {}
 
 Buffer::~Buffer() { free(data); }

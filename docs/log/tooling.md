@@ -1865,3 +1865,46 @@ saved. Keeping only the null test in the drop and the rest in a function of its 
 clang++ 136 -> 129.5 ms and g++ 133 -> 134.5 ms, g++ then keeping `Expr`'s drop out of line
 instead, so it was not kept. What would fix both is not calling the drop of a value flow
 knows was just moved from.
+
+## A move may copy the bytes (r134; D-0105; T-0225; 2026-11-14)
+
+`json` still held 28 MiB more than its C++ half after T-0228. Taken apart with `massif` on
+both halves, regions on and off: about 10 MiB is what regions add (chunk slack, not yet
+measured further), and most of the rest is how big a new `List` started, room for 4
+elements, where libstdc++'s `vector` starts at 1. A first allocation of 2 saved 13 MiB but
+cost 9 ms, because a growing `List<Json>` moved each element through a switch on its tag
+that resets the source. The user chose to let a move copy the bytes, revising D-0081 and the
+line T-0133 drew, and then a first allocation of 2.
+
+- **`T::is_relocatable`** (`TypeQuery::IsRelocatable`, `TypeTable::relocatable`): every type
+  but a type parameter, an imported C++ class with a destructor (`cpp_owned`) and an opaque
+  handle. Answered where every query is: the checker's table, `dz_cpp`'s folding and
+  emission, and `release.rs`'s folding.
+- **`List`** grows (`move_to`, through `realloc`), shifts (`shift_up`, `shift_down`) and
+  appends relocatable elements as bytes. A copy, `insert_slice` and `extend`, stays on
+  `T::is_trivially_copyable`. `grow_to` starts with room for 2 elements up to a KiB.
+- **`memcpy` and `memmove` are emitted through `void*`**, so g++'s `-Wclass-memaccess` does
+  not warn of a relocation, a type C++ does not call trivially copyable.
+- **Tests.** `tests/run/relocate`: short and long `String`s, a `drop` type, one with a vtable,
+  a union of nested lists, through growth, `insert`, `remove` and `append`, tracked and in
+  the warning-clean set. `tests/run/cppinterop` gains `Anchored`, a C++ class keeping its own
+  address, which a `List` moves through its move constructor: a byte move would make it
+  report -1. `typed/` and `typeerrors/` have the query. `docs/testing.md`'s audit records the
+  one reliance on purpose outside C++'s object model.
+
+Tried and not kept: a region reusing its freed small blocks by size class, which changed
+nothing on any benchmark, since none grows small containers inside a region. And `List<T>`
+of an imported C++ class needs a default constructor, since `resize` is emitted for the
+instance though nothing calls it; `Anchored` has one for that.
+
+Measured on every benchmark, a baseline `dz` built from `e37c032` and this one on a quiet
+machine (`RESULTS.md` is the after):
+
+| Program | Compiler | Before | After | Peak memory before → after |
+|---|---|---:|---:|---:|
+| json | clang++ | 239 ms (1.07×) | 242 ms (1.08×) | 206.6 → 196.4 MiB |
+| json | g++ | 258 ms (1.22×) | 257 ms (1.21×) | 206.7 → 195.9 MiB |
+| astar, expr, raytrace, words | both | | within 2 ms | unchanged |
+
+With the byte moves and the old first allocation of 4, `json` was 236 and 248 ms and kept
+its memory: the user chose the memory.

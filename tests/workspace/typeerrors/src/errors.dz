@@ -398,6 +398,11 @@ fn unknown_query<T>(x: &T) -> usize {
     return T::length
 }
 
+// §5.5: `T::is_relocatable` answers yes or no, not a size (D-0105).
+fn relocatable_is_a_bool<T>(x: &T) -> usize {
+    return T::is_relocatable
+}
+
 // §5.5: `sizeof` takes a type, not a value.
 fn sizeof_of_a_value(n: i32) -> usize {
     return sizeof(n)

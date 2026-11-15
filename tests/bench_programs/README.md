@@ -129,14 +129,16 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   1.07×. A hand-written version of its four hot functions on the same types shows what is
   left is the shape of the generated code:
   [T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md).
-- **`json`** (added 2026-11-14, T-0173) is 1.07× its C++ half on clang++ and 1.24× on g++,
+- **`json`** (added 2026-11-14, T-0173) is 1.08× its C++ half on clang++ and 1.21× on g++,
   the furthest behind. It was 1.70× and 1.91× when added. On the way: `{}` writes a float's
   shortest digits through `std::to_chars` (r130, D-0101), where it was `snprintf("%g")`; a
   moved-from local that nothing can see is not reset, and `let v = f() or return` names the
   value where it is; `List` starts small; and a `^mut Allocator` is one word (r132,
   D-0103, [T-0228](../../docs/tasks/T-0228-one-word-allocator-handle-in-string.md)), so
   `String` and `List` are 32 bytes where they were 40: that took it from 1.15× and 1.32×,
-  and its peak memory from 236 MiB to 208 against C++'s 181. What is left is in
+  and its peak memory from 236 MiB to 208 against C++'s 181. A `List` moving its elements
+  as bytes and starting with room for 2 (r134, D-0105) took that to 196 MiB in the same time.
+  What is left is in
   [T-0225](../../docs/tasks/T-0225-what-keeps-json-behind-its-c.md). Its writer goes through
   reflection and its reader is written by hand on both sides, since safe code cannot build a
   `String` at a raw address.
