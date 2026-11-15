@@ -49,6 +49,7 @@ pub(crate) struct BodyBuilder {
     blocks: Vec<hir::Block>,
     base_init: Option<ExprId>,
     unsafe_blocks: Vec<BlockId>,
+    clones: Vec<ExprId>,
 }
 
 impl BodyBuilder {
@@ -66,7 +67,13 @@ impl BodyBuilder {
             blocks: Vec::new(),
             base_init: None,
             unsafe_blocks: Vec::new(),
+            clones: Vec::new(),
         }
+    }
+
+    /// Record that `e` is a read written `a.clone()` (spec §6.3, D-0106).
+    pub(crate) fn mark_clone(&mut self, e: ExprId) {
+        self.clones.push(e);
     }
 
     /// Record that `b` was written `unsafe { … }` (spec §5.2).
@@ -189,6 +196,7 @@ impl BodyBuilder {
         self.stmts.truncate(mark.stmts);
         self.blocks.truncate(mark.blocks);
         self.locals.truncate(mark.locals);
+        self.clones.retain(|e| e.index() < mark.exprs);
     }
 
     /// Finish the body. `root` is the block the function's statements went into, and
@@ -223,6 +231,7 @@ impl BodyBuilder {
             root,
             base_init: self.base_init,
             unsafe_blocks: self.unsafe_blocks,
+            clones: self.clones,
         }
     }
 }

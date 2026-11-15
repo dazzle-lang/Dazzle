@@ -3983,7 +3983,9 @@ pub(super) fn body_signature(
                 owner: Some(*owner),
             });
         }
-        BodyOwner::Copy(owner) => (table.struct_sig(*owner)?.copy.as_ref()?, *owner, "copy".into()),
+        BodyOwner::Copy(owner) => {
+            (table.struct_sig(*owner)?.copy.as_ref()?, *owner, "clone".into())
+        }
         BodyOwner::Drop(owner) => (table.struct_sig(*owner)?.drop.as_ref()?, *owner, "drop".into()),
         BodyOwner::ImplMethod { imp, name } => {
             let imp = &table.impls()[*imp as usize];

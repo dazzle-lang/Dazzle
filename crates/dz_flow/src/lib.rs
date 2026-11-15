@@ -536,7 +536,7 @@ impl<'a> Flow<'a> {
                     } else {
                         format!(
                             "{why} — write `move(…)` to transfer ownership, or give \
-                             `{name}` a `copy(other: &Self)` to make it copyable (spec §6.3)"
+                             `{name}` an `impl Clone` to make it copyable (spec §6.3)"
                         )
                     };
                     self.error(

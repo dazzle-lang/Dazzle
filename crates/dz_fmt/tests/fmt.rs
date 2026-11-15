@@ -185,8 +185,8 @@ struct S { // opens
     a: i32
 } // closes
 
-impl Copy for S { // opt-in
-    fn copy(&mut self, other: &Self) {
+impl Clone for S { // opt-in
+    fn clone(&mut self, other: &Self) {
         a = other.a
     }
 }

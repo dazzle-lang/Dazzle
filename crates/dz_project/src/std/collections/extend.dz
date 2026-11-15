@@ -1,4 +1,4 @@
-/// Copying elements into a `List` of anything `Copy`: `xs.extend(more)`, `xs.insert_slice(i,
+/// Copying elements into a `List` of anything `Clone`: `xs.extend(more)`, `xs.insert_slice(i,
 /// more)` and `xs.fill(v)` (spec §14.4). A trait, as `Sort` is, because a move-only element
 /// cannot be copied out of a slice.
 ///
@@ -15,7 +15,7 @@ pub trait Extend<T> {
     fn fill(&mut self, v: T)
 }
 
-impl<T: Copy> Extend<T> for List<T> {
+impl<T: Clone> Extend<T> for List<T> {
     fn extend(&mut self, xs: &[]T) {
         self.insert_slice(m_len, xs)
     }

@@ -207,7 +207,7 @@ fn check_impl(cx: &mut Ctx, it: &Item, i: &ImplDecl) {
     let trait_name = cx.res.symbol(trait_sym).name.clone();
     let me = cx.name_of(&imp.self_ty);
     let drop_trait = cx.prelude_trait("Drop");
-    let copy_trait = cx.prelude_trait("Copy");
+    let copy_trait = cx.prelude_trait("Clone");
     let special = Some(trait_sym) == drop_trait || Some(trait_sym) == copy_trait;
 
     // One implementation of a trait per type and arguments, or a call could not choose.
@@ -293,7 +293,7 @@ fn check_impl(cx: &mut Ctx, it: &Item, i: &ImplDecl) {
             Some(sym) if Some(trait_sym) == drop_trait && f.name.name == "drop" => {
                 BodyOwner::Drop(sym)
             }
-            Some(sym) if Some(trait_sym) == copy_trait && f.name.name == "copy" => {
+            Some(sym) if Some(trait_sym) == copy_trait && f.name.name == "clone" => {
                 BodyOwner::Copy(sym)
             }
             _ => BodyOwner::ImplMethod { imp: idx as u32, name: f.name.name.clone() },
@@ -5265,26 +5265,74 @@ impl<'a, 'c> Body<'a, 'c> {
         Some(self.mk(e, ty, hir::ExprKind::Call { callee, args }))
     }
 
-    /// Is `name` `drop` or `copy` on a type whose `impl Drop` / `impl Copy` provides it?
-    /// Those are the destructor and the copy constructor, and nothing calls them by name.
+    /// `a.clone()`: the value `a` reaches, read by value as a copy (spec §6.3, D-0106). It
+    /// is the place itself, through any reference or pointer the receiver is, so every
+    /// later phase sees the copy it always built — in its placement, by the type's `impl
+    /// Clone` or field by field — and the body lists it so that no read of it is a move.
+    fn clone_call(&mut self, recv: Checked, name: &Ident, e: &Expr) -> Checked {
+        let mut value = recv;
+        while let Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } =
+            &value.ty
+        {
+            let inner = (**inner).clone();
+            value = self.hir.expr(e.span, inner, hir::ExprKind::Deref(value.id));
+        }
+        let ty = self.subst(&value.ty);
+        if ty.is_wildcard() {
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        if !self.cx.table.copyable(&ty) {
+            let shown = self.cx.name_of(&ty);
+            let why = self
+                .cx
+                .table
+                .move_only_because(&ty)
+                .unwrap_or_else(|| "it owns a resource".to_owned());
+            let help = if ty::is_abstract(&ty) {
+                format!("{why}: bound it by `Clone`, or move the value instead")
+            } else {
+                format!(
+                    "{why}: move the value instead, or give `{shown}` an `impl Clone` (spec \
+                     §6.3)"
+                )
+            };
+            self.cx.error_help(
+                codes::IMPLICIT_COPY,
+                name.span,
+                format!("`{shown}` cannot be cloned"),
+                "not `Clone`",
+                help,
+            );
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        // The read is the receiver's own node: a second node for it would leave the first
+        // one built and unreachable, which every pass walking the arena would then meet.
+        self.hir.mark_clone(value.id);
+        value
+    }
+
+    /// Is `name` `drop` or `clone` on a type whose `impl Drop` / `impl Clone` provides it?
+    /// Those are the destructor and the copy constructor, and nothing calls them by name:
+    /// `a.clone()`, with no argument, is the clone, and never reaches here.
     fn is_special_trait_method(&self, ty: &Ty, name: &Ident) -> bool {
         let trait_named = match name.name.as_str() {
             "drop" => "Drop",
-            "copy" => "Copy",
+            "clone" => "Clone",
             _ => return false,
         };
         let Some(special) = self.cx.prelude_trait(trait_named) else { return false };
         self.cx.table.traits_of(ty).iter().any(|r| r.trait_sym == special)
     }
 
-    /// `x.drop()` or `x.copy(y)`: both run by themselves — at the end of the scope, and on
-    /// every copy (spec §6.4, §6.5) — so calling one would run it twice.
+    /// `x.drop()` or `x.clone(y)`: both run by themselves — at the end of the scope, and on
+    /// every clone (spec §6.4, §6.5) — so calling one would run it twice.
     fn special_member_called(&mut self, name: &Ident, args: &[Expr], e: &Expr) -> Checked {
         let help = if name.name == "drop" {
             "a value's `drop` runs by itself at the end of its scope; to end its life early, \
              `move` it into a scope that ends (spec §6.5)"
         } else {
-            "`copy` runs by itself on every copy: write `let b = a` (spec §6.3)"
+            "an `impl Clone`'s `clone` fills in a value at its defaults, and runs by itself: \
+             write `a.clone()`, with no argument, for a copy of `a` (spec §6.3)"
         };
         self.cx.error_help(
             codes::NO_SUCH_METHOD,
@@ -5434,7 +5482,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let span = e.span;
         let tname = self.cx.res.symbol(tsym).name.clone();
         if Some(tsym) == self.cx.prelude_trait("Drop")
-            || Some(tsym) == self.cx.prelude_trait("Copy")
+            || Some(tsym) == self.cx.prelude_trait("Clone")
         {
             return self.special_member_called(method, args, e);
         }
@@ -5676,6 +5724,14 @@ impl<'a, 'c> Body<'a, 'c> {
             let peeled = base_ty.peeled().clone();
             if matches!(base_ty.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
                 self.require_unsafe(callee.span, "calling a method through a `^T`");
+            }
+            // `a.clone()`: every `Clone` type has it, plain data included, and nothing
+            // declares it as a method — the `clone` an `impl Clone` writes fills a value in
+            // from `other` (spec §6.3, D-0106). A type with a `clone` method of its own
+            // keeps it.
+            if name.name == "clone" && args.is_empty() && !self.has_own_method(base, "clone") {
+                self.no_method_type_args(generics, name);
+                return self.clone_call(recv, name, e);
             }
 
             // A method on a generic parameter comes from its bounds, and from nothing else

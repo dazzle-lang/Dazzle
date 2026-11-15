@@ -106,7 +106,7 @@ impl Ctx<'_> {
         let trait_name = self.res.symbol(trait_sym).name.clone();
         let me = self.name_of(&imp.self_ty);
         let is_drop = Some(trait_sym) == self.prelude_trait("Drop");
-        let special = is_drop || Some(trait_sym) == self.prelude_trait("Copy");
+        let special = is_drop || Some(trait_sym) == self.prelude_trait("Clone");
         if let Ty::Param(_) = imp.self_ty {
             self.error_help(
                 codes::ORPHAN_IMPL,
@@ -378,7 +378,7 @@ impl Ctx<'_> {
     }
 
     pub(crate) fn attach_special_impls(&mut self, from: usize) {
-        let (Some(drop), Some(copy)) = (self.prelude_trait("Drop"), self.prelude_trait("Copy"))
+        let (Some(drop), Some(copy)) = (self.prelude_trait("Drop"), self.prelude_trait("Clone"))
         else {
             return;
         };
@@ -390,7 +390,7 @@ impl Ctx<'_> {
                 continue;
             }
             let Some(sym) = self.special_owner(&imp) else { continue };
-            let method = if is_drop { "drop" } else { "copy" };
+            let method = if is_drop { "drop" } else { "clone" };
             let Some(sig) = imp.methods.get(method).cloned() else { continue };
             (self.file, self.module) = (imp.file, imp.module);
             let taken = match self.table.sigs.get(&sym) {

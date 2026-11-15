@@ -871,12 +871,13 @@ impl<'a> Parser<'a> {
                     let got = ctor.name.name.clone();
                     let span = ctor.name.span;
                     // `drop()` and `copy(other: &Self)` were special members until they
-                    // became traits (spec §6.1); say what they are now written as.
-                    if (got == "drop" || got == "copy") && got != struct_name {
+                    // became traits (spec §6.1), and `copy` is `Clone`'s `clone` now
+                    // (D-0106); say what they are written as.
+                    if matches!(got.as_str(), "drop" | "copy" | "clone") && got != struct_name {
                         let (tr, sig) = if got == "drop" {
                             ("Drop", "fn drop(&mut self)")
                         } else {
-                            ("Copy", "fn copy(&mut self, other: &Self)")
+                            ("Clone", "fn clone(&mut self, other: &Self)")
                         };
                         let owner = if struct_name.is_empty() { "T" } else { struct_name };
                         self.error_help(

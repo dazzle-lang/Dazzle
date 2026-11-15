@@ -285,8 +285,8 @@ impl Drop for String {
 
 /// A copy of the text, built wherever the compiler places the copy, never where the original
 /// is: the copy may outlive the original's region (§14.6).
-impl Copy for String {
-    fn copy(&mut self, other: &Self) {
+impl Clone for String {
+    fn clone(&mut self, other: &Self) {
         m_allocator = unsafe { #placement }
         self.push_str(other.as_str())
     }

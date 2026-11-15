@@ -123,11 +123,11 @@ impl Mul<f32> for Vec2 {
     }
 }
 
-fn plus<T: Add + Copy>(a: T, b: T) -> T::Output {
+fn plus<T: Add + Clone>(a: T, b: T) -> T::Output {
     return a + b
 }
 
-fn doubled<T: Mul<f32> + Copy>(v: T) -> T::Output {
+fn doubled<T: Mul<f32> + Clone>(v: T) -> T::Output {
     return v * 2.0
 }
 

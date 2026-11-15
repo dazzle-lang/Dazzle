@@ -106,8 +106,8 @@ impl<T> Drop for Shelf<T> {
 
 // The copy constructor, for the shelves whose books can be copied. It always runs on a
 // defaults-initialised `self`, so returning early would leave a valid, empty shelf.
-impl<T: Copy> Copy for Shelf<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Shelf<T> {
+    fn clone(&mut self, other: &Self) {
         label = other.label
         m_data = self.take(other.m_cap)
         unsafe {
@@ -131,7 +131,7 @@ fn main() {
     fiction.push(Book{ title: "Solaris", year: 1961 })
     fiction.push(Book{ title: "Hyperion", year: 1989 })
 
-    // A copy: Book is copyable, so `impl<T: Copy> Copy` covers Shelf<Book>.
+    // A copy: Book is copyable, so `impl<T: Clone> Copy` covers Shelf<Book>.
     let mut backup = fiction
     backup.label = "backup"
 

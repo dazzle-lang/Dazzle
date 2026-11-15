@@ -1284,8 +1284,8 @@ struct Named {
     pub tags: List<String>
 }
 
-impl Copy for Named {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Named {
+    fn clone(&mut self, other: &Self) {
         name = other.name
         tags = other.tags
     }

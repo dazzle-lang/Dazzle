@@ -7,8 +7,8 @@ struct Tracked {
     pub id: i32 = 0
 }
 
-impl Copy for Tracked {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Tracked {
+    fn clone(&mut self, other: &Self) {
         id = other.id
         println!("copy {}", id)
     }
@@ -25,8 +25,8 @@ impl Drop for Holder {
     }
 }
 
-impl Copy for Holder {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Holder {
+    fn clone(&mut self, other: &Self) {
         name = other.name
         tracked = other.tracked
     }

@@ -20,6 +20,30 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
+**First: values move by default (T-0235, D-0106)**, decided by the user on 2026-11-15 and
+put ahead of the performance work, so that work and the new benchmarks are written once in
+the new language: `move` is removed, plain data copies, and every other copy is written
+`a.clone()`. Then:
+
+**Run time and memory against C++**, set by the user the same day, ahead of the rest of
+0.2. T-0234 measured that the benchmarks' gap is not the cost of safety but the
+shape of the generated code, and fixed two causes. The rest, largest measured gain first:
+
+1. T-0222, the generated code's shape: struct literals as aggregate initialisation, `if`
+   and `switch` expressions without `_dz_val` temporaries, an optional's value bound in
+   place, measured as one change. Clean C++ on Dazzle's own types reaches 475 / 625 ms on
+   `raytrace` against 487 / 668 (clang++ / g++).
+2. T-0220, a `SourceLocation` stored on every pass of a loop that only a failure reads: in
+   every `List::push` and, on g++, every checked index. Not measured; small to fix.
+3. T-0231, destructors run on values already moved from, and `Res<T>` built for every
+   fallible return: `json`'s convert phase 4–5 ms, `~Box` 4.7% of `expr` on clang++.
+4. T-0225's float text, a `to_chars`, `atoi` and re-layout round trip: 2.5 ms of `json`.
+5. The user's decisions: whether `json` prices reflection (10–13 ms, T-0225) and `main`'s
+   region (T-0233, 4 ms and 9 MiB).
+6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and
+   T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
+   could still cost something.
+
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
 `List<String>` filled with `format!` text in its region now skips its drop, so the user's
 example in T-0147 is wholly in the region; T-0147's other three rows stay open, not in 0.2.

@@ -112,7 +112,7 @@ pub struct Counter {
         return move(v)
     }
 
-    pub fn twice<T: Copy>(&self, v: T) -> (T, T) {
+    pub fn twice<T: Clone>(&self, v: T) -> (T, T) {
         return (v, v)
     }
 
@@ -308,7 +308,7 @@ pub const CONTEXTS: &[(&str, &str)] = &[
     ),
     (
         "generic_function",
-        "fn NAME_g<T: Copy>(_t: T) -> i32 {\n    let mut r = 0\n    BODY\n    return r\n}\n\nfn NAME() -> i32 {\n    return NAME_g(1.5)\n}",
+        "fn NAME_g<T: Clone>(_t: T) -> i32 {\n    let mut r = 0\n    BODY\n    return r\n}\n\nfn NAME() -> i32 {\n    return NAME_g(1.5)\n}",
     ),
     ("loop_body", "fn NAME() -> i32 {\n    let mut r = 0\n    for _pass in 0..1 {\n        BODY\n    }\n    return r\n}"),
     (

@@ -155,8 +155,8 @@ pub struct Button : UiElement {
     label: str
 }
 
-impl<T: Copy> Copy for Buffer<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Buffer<T> {
+    fn clone(&mut self, other: &Self) {
         m_len = other.m_len
     }
 }

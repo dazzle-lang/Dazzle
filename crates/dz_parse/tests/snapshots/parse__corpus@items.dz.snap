@@ -175,8 +175,8 @@ pub struct Raw
         path v
 pub struct Button : UiElement
   field label: str
-impl<T: Copy> Copy for Buffer<T>
-  fn copy(&mut self, other: &Self)
+impl<T: Clone> Clone for Buffer<T>
+  fn clone(&mut self, other: &Self)
     block
       assign =
         path m_len

@@ -1267,7 +1267,7 @@ impl<'a> Emitter<'a> {
 
     fn is_special_impl(&self, imp: &dz_check::ImplSig) -> bool {
         let t = Some(imp.trait_ref.trait_sym);
-        t == self.table.prelude_trait_named("Drop") || t == self.table.prelude_trait_named("Copy")
+        t == self.table.prelude_trait_named("Drop") || t == self.table.prelude_trait_named("Clone")
     }
 
     fn impl_prototypes(&mut self) {

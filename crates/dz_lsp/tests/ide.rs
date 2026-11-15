@@ -153,7 +153,7 @@ fn definition_of_a_method_call_is_the_method_in_its_struct() {
     assert_eq!(text, "push");
     let src = a.map.get(f).text();
     let body =
-        src.find("struct Buffer<T>").unwrap() as u32..src.find("impl<T: Copy>").unwrap() as u32;
+        src.find("struct Buffer<T>").unwrap() as u32..src.find("impl<T: Clone>").unwrap() as u32;
     assert!(body.contains(&start), "`push` should be the one declared in `struct Buffer`");
 }
 

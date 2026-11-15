@@ -2,7 +2,7 @@
 
 A value that owns something — a `String`, a `List`, a struct with a `drop` — has one owner.
 `move(x)` hands it on and leaves `x` at its defaults; nothing is copied unless the type is
-`Copy` (spec §6).
+`Clone` (spec §6).
 
 ## DZ0401
 
@@ -68,7 +68,7 @@ fn main() {
 
 A move-only value — one that owns something — is never copied by accident (spec §6.3): to
 hand it to a binding, a parameter or a field, write `move(…)`, which says the old place
-gives it up. A type that should be copyable implements `Copy`.
+gives it up. A type that should be copyable implements `Clone`.
 
 ```dz
 struct Ticket {

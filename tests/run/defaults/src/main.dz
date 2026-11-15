@@ -71,14 +71,14 @@ struct Counter {
 }
 
 // A generic function's default, and a generic type's constructor's.
-fn first_or<T: Copy>(xs: &[]T, fallback: T, limit: usize = 1) -> T in fallback@home {
+fn first_or<T: Clone>(xs: &[]T, fallback: T, limit: usize = 1) -> T in fallback@home {
     if xs.len < limit {
         return fallback
     }
     return xs[0]
 }
 
-struct Boxed<T: Copy> {
+struct Boxed<T: Clone> {
     pub value: T
     pub scale: i32
 

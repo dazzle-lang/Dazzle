@@ -545,8 +545,8 @@ impl<T> Drop for List<T> {
     }
 }
 
-impl<T: Copy> Copy for List<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for List<T> {
+    fn clone(&mut self, other: &Self) {
         // Wherever the compiler places the copy, never where the original is: the copy may
         // outlive the original's region. The heap unless it is placed (§14.6).
         m_allocator = unsafe { #placement }

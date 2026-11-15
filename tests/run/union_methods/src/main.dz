@@ -56,7 +56,7 @@ union Gait {
 }
 
 // A generic union's methods are instantiated with it (spec §8.4).
-union Slot<T: Copy> {
+union Slot<T: Clone> {
     Empty {}
     Full { value: T }
 

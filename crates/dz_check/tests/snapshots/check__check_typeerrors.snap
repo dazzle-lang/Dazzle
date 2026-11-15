@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 237
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -648,13 +647,13 @@ error[DZ0507]: `memcpy` writes through its first argument
     │
     = help: the destination must be a `^mut` pointer (spec §5.2, §14.3)
 
-error[DZ0531]: `Unique` does not implement `Copy`
+error[DZ0531]: `Unique` does not implement `Clone`
     ┌─ typeerrors/src/errors.dz:550:12
     │
 550 │     return keep_copy(move(u))
-    │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
+    │            ^^^^^^^^^^^^^^^^^^ `T` is bounded by `Clone`
     │
-    = help: implement it: `impl Copy for Unique { … }` (spec §7.6)
+    = help: implement it: `impl Clone for Unique { … }` (spec §7.6)
 
 error[DZ0537]: `Twice` has more than one method named `go`
     ┌─ typeerrors/src/errors.dz:559:12
@@ -1296,13 +1295,13 @@ error[DZ0557]: `show` cannot have type parameters of its own
      │
      = help: a trait's method is called through implementations the caller may not know, and through `^Trait` with no type at all; make the trait generic instead, `trait Show<T>` (spec §7.6, §8.1)
 
-error[DZ0531]: `Box<i32>` does not implement `Copy`
+error[DZ0531]: `Box<i32>` does not implement `Clone`
      ┌─ typeerrors/src/errors.dz:1066:13
      │
 1066 │     let _ = c.both(move(owned))
-     │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Copy`
+     │             ^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Clone`
      │
-     = help: implement it: `impl Copy for Box<i32> { … }` (spec §7.6)
+     = help: implement it: `impl Clone for Box<i32> { … }` (spec §7.6)
 
 error[DZ0534]: cannot infer `T` in this call to `Crate2::fresh`
      ┌─ typeerrors/src/errors.dz:1067:18
@@ -1362,13 +1361,13 @@ error[DZ0531]: `List<Plain>` has `contains` only when `Plain` implements `Eq`
      │
      = help: `contains` comes from `Search`, implemented for `List<Plain>` when its argument is `Eq`: implement `Eq` for `Plain` (spec §7.6)
 
-error[DZ0531]: `List<Box<i32>>` has `fill` only when `Box<i32>` implements `Copy`
+error[DZ0531]: `List<Box<i32>>` has `fill` only when `Box<i32>` implements `Clone`
      ┌─ typeerrors/src/errors.dz:1101:8
      │
 1101 │     ts.fill(Box<i32>(3))
-     │        ^^^^ `Box<i32>` does not implement `Copy`
+     │        ^^^^ `Box<i32>` does not implement `Clone`
      │
-     = help: `fill` comes from `Extend`, implemented for `List<Box<i32>>` when its argument is `Copy`: implement `Copy` for `Box<i32>` (spec §7.6)
+     = help: `fill` comes from `Extend`, implemented for `List<Box<i32>>` when its argument is `Clone`: implement `Clone` for `Box<i32>` (spec §7.6)
 
 error[DZ0520]: `HashMap<i32, i32>` has no method `get_str`
      ┌─ typeerrors/src/errors.dz:1102:19

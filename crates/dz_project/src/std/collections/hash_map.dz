@@ -113,7 +113,7 @@ pub struct HashMap<K: Hash + Eq, V> {
 
     /// The slot holding the key `same` says is `key`, whose hash is `h`: a lookup by
     /// something other than a `K`, such as a `str` for a `String` key.
-    pub(module) fn find_by<view Q: Copy>(&self, key: Q, h: u64, same: fn(&K, Q) -> bool) -> usize? {
+    pub(module) fn find_by<view Q: Clone>(&self, key: Q, h: u64, same: fn(&K, Q) -> bool) -> usize? {
         if m_len == 0 {
             return none
         }
@@ -550,8 +550,8 @@ impl<K, V> Drop for HashMap<K, V> {
     }
 }
 
-impl<K: Hash + Eq + Copy, V: Copy> Copy for HashMap<K, V> {
-    fn copy(&mut self, other: &Self) {
+impl<K: Hash + Eq + Clone, V: Clone> Clone for HashMap<K, V> {
+    fn clone(&mut self, other: &Self) {
         // Wherever the compiler places the copy, never where the original is: the copy may
         // outlive the original's region. The heap unless it is placed (§14.6).
         m_allocator = unsafe { #placement }

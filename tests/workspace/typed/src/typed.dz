@@ -339,8 +339,8 @@ pub struct Copyable {
     pub n: i32
 }
 
-impl Copy for Copyable {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Copyable {
+    fn clone(&mut self, other: &Self) {
         n = other.n
     }
 }
@@ -802,8 +802,8 @@ fn read_through(p: ^Vec3, pp: ^^mut Vec3) -> f32 {
     return r.x
 }
 
-// §8.2: a `T: Copy` may be copied, where an unbounded `T` is move-only.
-fn twice<T: Copy>(x: T) -> (T, T) {
+// §8.2: a `T: Clone` may be copied, where an unbounded `T` is move-only.
+fn twice<T: Clone>(x: T) -> (T, T) {
     return (x, x)
 }
 
@@ -907,8 +907,8 @@ impl<T> Drop for Held<T> {
     fn drop(&mut self) {}
 }
 
-impl<T: Copy> Copy for Held<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Held<T> {
+    fn clone(&mut self, other: &Self) {
         m_item = null
     }
 }
@@ -940,7 +940,7 @@ fn by_value(v: Vec3) -> f32 {
     return v.length_squared()
 }
 
-fn generic_copy_out_of_a_reference<T: Copy>(r: &T) -> T {
+fn generic_copy_out_of_a_reference<T: Clone>(r: &T) -> T {
     return r
 }
 
@@ -1483,7 +1483,7 @@ fn pointed(h: ^Heading, m: ^mut Heading, n: ^i32) !-> usize {
 struct Shelf<T> {
     pub item: T
 
-    pub fn paired<U: Copy>(&self, other: U) -> (U, U) {
+    pub fn paired<U: Clone>(&self, other: U) -> (U, U) {
         return (other, other)
     }
 
@@ -1681,7 +1681,7 @@ fn operators_read_through(x: &i32, flag: &bool, l: &Layer, s: &str) -> bool {
     return bigger && low == 0 && flag == true && l == Layer::Ui && .Ui == l && s == "x"
 }
 
-// §14.4: `Search` and `Extend` on a `List` of `Eq` and `Copy` elements, a `List` as a key,
+// §14.4: `Search` and `Extend` on a `List` of `Eq` and `Clone` elements, a `List` as a key,
 // `String` keys looked up by `str`, a `HashSet`, `Join`, and the newer `Text` methods.
 fn collections_pass(names: &mut HashMap<String, i32>, words: &List<String>) -> usize kills names@items {
     let mut xs = List<i32>()
@@ -1743,7 +1743,7 @@ fn constructors_by_argument() -> f32 {
 
 // §7.3, T-0035: a generic base — an instance of it, or passed a parameter by a generic
 // derived type — with its fields, methods and constructor read at the base's arguments.
-struct Holder<T: Copy> {
+struct Holder<T: Clone> {
     pub held: T
 
     Holder(held: T) {
@@ -1759,7 +1759,7 @@ struct IntHolder : Holder<i32> {
     IntHolder(n: i32) : Holder(n) {}
 }
 
-struct Labelled<T: Copy> : Holder<T> {
+struct Labelled<T: Clone> : Holder<T> {
     pub label: const &str = ""
 
     Labelled(v: T) : Holder(v) {}

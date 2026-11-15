@@ -18,7 +18,7 @@ fn main() {}
 ```
 
 ```dz
-fn first<T: Copy>(xs: &[]T) -> T {
+fn first<T: Clone>(xs: &[]T) -> T {
     return xs[0]
 }
 
@@ -35,7 +35,7 @@ the generic function itself, at the line that does it, rather than at some later
 instantiation — which is the point of definition-site generics (§8.6). Add the bound.
 
 ```dz
-fn larger<T: Copy>(a: T, b: T) -> T in (a@home, b@home) {
+fn larger<T: Clone>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return a
     }
@@ -48,7 +48,7 @@ fn main() {
 ```
 
 ```dz
-fn larger<T: Copy + Ord>(a: T, b: T) -> T in (a@home, b@home) {
+fn larger<T: Clone + Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return a
     }
@@ -176,7 +176,7 @@ itself at a new type each time — `T`, then `[1]T`, then `[1][1]T` — never en
 compiler stops it with this error rather than leaving C++ to run out of template depth.
 
 ```dz
-fn nest<T: Copy>(x: T, n: i32) -> i32 {
+fn nest<T: Clone>(x: T, n: i32) -> i32 {
     if n == 0 {
         return 0
     }
@@ -189,7 +189,7 @@ fn main() {
 ```
 
 ```dz
-fn nest<T: Copy>(x: T, n: i32) -> i32 {
+fn nest<T: Clone>(x: T, n: i32) -> i32 {
     if n == 0 {
         return 0
     }
@@ -295,7 +295,7 @@ fn main() {
 An `impl` is written with the trait or with the type — the orphan rule — so a program using
 two libraries can never find both implementing a third's trait for a fourth's type (spec
 §7.6). Nor is one written for every type at once, `impl<T> Show for T`, for a pointer or
-reference type, which a method call reaches through, or a `Drop` or `Copy` for anything but
+reference type, which a method call reaches through, or a `Drop` or `Clone` for anything but
 a struct of this module. To implement someone else's trait for someone else's type, wrap
 the type in a struct of your own.
 
@@ -941,7 +941,7 @@ parameter bounded by one trait at two arguments has one `Output` for each. `T::O
 not say which it means. Bound the parameter by the one trait whose associated type you use.
 
 ```dz
-fn scaled<T: Mul<f32> + Mul<i32> + Copy>(v: T) -> T::Output {
+fn scaled<T: Mul<f32> + Mul<i32> + Clone>(v: T) -> T::Output {
     return v * 2.0
 }
 
@@ -949,7 +949,7 @@ fn main() {}
 ```
 
 ```dz
-fn scaled<T: Mul<f32> + Copy>(v: T) -> T::Output {
+fn scaled<T: Mul<f32> + Clone>(v: T) -> T::Output {
     return v * 2.0
 }
 

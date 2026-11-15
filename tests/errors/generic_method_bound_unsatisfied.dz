@@ -4,7 +4,7 @@
 // copies its argument, and a `Box` cannot be copied (spec §8.1).
 
 struct Shelf {
-    pub fn keep_two<T: Copy>(&self, v: T) -> (T, T) {
+    pub fn keep_two<T: Clone>(&self, v: T) -> (T, T) {
         return (v, v)
     }
 }

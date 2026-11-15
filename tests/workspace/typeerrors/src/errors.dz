@@ -533,9 +533,9 @@ fn memcpy_into_a_read_only_pointer(dst: ^u8, src: ^u8) {
     unsafe { memcpy(dst, src, 4) }
 }
 
-// --- r12: `Copy` (spec §8.2, §18.26) -----------------------------------------------------
+// --- r12: `Clone` (spec §8.2, §18.26) -----------------------------------------------------
 
-fn keep_copy<T: Copy>(x: T) -> T {
+fn keep_copy<T: Clone>(x: T) -> T {
     return x
 }
 
@@ -1040,7 +1040,7 @@ fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: &[]i32) {
 // §8.1: a generic method's bound, a parameter no argument decides, type arguments on a
 // method with none; DZ0557 a `virtual` or trait method with parameters of its own.
 struct Crate2 {
-    pub fn both<T: Copy>(&self, v: T) -> (T, T) {
+    pub fn both<T: Clone>(&self, v: T) -> (T, T) {
         return (v, v)
     }
 
@@ -1094,7 +1094,7 @@ fn compares_a_reference_with_text(x: &i32) -> bool {
     return x == "three"
 }
 
-// §14.4: `Search` needs elements that are `Eq` and `Extend` ones that are `Copy`; a `str`
+// §14.4: `Search` needs elements that are `Eq` and `Extend` ones that are `Clone`; a `str`
 // lookup exists only for `String` keys; a set's elements must be `Hash`.
 fn collections_unbounded(xs: &mut List<Plain>, ts: &mut List<Box<i32>>, m: &HashMap<i32, i32>) -> bool {
     let found = xs.contains(&Plain{ n: 1 })
@@ -1242,7 +1242,7 @@ fn ambiguous_constructor() -> i32 {
 
 // §7.3, T-0035: a generic base is named with its arguments, and is that instance only —
 // `&Badge` is a `&Frame<i32>`, never a `&Frame<f32>`.
-struct Frame<T: Copy> {
+struct Frame<T: Clone> {
     pub inner: T
 }
 

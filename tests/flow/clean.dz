@@ -27,8 +27,8 @@ pub struct Tally {
     pub n: i32
 }
 
-impl Copy for Tally {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Tally {
+    fn clone(&mut self, other: &Self) {
         n = other.n
     }
 }

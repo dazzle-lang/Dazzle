@@ -2,7 +2,7 @@
 // inherits `Panel<i32>`'s fields and methods with `T` read as `i32`, and `Slider<T> :
 // Panel<T>` passes its own parameter on. UI and component hierarchies take this shape.
 
-struct Panel<T: Copy> {
+struct Panel<T: Clone> {
     pub value: T
     pub shown: bool = true
 
@@ -41,7 +41,7 @@ struct Button : Panel<i32> {
 }
 
 // A generic derived type, passing its parameter on.
-struct Slider<T: Copy> : Panel<T> {
+struct Slider<T: Clone> : Panel<T> {
     pub step: T
 
     Slider(start: T, step: T) : Panel(start) {

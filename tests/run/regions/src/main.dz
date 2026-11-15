@@ -515,8 +515,8 @@ struct Named {
 }
 
 // A `copy` of its own builds both fields where the copy is placed (T-0140).
-impl Copy for Named {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Named {
+    fn clone(&mut self, other: &Self) {
         name = other.name
         tags = other.tags
     }

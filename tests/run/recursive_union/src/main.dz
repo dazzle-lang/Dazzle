@@ -1,5 +1,5 @@
 // A union that holds a `List` of itself, directly and through a struct, as a JSON tree does.
-// Whether it copies asks whether `List<Tree>` does, and `List`'s `impl<T: Copy> Copy` asks
+// Whether it copies asks whether `List<Tree>` does, and `List`'s `impl<T: Clone> Copy` asks
 // back about `Tree`: until T-0173 that question started over from nothing each time, and the
 // compiler overflowed its own stack checking this program.
 

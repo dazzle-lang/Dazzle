@@ -5,11 +5,12 @@ pub trait Drop {
     fn drop(&mut self)
 }
 
-/// A type that can be copied. Every copyable type satisfies it (§6.3): one with no `drop`
-/// and no `own` field is copyable by default and needs no implementation. Implementing it
-/// is how a type that owns something becomes copyable anyway — `copy` runs on a value at
-/// its defaults, and fills it in from `other` (§6.6). `impl<T: Copy> Copy for List<T>`
-/// makes `List<f32>` copyable and leaves `List<File>` move-only (§8.2, §18.26).
-pub trait Copy {
-    fn copy(&mut self, other: &Self)
+/// A type whose value can be duplicated with `a.clone()` (§6.3, D-0106). Plain data — no
+/// `drop`, no `own` field, no `clone` of its own, every field plain — is `Clone` without an
+/// implementation, and copies by itself. Implementing it is how a type that owns something
+/// becomes cloneable: `clone` runs on a value at its defaults, and fills it in from `other`
+/// (§6.6). `impl<T: Clone> Clone for List<T>` makes `List<f32>` cloneable and leaves
+/// `List<File>` move-only (§8.2, §18.26).
+pub trait Clone {
+    fn clone(&mut self, other: &Self)
 }

@@ -1869,7 +1869,7 @@ fn an_instance_has_only_the_methods_the_program_calls() {
     // directly, or from a method that is. A `virtual` method stays, since a table of them
     // names it.
     const CELL: &str = "\
-pub struct Cell<T: Copy> {
+pub struct Cell<T: Clone> {
     pub value: T
 
     pub fn get(&self) -> T {
@@ -1926,7 +1926,7 @@ fn a_body_edit_leaves_the_instance_file_unchanged() {
     // temporary to `main`, emitted before the instances: numbered on from the module's own
     // code, the instance's temporary would be renamed by it.
     const PAIR: &str = "\
-struct Pair<A: Copy> {
+struct Pair<A: Clone> {
     pub first: A
 
     pub fn repeat(&self, n: i32) -> i32 {

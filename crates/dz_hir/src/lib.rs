@@ -183,9 +183,19 @@ pub struct Body {
     /// programmer's word: ties allow an untied pointer to become a reference there (spec
     /// §5.2, §6.7). An `unsafe fn`'s whole body is one, which its signature says.
     pub unsafe_blocks: Vec<BlockId>,
+    /// The reads written `a.clone()` (spec §6.3, D-0106): each is the place itself, read by
+    /// value, which every later phase already treats as a copy, built where placement puts
+    /// it. Listed so that nothing turns one into a move: every other by-value read of a
+    /// value that is not plain data is a `Move`.
+    pub clones: Vec<ExprId>,
 }
 
 impl Body {
+    /// Is `e` a read written `a.clone()`?
+    pub fn is_clone(&self, e: ExprId) -> bool {
+        self.clones.contains(&e)
+    }
+
     pub fn expr(&self, id: ExprId) -> &Expr {
         &self.exprs[id.index()]
     }

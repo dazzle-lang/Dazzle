@@ -96,15 +96,15 @@ struct Buffer<T> {
         unsafe { return &mut m_data[i] }
     }
 
-    // §8.2, §18.26: `T` counts as `Copy` in here, because this `copy` only exists for
+    // §8.2, §18.26: `T` counts as `Clone` in here, because this `copy` only exists for
     // instances whose `T` is — `Buffer<i32>` has one, `Buffer<Tracked>` is move-only.
 
     // §8.3: the branch not taken for this `T` is not emitted at all, so `Buffer<i32>`
     // has no destroy loop in its C++ and `Buffer<Tracked>` does.
 }
 
-impl<T: Copy> Copy for Buffer<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Buffer<T> {
+    fn clone(&mut self, other: &Self) {
         // A copy may outlive the scope whose region holds `other`, so it goes to the heap.
         m_allocator = Allocators::Global
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
@@ -275,7 +275,7 @@ fn main() {
         second = ints.at(1)^
     }
     println!("ints: len={} [1]={}", ints.len(), second)
-    // `Buffer<i32>` is copyable — its `copy` exists because `i32` is `Copy` (§18.26).
+    // `Buffer<i32>` is copyable — its `copy` exists because `i32` is `Clone` (§18.26).
     let copied = ints
     println!("copy: len={}", copied.len())
     println!("i32 trivially copyable: {}, Tracked: {}", i32::is_trivially_copyable, Tracked::is_trivially_copyable)

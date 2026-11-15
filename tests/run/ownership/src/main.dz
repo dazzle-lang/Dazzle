@@ -51,8 +51,8 @@ pub struct Counted {
     }
 }
 
-impl Copy for Counted {
-    fn copy(&mut self, other: &Self) {
+impl Clone for Counted {
+    fn clone(&mut self, other: &Self) {
         n = other.n + 100
     }
 }

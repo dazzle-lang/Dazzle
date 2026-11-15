@@ -19,7 +19,7 @@ struct Vec2 {
     }
 }
 
-struct Pair<T: Copy> {
+struct Pair<T: Clone> {
     pub a: T
     pub b: T
 

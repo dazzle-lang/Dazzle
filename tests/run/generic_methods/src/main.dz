@@ -18,7 +18,7 @@ impl Drop for Loud {
     }
 }
 
-struct Pair<A: Copy> {
+struct Pair<A: Clone> {
     pub first: A
 
     /// The type's parameter and the method's side by side.
@@ -27,7 +27,7 @@ struct Pair<A: Copy> {
     }
 
     /// A generic method calling another generic method on the same value.
-    pub fn both<B: Copy>(&self, b: B) -> (A, B) {
+    pub fn both<B: Clone>(&self, b: B) -> (A, B) {
         return self.with<B>(b)
     }
 }
@@ -45,7 +45,7 @@ struct Maker {
 
 /// A generic function calling a generic method: the method's instance comes from this
 /// function's instance.
-fn wrap<T: Copy>(v: T) -> (i32, T) {
+fn wrap<T: Clone>(v: T) -> (i32, T) {
     let p = Pair<i32>{ first: 1 }
     return p.both(v)
 }

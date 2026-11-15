@@ -115,7 +115,7 @@ fn double(xs: &mut []i32) {
     }
 }
 
-fn count<T: Copy>(xs: &[]T, stop: Step) -> i32 {
+fn count<T: Clone>(xs: &[]T, stop: Step) -> i32 {
     let mut n = 0
     for i, &_x in xs.indexed() {
         switch stop {

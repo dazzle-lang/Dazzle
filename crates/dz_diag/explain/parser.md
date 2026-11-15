@@ -282,7 +282,7 @@ fn main() {
 
 ## DZ0213
 
-A destructor and a copy are the `Drop` and `Copy` traits, implemented with `impl` (spec
+A destructor and a copy are the `Drop` and `Clone` traits, implemented with `impl` (spec
 §6.1) — not special members written into the struct, as they once were and as C++ writes
 them.
 

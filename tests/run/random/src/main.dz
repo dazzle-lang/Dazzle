@@ -15,7 +15,7 @@ fn seeded() {
 }
 
 /// Every draw from `range<T>` in `[lo, hi)`, and both ends reached for a small span.
-fn ranges_of<T: Number + Ord + Copy>(lo: T, hi: T) -> bool {
+fn ranges_of<T: Number + Ord + Clone>(lo: T, hi: T) -> bool {
     let mut ok = true
     for _ in 0..2000 {
         let v = Random::range(lo, hi)

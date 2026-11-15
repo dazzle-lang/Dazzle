@@ -246,8 +246,8 @@ impl<T> Drop for Deque<T> {
     }
 }
 
-impl<T: Copy> Copy for Deque<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T: Clone> Clone for Deque<T> {
+    fn clone(&mut self, other: &Self) {
         // Wherever the compiler places the copy, never where the original is, as a `List`'s
         // copy is (§14.6). The copy's elements start at the front of its buffer.
         m_allocator = unsafe {

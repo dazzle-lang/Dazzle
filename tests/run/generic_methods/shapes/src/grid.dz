@@ -4,7 +4,7 @@ pub struct Grid<T> {
     pub cells: List<T> = List<T>()
 
     /// A method generic over something other than the element.
-    pub fn fold<A: Copy>(&self, start: A, step: fn(A, &T) -> A) -> A {
+    pub fn fold<A: Clone>(&self, start: A, step: fn(A, &T) -> A) -> A {
         let mut acc = start
         for &c in self.cells.iter() {
             acc = step(acc, c)
@@ -13,7 +13,7 @@ pub struct Grid<T> {
     }
 
     /// No receiver: the type's own function, generic in its own right.
-    pub fn filled<V: Copy>(n: usize, value: V, make: fn(V) -> T) -> Grid<T> {
+    pub fn filled<V: Clone>(n: usize, value: V, make: fn(V) -> T) -> Grid<T> {
         let mut g = Grid<T>{}
         let mut i: usize = 0
         while i < n {
@@ -28,7 +28,7 @@ pub struct Tally {
     pub count: i32 = 0
 
     /// A non-generic type, mutated by a generic method.
-    pub fn add_all<N: Copy>(&mut self, xs: &[]N, weight: fn(N) -> i32) {
+    pub fn add_all<N: Clone>(&mut self, xs: &[]N, weight: fn(N) -> i32) {
         for x in xs {
             count += weight(x)
         }

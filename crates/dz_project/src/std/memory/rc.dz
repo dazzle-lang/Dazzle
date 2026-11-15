@@ -72,8 +72,8 @@ impl<T> Drop for Rc<T> {
     }
 }
 
-impl<T> Copy for Rc<T> {
-    fn copy(&mut self, other: &Self) {
+impl<T> Clone for Rc<T> {
+    fn clone(&mut self, other: &Self) {
         m_header = other.m_header
         m_value = other.m_value
         let h = unsafe { m_header or return }

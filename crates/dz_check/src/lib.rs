@@ -1123,18 +1123,18 @@ impl TypeTable {
         }
         Some(match ty {
             Ty::Param(_) => {
-                "a generic parameter can only be copied when it is bounded by `Copy` (spec \
+                "a generic parameter can only be cloned when it is bounded by `Clone` (spec \
                  §8.2)"
                     .to_owned()
             }
             Ty::Assoc(_) => {
-                "an associated type of a generic parameter can only be copied when its trait \
-                 bounds it by `Copy` (spec §8.5)"
+                "an associated type of a generic parameter can only be cloned when its trait \
+                 bounds it by `Clone` (spec §8.5)"
                     .to_owned()
             }
             Ty::Named { sym: id, .. } => match self.get(*id) {
                 Some(ItemSig::Struct(s)) if s.copy.is_some() => {
-                    "its `impl Copy` does not apply to these type arguments (spec §8.2)".to_owned()
+                    "its `impl Clone` does not apply to these type arguments (spec §8.2)".to_owned()
                 }
                 Some(ItemSig::Struct(s)) if s.cpp_owned => {
                     "the C++ class it is imported from has a destructor and no copy \
@@ -1330,7 +1330,7 @@ impl<'a> Ctx<'a> {
             impl_params: HashMap::new(),
             impl_at: HashMap::new(),
         };
-        cx.table.copy_trait = cx.prelude_trait("Copy");
+        cx.table.copy_trait = cx.prelude_trait("Clone");
         cx.table.drop_trait = cx.prelude_trait("Drop");
         // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
         for (i, s) in res.symbols.iter().enumerate() {
@@ -3837,7 +3837,7 @@ impl<'a> Ctx<'a> {
             span,
             format!("`{what}` is declared twice"),
             format!("a struct may declare at most one `{what}`"),
-            "the three special members are a constructor, `copy` and `drop`, and there is \
+            "the three special members are a constructor, `clone` and `drop`, and there is \
              one of each (spec §6.1)",
         );
     }
