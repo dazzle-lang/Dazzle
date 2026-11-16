@@ -41,12 +41,12 @@ jobs:
           - target: x86_64-windows
             os: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
       # tools/release.py does the packaging; this makes `python` the same on every image.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -101,7 +101,7 @@ jobs:
             python tools/release.py smoke dist/dazzle-${{ matrix.target }}.tar.gz
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dazzle-${{ matrix.target }}
           path: dist/dazzle-${{ matrix.target }}.*
@@ -113,9 +113,9 @@ jobs:
     name: vscode extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -125,7 +125,7 @@ jobs:
           npm ci
           npm run package
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dazzle-vscode
           path: editors/vscode/dazzle.vsix
@@ -139,9 +139,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

@@ -95,7 +95,7 @@ jobs:
     steps:
       # raylib and RGFW are submodules under `examples/vendor/`, and `every_example_builds`
       # compiles them from that source.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
@@ -261,7 +261,7 @@ jobs:
     env:
       DZ_CXX: clang++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Only `examples/stb` of the vendored libraries: the other headless example and every
       # `tests/run` program vendor theirs in the repository.
