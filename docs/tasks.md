@@ -35,7 +35,8 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    record through its struct's drop, and builds a `Res<Record>` for every return.
 5. `json`'s reflection, the user's choice of 2026-11-16: the writer stays reflective and
    works out each type's plan once (T-0225); `json` is 0.93× on clang++ and 1.06× on g++.
-   Still the user's decision: `main`'s region (T-0233, 4 ms and 9 MiB).
+   `main`'s region (T-0233) is kept: measured again on 2026-11-16, without it `json` is no
+   smaller and 1% slower, the cost T-0233 found gone with r134 and r135.
 6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and
    T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
    could still cost something.
@@ -227,7 +228,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (21 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -249,9 +250,8 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
 - **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
-- **[T-0237](tasks/T-0237-union-payload-field-default-accepted-never.md)** "A union payload field's default is accepted, never checked, and never applied" · bug, checker
 
-## M15 — `dz bench`, and the C++ comparison (9 open)
+## M15 — `dz bench`, and the C++ comparison (8 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -261,7 +261,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 - **[T-0231](tasks/T-0231-moved-from-value-drop-called-though.md)** A moved-from value's drop is called though flow knows it is empty · feature, codegen
-- **[T-0233](tasks/T-0233-main-outermost-region-holds-memory-heap.md)** main's outermost region holds memory the heap would have reused · design, placement
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

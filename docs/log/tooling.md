@@ -2089,3 +2089,28 @@ the writer saved. A hand-made `cold, noinline` on `make_room` moved that luck ar
 than removing it (better with this writer, worse with the old). The writer is more code:
 the release build from clean is 0.05 s longer on clang++ and 0.15 s on g++ (1.23 s against
 C++'s 0.70, inside T-0180's twice). T-0225 has the table.
+
+## A union payload field's default (r136; T-0237), and `main`'s region kept (T-0233; 2026-11-16)
+
+**A language change, r136, the user's choice.** A union payload field may have a default,
+as a struct field may. It was accepted before and never checked or applied: a field left out
+read zero, and a default of the wrong type compiled. Now:
+
+- **The checker** gives each payload default a body, `BodyOwner::PayloadDefault { owner,
+  variant, index }`, checked against the field's type as a struct field's default is
+  (`DZ0501` for the wrong type). The new owner joins `FieldDefault` wherever a body's owner
+  is matched: monomorphization, placement, ties, the HIR dump.
+- **Codegen** writes the default as the payload field's member initialiser
+  (`default_value`, shared with struct fields), so a literal that leaves the field out, by
+  either of `union_literal`'s paths, and `let u: U` hold it; a function a payload default
+  calls is declared first (`field_default_prototypes`). A plain-data union's literal now
+  builds its payload before setting the fields written: it set only those, so a field left
+  out was whatever the storage held, which a default made reachable.
+- **Tests:** `a_payload_default_is_checked_against_its_field` in `dz_check`, the matched
+  pair (`Pane` in `typed/`, `Margin` in `typeerrors/`, and the `hir_typed` snapshot's new
+  body), and `tests/run/value_shapes`, the same on both compilers and warning-clean.
+
+**`main`'s region, measured again (T-0233).** A value whose region would be `main`'s
+outermost block, on the heap instead, built behind a switch: `json` no smaller (187.2 MiB
+against 187.7 on clang++, 186.7 against 184.7 on g++) and about 1% slower; the other four
+level. The 10 MiB and 4 ms of 2026-11-14 went with r134 and r135. Kept; the switch removed.
