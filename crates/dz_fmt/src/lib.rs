@@ -461,9 +461,17 @@ impl<'a> Printer<'a> {
                             .fields
                             .iter()
                             .map(|f| {
+                                // A payload field's default is part of the program, as a
+                                // struct field's is: it was dropped here, and with it the
+                                // default (T-0236).
+                                let default = f
+                                    .default
+                                    .as_ref()
+                                    .map(|d| format!(" = {}", self.expr(d)))
+                                    .unwrap_or_default();
                                 let tag =
                                     f.tag.map(|s| format!(" {}", self.text(s))).unwrap_or_default();
-                                format!("{}: {}{tag}", f.name.name, self.ty(&f.ty))
+                                format!("{}: {}{default}{tag}", f.name.name, self.ty(&f.ty))
                             })
                             .collect();
                         self.line(&format!("{} {{ {} }}", v.name.name, fields.join(", ")));

@@ -176,6 +176,7 @@ pub struct Player {
 
 union Event {
     Hit { amount: i32 `json:"dmg"` }
+    Heal { amount: i32 = 10, over: bool = false }
 }
 
 // `const str`: text in static storage, as a field, a parameter and a result (spec §5.3).
