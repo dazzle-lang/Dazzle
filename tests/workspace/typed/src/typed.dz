@@ -602,8 +602,9 @@ fn vector_arithmetic(a: Vec2, b: Vec2) -> Vec2 {
 }
 
 // `std::Ord` names the same trait through the standard library's key (spec §3.2).
-// `T` may be move-only, so returning one is written `move` exactly as it would be for any
-// move-only type (spec §6.3, §8.2): a generic body is checked for every `T` at once.
+// `T` may own memory, so returning one moves it, as for any value that is not plain data,
+// and the result says where it lives (spec §6.4, §8.2, D-0097): a generic body is checked
+// for every `T` at once.
 fn largest<T: std::Ord>(a: T, b: T) -> T in (a@home, b@home) {
     if a > b {
         return a

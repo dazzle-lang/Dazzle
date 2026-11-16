@@ -302,6 +302,7 @@ pub fn emit_selected(
             file_local: HashSet::new(),
             local_protos: String::new(),
             in_place_source: None,
+            site_consts: None,
         };
         e.emitting = module.id;
         e.module(module_files);
@@ -491,6 +492,7 @@ pub fn emit_selected(
             file_local: HashSet::new(),
             local_protos: String::new(),
             in_place_source: None,
+            site_consts: None,
         };
         if type_info == dz_project::TypeInfo::All {
             reflect::seed_all(&mut e, files);
@@ -840,6 +842,11 @@ struct Emitter<'a> {
     /// the statement's own block that nothing reads again, so a `let` it initialises can
     /// name it rather than move out of it (see `StmtKind::Let`).
     in_place_source: Option<String>,
+    /// While a function's body is emitted, the locations it passes, each declared once at
+    /// the top of the body as a `static constexpr` constant (T-0220): the field list a
+    /// location is built from, and the constant's name. `None` outside a body, where a
+    /// location is the temporary it always was.
+    site_consts: Option<Vec<(String, String)>>,
 }
 
 impl<'a> Emitter<'a> {
@@ -901,17 +908,33 @@ impl<'a> Emitter<'a> {
         self.repeat_directive();
     }
 
-    /// A `dz::SourceLocation` literal for the runtime helpers.
-    fn source_location(&self, span: Span) -> String {
+    /// Where `span` is, as a `::dz::rt::SourceLocation`. Inside a function's body it is the
+    /// name of a constant the body declares at its top: the runtime's checks (an index, a
+    /// division, a panic) take it by `const&`, so a check passes the constant's address and
+    /// stores nothing until it fails, where it built the location on the stack before every
+    /// check, on g++ ahead of the test (T-0220). A Dazzle function's `loc: SourceLocation`
+    /// stays a value, copied from the constant: taken by `const&` too, it stopped g++
+    /// inlining `String::push_str` into `json`'s writer, 3% more instructions. Outside a body
+    /// (a field's default, a constant) it is the temporary it always was.
+    fn source_location(&mut self, span: Span) -> String {
         let f = self.map.get(self.file);
         let loc = f.location(span.start as usize);
-        format!(
-            "::dz::rt::SourceLocation{{\"{}\", \"{}\", {}, {}}}",
+        let fields = format!(
+            "\"{}\", \"{}\", {}, {}",
             f.name().replace('\\', "/"),
             self.current_fn,
             loc.line,
             loc.column
-        )
+        );
+        let Some(sites) = &mut self.site_consts else {
+            return format!("::dz::rt::SourceLocation{{{fields}}}");
+        };
+        if let Some((_, name)) = sites.iter().find(|(f, _)| *f == fields) {
+            return name.clone();
+        }
+        let name = format!("_dz_loc{}", sites.len());
+        sites.push((fields, name.clone()));
+        name
     }
 
     /// A struct's signature, borrowed from the table. It holds every method's signature,
@@ -3268,6 +3291,13 @@ impl<'a> Emitter<'a> {
         }
 
         let copyable = self.table.copyable(&Ty::Named { sym, args: args.to_vec() });
+        let reset_moved = self.drops_silently(&Ty::Named { sym, args: args.to_vec() })
+            && variants.first().is_some_and(|v| {
+                v.carries.is_none() && v.fields.iter().all(|f| self.table.plain(&f.ty))
+            });
+        // One variant's tag with its payload not built yet, for a variant literal to build the
+        // payload in place (`union_literal`).
+        let _ = writeln!(self.header, "    {name}(::dz::rt::no_payload, Kind k) : kind(k) {{}}");
         // Plain data that only takes code to build — a carried struct with a constructor —
         // is still trivially copyable (spec §5.5), and `List` moves it with `memmove`. Its
         // copy, move and destruction are then C++'s own, so that C++ agrees (T-0133).
@@ -3307,12 +3337,11 @@ impl<'a> Emitter<'a> {
                 let _ = writeln!(h, "    {name}(const {name}&) = delete;");
                 let _ = writeln!(h, "    {name}& operator=(const {name}&) = delete;");
             }
-            // A move takes the active payload and leaves the source's variant as it was,
-            // each field moved from and so at its own defaults; a union has no `drop` of its
-            // own to mind (§7.5). Resetting the source here cost a switch, a drop and a
-            // construct on every move (T-0097). A source a program can still read, a field
-            // or an element, is moved with `take`, which resets it as §6.4 says; a local is
-            // never read after its move, and a temporary never at all.
+            // A move takes the active payload. A source a program can still read, a field or
+            // an element, is moved with `take`, which resets it as §6.4 says; a local is never
+            // read after its move, and a temporary never at all, so only its drop is left to
+            // run. Resetting it by dropping its payload and building the first variant's cost
+            // a switch, a drop and a construct on every move (T-0097); see `move_from`.
             let _ = writeln!(h, "    {name}({name}&& o) : kind(o.kind) {{ move_from(o); }}");
             let _ = writeln!(
                 h,
@@ -3332,7 +3361,18 @@ impl<'a> Emitter<'a> {
             let _ = write!(h, "    void copy_from(const {name}& o) {{\n{copy_body}    }}\n");
         }
         let move_body = each(&|n| format!("::dz::rt::construct({n}, ::dz::rt::mv(o.{n}));"));
-        let _ = write!(h, "    void move_from({name}& o) {{\n{move_body}    }}\n");
+        // The source is left holding the first variant, built over the payload just moved
+        // out of without dropping it: a moved-from payload's drop does nothing (§6.4), so its
+        // storage can be reused, and the source's own drop is then the first variant's, which
+        // is plain data and has none. Left as it was, a moved-from `Expr::Binary` dropped its
+        // two empty boxes, a call each that no compiler inlines (T-0231). Only where no `drop`
+        // of the program's own could see one skipped (`drops_silently`).
+        let reset = if reset_moved {
+            format!("        o.kind = Kind::{first};\n        ::dz::rt::construct(o.{first});\n")
+        } else {
+            String::new()
+        };
+        let _ = write!(h, "    void move_from({name}& o) {{\n{move_body}{reset}    }}\n");
         h.push_str("};\n\n");
         self.assert_trivially_copyable(&name, sym, args);
     }
@@ -3892,19 +3932,32 @@ impl<'a> Emitter<'a> {
         self.line(head);
         self.indent += 1;
         self.take_ownership_of_params(body);
+        // The locations the body passes are collected while it is emitted, and declared
+        // above it once it is known which it uses (see `source_location`). A nested body
+        // keeps its own.
+        let outer_sites = self.site_consts.replace(Vec::new());
         let (text, ()) = self.in_body(body, |e| {
             e.tie_guards(owner, body);
             e.block_into(body.root, Dest::None)
         });
+        // `dz_flow` proved every Dazzle path returns, but C++ cannot see that through an
+        // exhaustive `switch` with no `default` — and a `-Wreturn-type` warning in generated
+        // code is a compiler bug, not a user error (invariant 7).
+        let unreachable = (!matches!(body.ret, Ty::Void | Ty::Error | Ty::Never)
+            && !ends_in_return(body))
+        .then(|| self.source_location(body.span));
+        let sites = std::mem::replace(&mut self.site_consts, outer_sites).unwrap_or_default();
+        for (fields, name) in &sites {
+            // Unused only where the text that named it was rendered and thrown away.
+            self.line(&format!(
+                "[[maybe_unused]] static constexpr ::dz::rt::SourceLocation {name}{{{fields}}};"
+            ));
+        }
         self.write_captured(&text);
         // A `!-> void` still has to say it succeeded.
         if body.fallible && matches!(body.ret, Ty::Void) {
             self.line("return ::dz::rt::Res<void>::good();");
-        } else if !matches!(body.ret, Ty::Void | Ty::Error | Ty::Never) && !ends_in_return(body) {
-            // `dz_flow` proved every Dazzle path returns, but C++ cannot see that through
-            // an exhaustive `switch` with no `default` — and a `-Wreturn-type` warning in
-            // generated code is a compiler bug, not a user error (invariant 7).
-            let loc = self.source_location(body.span);
+        } else if let Some(loc) = unreachable {
             self.line(&format!("::dz::rt::unreachable({loc});"));
         }
         self.indent -= 1;
@@ -6060,6 +6113,45 @@ impl<'a> Emitter<'a> {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
+        // A payload with a destructor is built in place, all its fields at once, by
+        // position: `become` built it empty and each field was then assigned a temporary,
+        // which was dropped empty, a `Box` each in a parser's `Binary` (T-0231). As for a
+        // struct literal, only where the fields written are the first ones, so the rest keep
+        // their defaults.
+        if !self.table.union_is_trivial(owner, &union_args) {
+            let types = match self.table.get(owner) {
+                Some(ItemSig::Union { variants, .. }) => variants
+                    .get(index)
+                    .map(|v| self.table.payload_types(owner, &union_args, v))
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            let given: Vec<usize> =
+                payload.iter().enumerate().filter(|(_, p)| p.is_some()).map(|(i, _)| i).collect();
+            if given.iter().copied().eq(0..given.len()) {
+                let values = self.literal_fields(payload, |_| None, true);
+                let mut parts = Vec::new();
+                for (i, v) in values {
+                    // Braces refuse a narrowing the assignment allowed (`struct_literal`).
+                    let field = types.get(i).cloned().unwrap_or(Ty::Error);
+                    let written = payload[i].map(|p| self.cur().ty(p).clone());
+                    if matches!(field, Ty::Int(_) | Ty::Float(_))
+                        && written.as_ref() != Some(&field)
+                    {
+                        let cpp = self.cpp_ty(&field);
+                        parts.push(format!("static_cast<{cpp}>({v})"));
+                    } else {
+                        parts.push(v);
+                    }
+                }
+                return format!(
+                    "[&] {{ {ty} {tmp}(::dz::rt::no_payload{{}}, {ty}::Kind::{name}); \
+                     ::new (static_cast<void*>(&{tmp}.{name})) {ty}::{name}_t{{{}}}; \
+                     return {tmp}; }}()",
+                    parts.join(", ")
+                );
+            }
+        }
         for (i, text) in self.literal_fields(payload, |_| None, true) {
             let Some(f) = fields.get(i) else { continue };
             let _ = write!(out, "{tmp}.{name}.{f} = {text}; ");

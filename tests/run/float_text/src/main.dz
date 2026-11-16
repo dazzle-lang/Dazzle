@@ -35,4 +35,16 @@ fn main() {
 
     println!("{:.2} {:.0} {:.3}", 3.14159, 2.5, a)
     println!("[{:8}] [{:8}]", 1.5, a)
+
+    // Each side of the range where the text is `std::to_chars`' own (T-0225): from 1e-3,
+    // below 2^24 for an `f32` and below 1e15 for an `f64`. Above 2^24 an `f32`'s whole
+    // number is the shortest digits padded with zeros, never its exact digits.
+    println!("{} {} {} {}", 0.001, 0.000999, -0.001, 0.0012345)
+    println!("{} {} {}", 999999999999999.9, 1e15, 123456789012345.6)
+    let below: f32 = 16777215
+    let at: f32 = 16777216
+    let far: f32 = 737850294272
+    let neg: f32 = -995230336
+    let small: f32 = 0.00123
+    println!("{} {} {} {} {}", below, at, far, neg, small)
 }

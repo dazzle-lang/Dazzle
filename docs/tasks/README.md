@@ -35,11 +35,15 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    and assigned from its value by reference, with no payload built while it is empty.
    `raytrace` is 0.97× its C++ half on g++ and 1.06× on clang++, from 1.07× on both. Left:
    clang++'s 25 ms, which is the layout of the types, not the shape of the code.
-2. T-0220, a `SourceLocation` stored on every pass of a loop that only a failure reads: in
-   every `List::push` and, on g++, every checked index. Not measured; small to fix.
-3. T-0231, destructors run on values already moved from, and `Res<T>` built for every
-   fallible return: `json`'s convert phase 4–5 ms, `~Box` 4.7% of `expr` on clang++.
-4. T-0225's float text, a `to_chars`, `atoi` and re-layout round trip: 2.5 ms of `json`.
+2. Done 2026-11-16, measured by instruction counts since the machine was busy: T-0220, a
+   location is a constant of its function and the runtime's checks take it by `const&`;
+   T-0225's float text, `std::to_chars`' own text where it is already D-0101's; and the
+   union half of T-0231, a variant built in place and a moved-from union left in its plain
+   first variant. `expr` 1.04× → 0.96× on clang++, `json` 0.99× → 0.96× on clang++ and
+   1.06× on g++, `words` 0.86× on both; instructions down up to 14%. Found on the way:
+   T-0236 (fixed) and T-0237, a payload field's default, the user's call.
+3. What is left of T-0231: `json`'s convert loop drops five moved-from `List<String>`s a
+   record through its struct's drop, and builds a `Res<Record>` for every return.
 5. The user's decisions: whether `json` prices reflection (10–13 ms, T-0225) and `main`'s
    region (T-0233, 4 ms and 9 MiB).
 6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and

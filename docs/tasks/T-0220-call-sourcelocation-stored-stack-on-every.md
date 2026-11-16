@@ -2,7 +2,7 @@
 id: T-0220
 title: A call's SourceLocation is stored to the stack on every pass, though only a cold path reads it
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
 ---
@@ -30,10 +30,31 @@ passes the hidden default changes. Measure `push` loops and indexed loops on bot
 before and after; check that the precompiled `std` and the runtime shim (`panic_bounds`)
 change together.
 
-**Where the code is.**
+**Done 2026-11-16.** Each location a function passes is one `static constexpr` constant,
+declared at the top of the function's body once it is known which the body uses, and the
+runtime's checks (`index`, `div`, `rem`, the panics) take it by `const&`, so a check
+passes the constant's address and stores nothing until it fails. A location outside a body,
+in a field's default or a constant, is the temporary it was. `a_checks_location_is_a_constant_of_its_function`
+in `dz/tests/run.rs` pins it, and that the panic still names the line.
+
+Measured by instruction counts (callgrind), which a busy machine does not change, against
+the compiler before (clang++ / g++):
+
+| Program | Every location parameter `const&` | The runtime's checks only (built) |
+|---|---:|---:|
+| `astar` | -2.4% / -0.4% | -2.0% / +0.1% |
+| `expr` | -3.6% / -5.3% | -3.6% / -4.2% |
+| `json` | -0.4% / **+3.1%** | -1.8% / -3.4% (with T-0225's float text) |
+| `words` | | -6.0% / -2.0% |
+| `raytrace` | level | level |
+
+**A Dazzle function's `loc: SourceLocation` stays a value**, copied from the constant. Taken
+by `const&` as well, as the task first proposed, it stopped g++ inlining `String::push_str`
+and `String::push` into `json`'s writer: 360 M instructions in calls that had been inline,
+3.1% more in all. A parameter is never assigned in Dazzle, so the reference would have been
+safe; it is only g++'s inliner that it upsets.
 
 | Piece | Where |
 |---|---|
-| `#location` as a default argument, rendered at the call | `render_default`, `source_location` in `crates/dz_cpp/src/lib.rs` |
-| `SourceLocation`, `panic_bounds`, `index` | `crates/dz_cpp/src/runtime.rs` |
-| `List::push`, `make_room` | `crates/dz_project/src/std/collections/list.dz` |
+| The constants, collected and declared | `source_location`, `site_consts`, `emit_body_here` in `crates/dz_cpp/src/lib.rs` |
+| The checks taking a location by `const&` | `index`, `subslice`, `div`, `rem`, `panic*`, `unreachable`, `make_error`, `checked_error` in `crates/dz_cpp/src/runtime.rs` |

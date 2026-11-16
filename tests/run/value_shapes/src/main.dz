@@ -262,7 +262,90 @@ fn statics() {
     }
 }
 
+/// A union whose payload owns memory: a variant literal builds the payload in place, all its
+/// fields at once, and a moved-from `Node` is left a `Leaf` rather than a `Pair` of empty
+/// boxes (T-0231).
+union Node {
+    Leaf { value: i32 }
+    Pair { name: String, left: Box<Node>, right: Box<Node>, weight: i32 }
+}
+
+fn total(n: &Node) -> i32 {
+    switch n {
+        case Leaf(&l) {
+            return l.value
+        }
+        case Pair(&p) {
+            let mut t = p.weight
+            if let &l = p.left {
+                t += total(&l)
+            }
+            if let &r = p.right {
+                t += total(&r)
+            }
+            return t
+        }
+    }
+}
+
+fn name_of(n: &Node) -> &str {
+    switch n {
+        case Leaf(&_) {
+            return "leaf"
+        }
+        case Pair(&p) {
+            return p.name.as_str()
+        }
+    }
+}
+
+/// A payload whose drop prints: moving it keeps every drop where it was.
+union Held {
+    Nothing {}
+    Some { l: Loud }
+}
+
+fn unions() {
+    println!("unions")
+    // Written out of order: evaluated as written, built in declaration order.
+    let a = Node::Pair{
+        right: Box<Node>(Node::Leaf{ value: say(1) }),
+        name: String("a"),
+        weight: say(3),
+        left: Box<Node>(Node::Leaf{ value: say(2) }),
+    }
+    println!("{} {}", name_of(&a), total(&a))
+    // An empty box.
+    let b = Node::Pair{ name: String("b"), left: null, right: Box<Node>(Node::Leaf{ value: 5 }), weight: 10 }
+    println!("{} {}", name_of(&b), total(&b))
+    // A parser's loop: the tree so far is moved into a box of the next node, every pass.
+    let mut tree = Node::Leaf{ value: 1 }
+    for i in 0..4 {
+        tree = Node::Pair{
+            name: String("n"),
+            left: Box<Node>(tree),
+            right: Box<Node>(Node::Leaf{ value: i }),
+            weight: 1,
+        }
+    }
+    println!("{} {}", name_of(&tree), total(&tree))
+    let moved = tree
+    println!("{}", total(&moved))
+    // A moved `Held` keeps its drops: the one value is dropped once, at the end.
+    let h = Held::Some{ l: Loud{ id: 9 } }
+    let kept = h
+    switch kept {
+        case Nothing {
+            println!("nothing")
+        }
+        case Some(&s) {
+            println!("  holding {}", s.l.id)
+        }
+    }
+}
+
 fn main() {
+    unions()
     literals()
     println!("areas {} {} {} {}", area(&Shape::Dot{}), area(&Shape::Circle{ r: 2 }), area(&Shape::Circle{ r: 11 }), area(&Shape::Box{ w: 3, h: 4 }))
     branches(true)

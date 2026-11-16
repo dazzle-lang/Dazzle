@@ -49,6 +49,10 @@ namespace rt {
 
 struct copy_tag {};
 
+// `U(no_payload{}, U::Kind::V)`: a union whose tag is set and whose payload is not built yet,
+// for a variant literal to build its payload in place, every field at once (T-0231).
+struct no_payload {};
+
 // --- source locations (spec §12.7) ----------------------------------------
 
 struct SourceLocation {
@@ -62,17 +66,17 @@ struct SourceLocation {
 //
 // Never a C++ exception: the generated code builds with -fno-exceptions.
 
-[[noreturn]] void panic(const char* message, SourceLocation where);
+[[noreturn]] void panic(const char* message, const SourceLocation& where);
 
 /// One entry of the type table (spec §13), which `dz_typeinfo.cpp` defines when the program
 /// reflects on anything. Untyped here: the entry is the standard library's `TypeInfo`,
 /// which this header comes before.
 const void* reflect_entry(uint32_t id);
-[[noreturn]] void panic_bounds(size_t index, size_t length, SourceLocation where);
-[[noreturn]] void panic_len(const uint8_t* message, size_t len, SourceLocation where);
+[[noreturn]] void panic_bounds(size_t index, size_t length, const SourceLocation& where);
+[[noreturn]] void panic_len(const uint8_t* message, size_t len, const SourceLocation& where);
 /// A place the compiler proved is not reached: the failure side of `or unreachable`
 /// (spec §9.4), and the end of a function whose every Dazzle path already returned.
-[[noreturn]] void unreachable(SourceLocation where);
+[[noreturn]] void unreachable(const SourceLocation& where);
 /// A function changed the memory under a tie its `kills` clause promises to keep, found
 /// by a debug build's `TieGuard` (spec §6.7, T-0116).
 [[noreturn]] void tie_killed(const char* function, const char* tie);
@@ -141,7 +145,7 @@ inline bool operator!=(str a, str b) { return !(a == b); }
 
 /// `panic!("…")`. The message is a `str` — a pointer and a length, not NUL-terminated —
 /// so it cannot go through `panic` above.
-[[noreturn]] DZ_INLINE void panic_str(str message, SourceLocation where) {
+[[noreturn]] DZ_INLINE void panic_str(str message, const SourceLocation& where) {
     panic_len(message.ptr, message.len, where);
 }
 
@@ -702,19 +706,19 @@ template <class T> DZ_INLINE constexpr T min_of() { return is_signed<T>() ? stat
 // calls these only where an operand could make the plain operator undefined: a divisor that
 // is not a literal other than 0 and -1, a shift count that is not a literal in range, a
 // signed left shift. `constexpr`, since a `const` may be built from them.
-template <class T> DZ_INLINE constexpr T div(T a, Same<T> b, SourceLocation where) {
+template <class T> DZ_INLINE constexpr T div(T a, Same<T> b, const SourceLocation& where) {
     if (b == 0) { panic("division by zero", where); }
     // `MIN / -1` overflows, and wraps to `MIN` as every overflow does (D-0063).
     if (is_signed<T>() && b == static_cast<T>(-1)) { return static_cast<T>(static_cast<U<T>>(U<T>(0) - static_cast<U<T>>(a))); }
     return static_cast<T>(a / b);
 }
-template <class T> DZ_INLINE constexpr T rem(T a, Same<T> b, SourceLocation where) {
+template <class T> DZ_INLINE constexpr T rem(T a, Same<T> b, const SourceLocation& where) {
     if (b == 0) { panic("remainder of a division by zero", where); }
     if (is_signed<T>() && b == static_cast<T>(-1)) { return T(0); }
     return static_cast<T>(a % b);
 }
-template <class T> DZ_INLINE void div_assign(T& a, Same<T> b, SourceLocation where) { a = div<T>(a, b, where); }
-template <class T> DZ_INLINE void rem_assign(T& a, Same<T> b, SourceLocation where) { a = rem<T>(a, b, where); }
+template <class T> DZ_INLINE void div_assign(T& a, Same<T> b, const SourceLocation& where) { a = div<T>(a, b, where); }
+template <class T> DZ_INLINE void rem_assign(T& a, Same<T> b, const SourceLocation& where) { a = rem<T>(a, b, where); }
 // The count is taken modulo the width, as Rust's `wrapping_shl` takes it; a negative count
 // is a large one. A left shift goes through the unsigned type, where C++ defines it.
 template <class T> DZ_INLINE constexpr unsigned shift_count(T n) { return static_cast<unsigned>(static_cast<U<T>>(n)) & static_cast<unsigned>(sizeof(T) * 8 - 1); }
@@ -936,7 +940,7 @@ DZ_INLINE constexpr To cast(From f) {
 
 /// `xs[lo..hi]` on an array or a slice, checked in every build as an index is (spec §5.3).
 template <class C>
-DZ_INLINE auto subslice(C&& c, size_t lo, size_t hi, SourceLocation where)
+DZ_INLINE auto subslice(C&& c, size_t lo, size_t hi, const SourceLocation& where)
     -> Slice<typename strip_ref<decltype(c[0])>::type> {
     if (hi > len(c)) { panic_bounds(hi, len(c), where); }
     if (lo > hi) { panic_bounds(lo, hi, where); }
@@ -994,7 +998,7 @@ template <class T> DZ_INLINE size_t dyn_align(const T* p) { return dyn_align_(p,
 /// optimiser proves the check redundant and removes it; the unchecked spelling is
 /// `unsafe { xs.ptr[i] }`, which does not come through here at all.
 template <class C>
-DZ_INLINE auto index(C& c, size_t i, SourceLocation where) -> decltype(c[i]) {
+DZ_INLINE auto index(C& c, size_t i, const SourceLocation& where) -> decltype(c[i]) {
     if (i >= c.len) { panic_bounds(i, c.len, where); }
     return c[i];
 }
@@ -1002,20 +1006,20 @@ DZ_INLINE auto index(C& c, size_t i, SourceLocation where) -> decltype(c[i]) {
 /// A slice made on the spot — `(s as []u8)[i]` — is a temporary, which `C&` above cannot
 /// take. A slice is a view, so its elements outlive it and the reference stays good.
 template <class T>
-DZ_INLINE T& index(const Slice<T>& c, size_t i, SourceLocation where) {
+DZ_INLINE T& index(const Slice<T>& c, size_t i, const SourceLocation& where) {
     if (i >= c.len) { panic_bounds(i, c.len, where); }
     return c.ptr[i];
 }
 
 template <class T, size_t N>
-DZ_INLINE T& index(Array<T, N>& a, size_t i, SourceLocation where) {
+DZ_INLINE T& index(Array<T, N>& a, size_t i, const SourceLocation& where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a.data[i];
 }
 
 // An array read through a `^T` is `const` (spec §18.37).
 template <class T, size_t N>
-DZ_INLINE const T& index(const Array<T, N>& a, size_t i, SourceLocation where) {
+DZ_INLINE const T& index(const Array<T, N>& a, size_t i, const SourceLocation& where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a.data[i];
 }
@@ -1023,13 +1027,13 @@ DZ_INLINE const T& index(const Array<T, N>& a, size_t i, SourceLocation where) {
 // A C array member of an imported struct — `float m[16]` — is a raw array, not an
 // `Array<T, N>`, and indexing it is checked the same way (spec §15.2).
 template <class T, size_t N>
-DZ_INLINE T& index(T (&a)[N], size_t i, SourceLocation where) {
+DZ_INLINE T& index(T (&a)[N], size_t i, const SourceLocation& where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a[i];
 }
 
 template <class T, size_t N>
-DZ_INLINE const T& index(const T (&a)[N], size_t i, SourceLocation where) {
+DZ_INLINE const T& index(const T (&a)[N], size_t i, const SourceLocation& where) {
     if (i >= N) { panic_bounds(i, N, where); }
     return a[i];
 }
@@ -1100,12 +1104,12 @@ static void flush_all() {
     fflush(nullptr);
 }
 
-static void write_location(SourceLocation where) {
+static void write_location(const SourceLocation& where) {
     fprintf(stderr, "  at %s (%s:%u:%u)\n", where.function, where.file, where.line,
             where.column);
 }
 
-void panic(const char* message, SourceLocation where) {
+void panic(const char* message, const SourceLocation& where) {
     fprintf(stderr, "panic: %s\n", message);
     write_location(where);
     flush_all();
@@ -1118,7 +1122,7 @@ void tie_killed(const char* function, const char* tie) {
     abort();
 }
 
-void panic_bounds(size_t index, size_t length, SourceLocation where) {
+void panic_bounds(size_t index, size_t length, const SourceLocation& where) {
     fprintf(stderr, "panic: index %zu is out of bounds for length %zu\n", index, length);
     write_location(where);
     flush_all();
@@ -1127,7 +1131,7 @@ void panic_bounds(size_t index, size_t length, SourceLocation where) {
 
 /// `panic!("…")` takes a `str`, which is a pointer and a length rather than a
 /// NUL-terminated string, so it cannot go through `panic` above.
-void panic_len(const uint8_t* message, size_t len, SourceLocation where) {
+void panic_len(const uint8_t* message, size_t len, const SourceLocation& where) {
     fputs("panic: ", stderr);
     // An empty `String`'s text has a null pointer, and C leaves a null buffer undefined
     // even for a count of 0 (C17 7.1.4), so no library call here takes one (T-0133).
@@ -1144,7 +1148,7 @@ void static_read_while_built(const char* name) {
     abort();
 }
 
-void unreachable(SourceLocation where) {
+void unreachable(const SourceLocation& where) {
     fputs("panic: reached code the compiler proved unreachable\n", stderr);
     write_location(where);
     flush_all();
@@ -1704,6 +1708,30 @@ static size_t shortest_digits(double v, bool single, char* digits, int* exponent
 /// same value, laid out in plain decimal with no exponent, and no point when it is whole, as
 /// Rust's `{}` writes it: `1e21` is 22 digits, `5e-324` a point, 323 zeros and a `5`.
 static size_t shortest_fixed(double value, bool single, char* buf, size_t cap) {
+#if DZ_FLOAT_TO_CHARS
+    // Most values a program prints are already in `std::to_chars`' own shortest text, with
+    // no exponent: then it is the text below, and the scientific form, `atoi` on its exponent
+    // and the layout again are a round trip, 2.5 ms of a JSON writer's 36 (T-0225). Only where
+    // a whole number cannot have more digits than the shortest ones: below 2^24 for an `f32`
+    // and 1e15 for an `f64` (under 2^53), where every whole number is exact. Above, the fixed
+    // form writes the value's exact digits, `737850294272` for the `f32` the text below
+    // writes `737850300000`. Held to the general path on 226 million values: the same bytes.
+    {
+        const double a = value < 0 ? -value : value;
+        if (a >= 1e-3 && a < (single ? 16777216.0 : 1e15)) {
+            char tmp[48];
+            const std::to_chars_result r =
+                single ? std::to_chars(tmp, tmp + sizeof tmp, static_cast<float>(value))
+                       : std::to_chars(tmp, tmp + sizeof tmp, value);
+            const size_t len = static_cast<size_t>(r.ptr - tmp);
+            if (r.ec == std::errc() && memchr(tmp, 'e', len) == nullptr) {
+                const size_t k = len < cap ? len : cap;
+                memcpy(buf, tmp, k);
+                return k;
+            }
+        }
+    }
+#endif
     size_t n = 0;
     auto put = [&](char ch) {
         if (n < cap) { buf[n++] = ch; }
@@ -2274,7 +2302,7 @@ inline ErrorRing& error_ring() {
 /// `error(code, "…", args…)` (spec §9.1). Stamps count from 1, so an `Error` with stamp 0
 /// was not built here and is never checked.
 template <class... Ts>
-inline Error make_error(uint32_t code, SourceLocation where, str fmt, Ts... args) {
+inline Error make_error(uint32_t code, const SourceLocation& where, str fmt, Ts... args) {
     ErrorRing& ring = error_ring();
     const uint32_t slot = ring.taken % error_slots;
     ring.taken += 1;
@@ -2295,7 +2323,7 @@ inline Error make_error(uint32_t code, SourceLocation where, str fmt, Ts... args
 /// (T-0053, spec §9.2), where it would show the newer error's. Only while it still points
 /// into that slot: a message the program assigned since is its own.
 template <class E>
-DZ_INLINE E&& checked_error(E&& e, bool message, SourceLocation at) {
+DZ_INLINE E&& checked_error(E&& e, bool message, const SourceLocation& at) {
 #ifndef NDEBUG
     const Error& x = e;
     if (x.stamp != 0) {

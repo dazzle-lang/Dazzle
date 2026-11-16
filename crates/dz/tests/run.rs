@@ -1532,6 +1532,63 @@ fn a_union_switch_ends_in_else() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A location a function passes is a constant it declares once, at its top, and the
+/// runtime's checks take it by reference, so a check stores nothing until it fails (T-0220).
+/// The panic still names the line the check is on.
+#[test]
+fn a_checks_location_is_a_constant_of_its_function() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_location_constant",
+        "[module]\nname = \"located\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn pick(xs: &[]i32, i: usize, d: i32) -> i32 {\n    return xs[i] / d + xs[i + 1] / d\n}\n\nfn main() {\n    let xs: [3]i32 = [10, 20, 30]\n    println!(\"{}\", pick(&xs, 0, 5))\n    println!(\"{}\", pick(&xs, 2, 5))\n}\n",
+    );
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "the second pick reads past the end");
+    assert_eq!(stdout.trim(), "6");
+    assert!(stderr.contains("main.dz:2:"), "the panic names the line of the index:\n{stderr}");
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/located.cpp")).unwrap();
+    let start = cpp.find(" pick(").unwrap();
+    let pick = &cpp[start..start + cpp[start..].find("\n}\n").unwrap()];
+    // Two indexes and two divisions, each division starting where its index does: two
+    // places, so two constants, each used twice.
+    assert_eq!(pick.matches("static constexpr ::dz::rt::SourceLocation").count(), 2, "{pick}");
+    assert!(!pick.contains("::dz::rt::SourceLocation{"), "no location built in a call:\n{pick}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A union whose payload owns memory is built in place, all its fields at once, and a
+/// moved-from one is left in its first, plain variant, so dropping it drops no empty boxes
+/// (T-0231). Not a union a `drop` of the program's own could see skipped.
+#[test]
+fn a_moved_union_is_left_plain_and_a_variant_is_built_in_place() {
+    let dir = scratch(
+        "dz_union_moves",
+        "[module]\nname = \"moves\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "union Tree {\n    Leaf { value: i32 }\n    Node { left: Box<Tree>, right: Box<Tree> }\n}\n\nstruct Noisy {\n    pub id: i32 = 0\n}\n\nimpl Drop for Noisy {\n    fn drop(&mut self) {\n        println!(\"drop {}\", id)\n    }\n}\n\nunion Held {\n    Empty {}\n    Full { n: Noisy }\n}\n\nfn main() {\n    let mut t = Tree::Leaf{ value: 1 }\n    t = Tree::Node{ left: Box<Tree>(t), right: Box<Tree>(Tree::Leaf{ value: 2 }) }\n    let h = Held::Full{ n: Noisy{ id: 3 } }\n    let g = h\n}\n",
+    );
+    let out = Command::new(dz()).args(["cpp", dir.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let h = std::fs::read_to_string(dir.join("build/cpp/moves.h")).unwrap();
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/moves.cpp")).unwrap();
+    let decl = |name: &str| {
+        let start = h.find(&format!("struct {name} {{")).expect(name);
+        h[start..start + h[start..].find("\n};\n").unwrap()].to_owned()
+    };
+    let tree = decl("Tree");
+    assert!(tree.contains("o.kind = Kind::Leaf;"), "a moved-from Tree is a Leaf:\n{tree}");
+    let held = decl("Held");
+    assert!(!held.contains("o.kind = Kind::"), "Noisy's drop could see it skipped:\n{held}");
+    assert!(cpp.contains("Tree::Node_t{"), "the payload is built in place:\n{cpp}");
+    assert!(!cpp.contains(".become(Tree::Kind::Node)"), "{cpp}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A by-value parameter the body moves on, on every path, is used where it is (T-0234):
 /// the body's own binding, which fixes when a parameter drops under every ABI, cost a
 /// second move of every element pushed to a `List`. Not one the body only reads or moves on

@@ -115,7 +115,11 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   one word since 2026-11-14 ([T-0229](../../docs/tasks/T-0229-box-in-one-word-its-allocator.md)),
   and `Expr` 32 bytes where it was 64, which moved `expr` 2% slower on clang++ and 5% faster
   on g++, and its peak memory not at all, since each statement's tree is dropped before the
-  next is parsed. Before
+  next is parsed. Most of the 4.7% `~Box` then cost clang++ was the drop of boxes already
+  empty: a variant literal now builds its payload in place, and a moved-from union is left
+  in its plain first variant (2026-11-16,
+  [T-0231](../../docs/tasks/T-0231-moved-from-value-drop-called-though.md)), and `expr` is
+  0.96× on clang++, from 1.04×, and 0.87× on g++ as it was. Before
   this benchmark, `let tokens = tokenize(...) or { ... }` copied the whole token list twice.
   That is fixed: it now moves, and peak memory went from 298 MiB to 140, below C++'s 151.
 - **`astar`** is 1.3× on g++ and 1.55× on clang. It has not been broken down yet.
@@ -133,9 +137,11 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   (2026-11-15) it is 0.97× on g++ and 1.06× on clang++, where what is left is the layout
   of the types
   ([T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md)).
-- **`json`** (added 2026-11-14, T-0173) is 0.99× its C++ half on clang++ and 1.07× on g++,
-  since values move by default (r135, T-0235); it was 1.06× and 1.13× before that, the
-  furthest behind. It was 1.70× and 1.91× when added, and 1.08× and 1.21× until
+- **`json`** (added 2026-11-14, T-0173) is 0.96× its C++ half on clang++ and 1.06× on g++,
+  since a float's text is `std::to_chars`' own where that is already D-0101's (T-0225), a
+  check's location a constant (T-0220) and a union built in place (T-0231), all
+  2026-11-16; it was 0.99× and 1.07× after values moved by default (r135, T-0235), and 1.06×
+  and 1.13× before that, the furthest behind. It was 1.70× and 1.91× when added, and 1.08× and 1.21× until
   2026-11-15, when its gap and `raytrace`'s were measured not to be the cost of safety:
   with every bounds check and panic compiled out of the generated C++, and the flags that
   define overflow, aliasing and endless loops reversed, neither ran faster on either

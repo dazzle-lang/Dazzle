@@ -137,3 +137,13 @@ on g++.
 clang++, 1.01×, and 222 against 209 on g++, 1.06×, at 185 MiB against 180. The run before
 that, at `7875aab` with T-0234, had 234 against 221, 233 against 207, and 195 MiB. What
 is listed above as left was not measured again.
+
+**2026-11-16: the float text is done.** For a value from 1e-3 up to 2^24 for an `f32` and
+1e15 for an `f64`, `std::to_chars`' own shortest text, when it has no exponent, is written as
+it is: below those bounds every whole number is exact, so the fixed form never writes more
+digits than the shortest ones. Above 2^24 an `f32`'s fixed text is its exact digits,
+`737850294272` where D-0101 writes `737850300000`, which is why the bound is there. Held to
+the general path on 226 million values, random bit patterns, decimals of few digits and
+whole numbers, on both compilers: the same bytes. `tests/run/float_text` has both sides of
+each bound, with and without `to_chars`. On `json` alone: 2.2% fewer instructions on
+clang++ and 2.4% on g++ (`shortest_fixed` in `runtime.rs`).

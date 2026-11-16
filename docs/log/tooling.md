@@ -2013,3 +2013,61 @@ tests on g++, and every program under AddressSanitizer and UBSan.
 change on the same day. The file's last run was at `7875aab`, before values moved by
 default (T-0235), and `json` had gone from 1.06× and 1.13× to 1.01× and 1.06× with that,
 and from 195 MiB to 185; this run records it as 0.99× and 1.07×.
+
+## A location is a constant, a float's text is to_chars', a union is built in place (T-0220, T-0225, T-0231; 2026-11-16)
+
+Compiler and runtime work, no language change: every program prints what it printed. Three
+items of the run-time list the user set on 2026-11-15, measured mostly by counting
+instructions with callgrind, since the machine was busy with other work for much of the day
+(load averages up to 29): a count does not change with load, and every timing below is
+interleaved runs of both builds in one sitting.
+
+- **A location is a constant of its function (T-0220).** Each `SourceLocation` a body passes
+  is one `static constexpr` constant, declared at the body's top once it is known which the
+  body uses (`source_location`, `site_consts`), and the runtime's checks (`index`, `div`,
+  `rem`, the panics) take it by `const&`: a check stores nothing until it fails, where it
+  built the location on the stack every time, on g++ ahead of the test. A Dazzle function's
+  `loc: SourceLocation` stays a value: by `const&` too it stopped g++ inlining
+  `String::push_str` into `json`'s writer, 3% more instructions.
+- **A float's text (T-0225).** For a value from 1e-3 below 2^24 (`f32`) or 1e15 (`f64`),
+  `std::to_chars`' own shortest text, when it has no exponent, is written as it is, rather
+  than its scientific form taken apart with `atoi` and laid out again. Above 2^24 an `f32`'s
+  fixed text is its exact digits, which D-0101 does not write. The same bytes as before on
+  226 million values on both compilers; `tests/run/float_text` has each side of each bound.
+- **A union built in place, and left plain when moved (T-0231).** `expr` spent 7.5% of its
+  instructions on clang++ calling the drop of empty boxes. A non-trivial union's variant
+  literal now builds its payload in place by position (`no_payload`), with no temporary
+  `Box`es to drop, and a move leaves the source in its first variant, built over the
+  moved-from payload without dropping it, where that variant is plain data and the union's
+  drops are silent. T-0097 had stopped resetting a moved-from union because the reset was a
+  switch, a drop and a construct; this one is two stores.
+
+Instructions against the compiler before (`ac6e719`), clang++ / g++:
+
+| Program | Instructions |
+|---|---:|
+| `astar` | -2.0% / +0.1% |
+| `expr` | -14.2% / -4.6% |
+| `json` | -6.4% / -4.6% |
+| `raytrace` | level / level |
+| `words` | -6.0% / -2.0% |
+
+`RESULTS.md` is the run after, on a quiet machine (load 1.1): `expr` 140 → 128 ms on clang++
+(1.04× → 0.96× its C++ half) and level on g++; `json` 221 → 213 ms on clang++ (0.99× ->
+0.96×) and 223 → 220 on g++ (1.06×); `words` 0.87× and 0.88× → 0.86× on both; `astar` and
+`raytrace` as they were. One cost: `expr`'s release build on g++ from clean is 0.66 → 0.77 s
+(C++: 0.51), all of it in the link, where g++'s whole-program pass now inlines more of the
+parser; the other programs' builds did not move.
+
+Tried and not kept, each measured: `Box`'s drop split into an inline null test (clang++
+-6.8%, g++ +4.1%, as T-0229 found); a constructor taking every field, for a struct C++ does
+not call an aggregate (0.4% of `json`'s instructions); and location parameters by `const&`
+(above). Found on the way: `dz fmt` dropped a union payload field's default (T-0236, fixed,
+and `tests/fmt/items.dz` now has one), and such a default is accepted, never checked and
+never applied (T-0237, a question for the user, since §7.5 does not say payload fields take
+defaults).
+
+New tests: `a_checks_location_is_a_constant_of_its_function` and
+`a_moved_union_is_left_plain_and_a_variant_is_built_in_place` in `dz/tests/run.rs`, and a
+union section in `tests/run/value_shapes`, the same output before and after on both
+compilers.
