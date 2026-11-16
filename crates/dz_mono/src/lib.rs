@@ -426,6 +426,7 @@ pub fn owner_sym(owner: &BodyOwner) -> Option<SymbolId> {
         BodyOwner::Method { owner, .. }
         | BodyOwner::Ctor { owner, .. }
         | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::PayloadDefault { owner, .. }
         | BodyOwner::TraitDefaults { owner, .. }
         | BodyOwner::AssocConst { owner, .. } => Some(*owner),
         BodyOwner::ImplMethod { .. } => None,

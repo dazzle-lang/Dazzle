@@ -135,6 +135,13 @@ pub enum BodyOwner {
         owner: SymbolId,
         index: usize,
     },
+    /// The initialiser of a union variant's payload field with a default, as a struct
+    /// field's (spec §7.5): field `index` of variant `variant`.
+    PayloadDefault {
+        owner: SymbolId,
+        variant: usize,
+        index: usize,
+    },
     /// A trait method with no body, kept only for its parameters' default arguments: a
     /// trait object's forwarding members declare them (spec §7.2, §7.6).
     TraitDefaults {

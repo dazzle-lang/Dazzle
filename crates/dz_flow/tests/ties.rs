@@ -805,7 +805,9 @@ fn passes_default(w: &mut World) kills w.bag@items {
     for (_, body) in fixture.checked.hir.bodies() {
         if matches!(
             body.owner,
-            dz_hir::BodyOwner::Const(_) | dz_hir::BodyOwner::FieldDefault { .. }
+            dz_hir::BodyOwner::Const(_)
+                | dz_hir::BodyOwner::FieldDefault { .. }
+                | dz_hir::BodyOwner::PayloadDefault { .. }
         ) {
             let a = ties::analyse_body(body, &fixture.checked.table, &fixture.res);
             assert!(a.incomplete.is_empty(), "{a:#?}");

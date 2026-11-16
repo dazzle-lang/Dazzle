@@ -2182,3 +2182,9 @@ error[DZ0588]: a `Box<Meter>` cannot be used as a `Box<Gauge>`: `Gauge` has no `
      │            ^ dropping this through a `Box<Gauge>` would drop and free only a `Gauge`
      │
      = help: a `Box` reaches what it holds through the vtable, so give `Gauge` a `virtual` method, or keep the `Box<Meter>`; an `Rc<Gauge>` converts without one (spec §14.5)
+
+error[DZ0501]: expected `i32`, found `&str`
+     ┌─ typeerrors/src/errors.dz:1768:25
+     │
+1768 │     Text { width: i32 = "wide" }
+     │                         ^^^^^^ this is `&str`

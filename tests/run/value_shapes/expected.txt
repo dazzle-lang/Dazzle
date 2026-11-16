@@ -1,3 +1,9 @@
+defaults
+dot 1
+label 3 10 badge
+label 4 10 named
+label 2 1 badge
+some 2.5 7
 unions
   step 1
   step 3

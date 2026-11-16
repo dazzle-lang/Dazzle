@@ -2503,6 +2503,7 @@ fn owner_module(owner: &BodyOwner, a: &Analysis) -> dz_project::ModuleId {
         | BodyOwner::Ctor { owner, .. }
         | BodyOwner::AssocConst { owner, .. }
         | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::PayloadDefault { owner, .. }
         | BodyOwner::TraitDefaults { owner, .. } => *owner,
         BodyOwner::ImplMethod { imp, .. } => {
             return a.table.as_ref().unwrap().impls()[*imp as usize].module;

@@ -709,6 +709,7 @@ fn analyse(
             | BodyOwner::Static(_)
             | BodyOwner::AssocConst { .. }
             | BodyOwner::FieldDefault { .. }
+            | BodyOwner::PayloadDefault { .. }
     ) {
         // An initialiser has no parameters and no clause, so nothing a caller sees can
         // die in it and there is no summary to be incomplete; its uses are still walked.
@@ -1280,6 +1281,7 @@ impl Analysis<'_> {
             | BodyOwner::Ctor { owner, .. }
             | BodyOwner::AssocConst { owner, .. }
             | BodyOwner::FieldDefault { owner, .. }
+            | BodyOwner::PayloadDefault { owner, .. }
             | BodyOwner::TraitDefaults { owner, .. } => Some(*owner),
             BodyOwner::ImplMethod { imp, .. } => {
                 return self.table.impls()[*imp as usize].module;

@@ -79,6 +79,9 @@ impl<'a> Dumper<'a> {
             BodyOwner::FieldDefault { owner, index } => {
                 format!("field-default {}.{index}", self.names.name_of_symbol(*owner))
             }
+            BodyOwner::PayloadDefault { owner, variant, index } => {
+                format!("payload-default {}.{variant}.{index}", self.names.name_of_symbol(*owner))
+            }
             BodyOwner::ImplMethod { imp, name } => format!("impl#{imp} method {name}"),
             BodyOwner::TraitDefaults { owner, name } => {
                 format!("defaults {}::{name}", self.names.name_of_symbol(*owner))

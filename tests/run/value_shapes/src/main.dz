@@ -344,7 +344,55 @@ fn unions() {
     }
 }
 
+/// A payload field's default, as a struct field's (spec §7.5, T-0237): checked against the
+/// field's type, and what a literal that leaves the field out, and the union's own default,
+/// hold. One calls a function declared after it.
+union Badge {
+    Dot { size: i32 = 1 }
+    Label { w: i32 = 2, h: i32 = unit() * 2, text: String = String("badge") }
+}
+
+union Counted<T> {
+    Empty {}
+    Some { value: T, count: i32 = 7 }
+}
+
+fn unit() -> i32 {
+    return 5
+}
+
+fn badge(b: &Badge) {
+    switch b {
+        case Dot(&d) {
+            println!("dot {}", d.size)
+        }
+        case Label(&l) {
+            println!("label {} {} {}", l.w, l.h, l.text)
+        }
+    }
+}
+
+fn defaults() {
+    println!("defaults")
+    let d: Badge
+    badge(&d)
+    badge(&Badge::Label{ w: 3 })
+    badge(&Badge::Label{ w: 4, text: String("named") })
+    badge(&Badge::Label{ h: 1 })
+    // Plain data: the payload is built at its defaults, then the field written is set.
+    let c = Counted<f32>::Some{ value: 2.5 }
+    switch c {
+        case Empty {
+            println!("empty")
+        }
+        case Some(&s) {
+            println!("some {} {}", s.value, s.count)
+        }
+    }
+}
+
 fn main() {
+    defaults()
     unions()
     literals()
     println!("areas {} {} {} {}", area(&Shape::Dot{}), area(&Shape::Circle{ r: 2 }), area(&Shape::Circle{ r: 11 }), area(&Shape::Box{ w: 3, h: 4 }))

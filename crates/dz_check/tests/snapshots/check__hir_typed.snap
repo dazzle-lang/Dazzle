@@ -24421,3 +24421,24 @@ body fn moved_by_default -> usize
         local _7 total: usize
         call-method List::len: usize
           local _4 copies: List<String>
+body payload-default Pane.0.1 -> void
+  block
+    int 80: i32
+body fn pane_width -> i32
+  block
+    let _0 p: Pane
+      union-variant Pane#0: Pane
+        #0
+          int 1: i32
+        #1 (default)
+    switch: !
+      local _0 p: Pane
+      case #0 bind _1 t
+        block
+          return: !
+            field #1: i32
+              local _1 t: Pane::Text
+      case #1 bind _
+        block
+          return: !
+            int 0: i32

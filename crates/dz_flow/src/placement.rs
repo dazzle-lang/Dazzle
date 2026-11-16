@@ -376,6 +376,7 @@ pub fn owner_module(table: &TypeTable, res: &Resolution, owner: &BodyOwner) -> M
         | BodyOwner::Ctor { owner, .. }
         | BodyOwner::AssocConst { owner, .. }
         | BodyOwner::FieldDefault { owner, .. }
+        | BodyOwner::PayloadDefault { owner, .. }
         | BodyOwner::TraitDefaults { owner, .. } => *owner,
         BodyOwner::ImplMethod { imp, .. } => return table.impls()[*imp as usize].module,
     };
@@ -1314,7 +1315,9 @@ impl<'a> Cx<'a> {
         let what = match &self.body.owner {
             BodyOwner::Const(_) | BodyOwner::AssocConst { .. } => Some("a constant's value"),
             BodyOwner::Static(_) => Some("a static's value"),
-            BodyOwner::FieldDefault { .. } => Some("a field's default"),
+            BodyOwner::FieldDefault { .. } | BodyOwner::PayloadDefault { .. } => {
+                Some("a field's default")
+            }
             _ => None,
         };
         if let Some(what) = what {
@@ -2277,7 +2280,9 @@ impl<'a> Cx<'a> {
             BodyOwner::Drop(owner) => format!("`{}`'s drop", sym(owner)),
             BodyOwner::Const(s) | BodyOwner::Static(s) => format!("`{}`", sym(s)),
             BodyOwner::AssocConst { name, .. } => format!("`{name}`"),
-            BodyOwner::FieldDefault { owner, .. } => format!("`{}`", sym(owner)),
+            BodyOwner::FieldDefault { owner, .. } | BodyOwner::PayloadDefault { owner, .. } => {
+                format!("`{}`", sym(owner))
+            }
         }
     }
 

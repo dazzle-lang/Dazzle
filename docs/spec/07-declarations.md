@@ -326,6 +326,11 @@ switch s {
 A variant with no payload is written with empty braces, `Point {}`, and built as
 `Shape::Point` or `Shape::Point{}`.
 
+A payload field may have a default, as a struct field may (§6.2, §7.1): `Rect { w: f32, h: f32
+= 1 }`. The default is checked against the field's type, a variant literal may leave the
+field out, `Shape::Rect{ w: 2 }`, and the union's own default, its first variant, holds its
+first variant's defaults. `[DECIDED — T-0237]`
+
 **A bare variant is an existing struct.** Written without braces, a variant names a struct in
 scope and carries a value of it:
 

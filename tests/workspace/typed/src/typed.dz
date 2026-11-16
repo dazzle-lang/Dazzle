@@ -2471,3 +2471,18 @@ fn moved_by_default(names: &List<String>) -> usize {
     }
     return total + copies.len()
 }
+
+// §7.5 (T-0237): a payload field's default, checked against the field's type as a struct
+// field's is, and left out by a literal.
+union Pane {
+    Text { body: i32, width: i32 = 80 }
+    Blank {}
+}
+
+fn pane_width() -> i32 {
+    let p = Pane::Text{ body: 1 }
+    switch p {
+        case Text(t) { return t.width }
+        case Blank { return 0 }
+    }
+}

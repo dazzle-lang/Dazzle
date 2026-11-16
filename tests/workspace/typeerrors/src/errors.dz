@@ -1761,3 +1761,9 @@ pub struct Meter : Gauge {
 fn boxed_gauge(d: Box<Meter>) -> Box<Gauge> {
     return d
 }
+
+// A union payload field's default of the wrong type (spec §7.5, T-0237): DZ0501, where it
+// was accepted unchecked.
+pub union Margin {
+    Text { width: i32 = "wide" }
+}

@@ -2,7 +2,7 @@
 id: T-0237
 title: "A union payload field's default is accepted, never checked, and never applied"
 milestone: M12
-status: open
+status: done
 kind: bug
 area: checker
 ---
@@ -46,3 +46,21 @@ leaves the field out) and add it to §7.5 with a revision row.
 | Where struct field defaults get a body | `MemberKind::Field` in `crates/dz_check/src/check.rs` |
 | The payload struct's fields, emitted | `union_decl` in `crates/dz_cpp/src/lib.rs` |
 | A literal that leaves a payload field out | `union_literal` in `crates/dz_cpp/src/lib.rs` (the general path) |
+
+**Done 2026-11-16 (r136), the user's choice of (b): a payload field's default is a struct
+field's.**
+
+- **Checked.** Each default is a body of its own, `BodyOwner::PayloadDefault { owner,
+  variant, index }`, checked against the field's type: `w: i32 = "text"` is `DZ0501` at the
+  default. `a_payload_default_is_checked_against_its_field` in `dz_check/tests/check.rs`,
+  and the matched pair: `Pane` in `typed/` and `Margin` in `typeerrors/`.
+- **Applied.** The generated payload struct gives the field its default as a member
+  initialiser, so a literal that leaves it out, either path (`union_literal` builds the
+  payload in place or at its defaults), and `let u: U` hold it. A plain-data union's literal
+  now builds the payload before it sets the fields written: it set only the tag and those
+  fields, so a field left out was whatever the storage held, which only a default could
+  reach. A default calling a function of its module is declared first, as T-0167 did for a
+  struct field's (`field_default_prototypes`).
+- `tests/run/value_shapes` holds the values: trailing and middle fields left out, a
+  `String` default, one calling a function declared later, a generic union's, and the
+  union's own default, the same on clang++ and g++ and warning-clean on both.

@@ -3143,8 +3143,12 @@ impl<'a> Emitter<'a> {
     /// live in a member initialiser, where nothing can be hoisted — so one that needs
     /// statements is built by a lambda called in place.
     fn field_default(&mut self, sym: SymbolId, index: usize) -> Option<String> {
-        let owner = BodyOwner::FieldDefault { owner: sym, index };
-        let body = self.find_body(&owner)?;
+        self.default_value(&BodyOwner::FieldDefault { owner: sym, index })
+    }
+
+    /// The value of a default's body, a struct field's or a union payload field's, rendered.
+    fn default_value(&mut self, owner: &BodyOwner) -> Option<String> {
+        let body = self.find_body(owner)?;
         let (pre, text) = self.in_body(body, |e| {
             let root = body.block(body.root);
             match root.stmts.first().map(|s| body.stmt(*s)) {
@@ -3249,11 +3253,22 @@ impl<'a> Emitter<'a> {
         }
         self.header.push_str("    };\n\n");
 
-        for v in variants.iter().filter(|v| v.carries.is_none()) {
+        for (vi, v) in variants.iter().enumerate().filter(|(_, v)| v.carries.is_none()) {
             let _ = writeln!(self.header, "    struct {}_t {{", sanitize(&v.name));
-            for f in &v.fields {
+            for (fi, f) in v.fields.iter().enumerate() {
                 let ty = self.cpp_ty(&f.ty);
-                let _ = writeln!(self.header, "        {ty} {}{{}};", sanitize(&f.name));
+                let name = sanitize(&f.name);
+                // A field's default is its member initialiser, as a struct field's is: what a
+                // literal that leaves it out, and the union's own default, build (T-0237).
+                let owner = BodyOwner::PayloadDefault { owner: sym, variant: vi, index: fi };
+                match self.default_value(&owner) {
+                    Some(d) => {
+                        let _ = writeln!(self.header, "        {ty} {name} = {d};");
+                    }
+                    None => {
+                        let _ = writeln!(self.header, "        {ty} {name}{{}};");
+                    }
+                }
             }
             self.header.push_str("    };\n");
         }
@@ -3398,11 +3413,29 @@ impl<'a> Emitter<'a> {
     fn field_default_prototypes(&mut self, own_types: &[(FileId, &Item, SymbolId)]) {
         let mut called: Vec<SymbolId> = Vec::new();
         for &(_, item, sym) in own_types {
-            let ItemKind::Struct(_) = &item.kind else { continue };
-            let Some(sig) = self.table.struct_sig(sym) else { continue };
-            for index in 0..sig.fields.len() {
-                let Some(body) = self.find_body(&BodyOwner::FieldDefault { owner: sym, index })
-                else {
+            // A struct's field defaults, and a union's payload defaults (T-0237).
+            let owners: Vec<BodyOwner> = match (&item.kind, self.table.get(sym)) {
+                (ItemKind::Struct(_), _) => match self.table.struct_sig(sym) {
+                    Some(sig) => (0..sig.fields.len())
+                        .map(|index| BodyOwner::FieldDefault { owner: sym, index })
+                        .collect(),
+                    None => continue,
+                },
+                (ItemKind::Union(_), Some(ItemSig::Union { variants, .. })) => variants
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(variant, v)| {
+                        (0..v.fields.len()).map(move |index| BodyOwner::PayloadDefault {
+                            owner: sym,
+                            variant,
+                            index,
+                        })
+                    })
+                    .collect(),
+                _ => continue,
+            };
+            for owner in owners {
+                let Some(body) = self.find_body(&owner) else {
                     continue;
                 };
                 for x in &body.exprs {
@@ -4146,7 +4179,8 @@ impl<'a> Emitter<'a> {
             | hir::BodyOwner::Copy(owner)
             | hir::BodyOwner::Drop(owner)
             | hir::BodyOwner::AssocConst { owner, .. }
-            | hir::BodyOwner::FieldDefault { owner, .. } => Some(*owner),
+            | hir::BodyOwner::FieldDefault { owner, .. }
+            | hir::BodyOwner::PayloadDefault { owner, .. } => Some(*owner),
             _ => None,
         };
         while let Some(sym) = class {
@@ -6090,7 +6124,20 @@ impl<'a> Emitter<'a> {
             _ => Vec::new(),
         };
         let switch_to = if self.table.union_is_trivial(owner, &union_args) {
-            format!("{tmp}.kind = {ty}::Kind::{name};")
+            // The payload is built at its defaults before the fields written are set: a
+            // field left out has its declared default (T-0237), where it was whatever the
+            // union's storage held.
+            let payload = match self.table.get(owner) {
+                Some(ItemSig::Union { variants, .. }) => {
+                    variants.get(index).is_some_and(|v| v.carries.is_none())
+                }
+                _ => false,
+            };
+            if payload {
+                format!("{tmp}.kind = {ty}::Kind::{name}; {tmp}.{name} = {ty}::{name}_t{{}};")
+            } else {
+                format!("{tmp}.kind = {ty}::Kind::{name};")
+            }
         } else {
             format!("{tmp}.become({ty}::Kind::{name});")
         };

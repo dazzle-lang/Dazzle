@@ -219,6 +219,18 @@ fn every_rule_has_a_failing_case() {
     }
 }
 
+/// Spec §7.5 (T-0237): a union payload field's default is checked against the field's type,
+/// as a struct field's is, once, and a literal may then leave the field out.
+#[test]
+fn a_payload_default_is_checked_against_its_field() {
+    let wrong = snippet("union U {\n A { x: i32 }\n B { y: i32, w: i32 = \"text\" }\n}\n");
+    assert_eq!(wrong, vec![dz_diag::codes::TYPE_MISMATCH]);
+    assert!(snippet(
+        "union U {\n A { x: i32 }\n B { y: i32, w: i32 = 1 }\n}\n\nfn f() -> U {\n return U::B{ y: 2 }\n}\n"
+    )
+    .is_empty());
+}
+
 /// Spec §5.2: one missing `unsafe` is one mistake, however many raw-memory operations
 /// sit inside the expression it should have wrapped.
 #[test]

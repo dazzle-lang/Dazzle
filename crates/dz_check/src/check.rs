@@ -172,6 +172,26 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
         ItemKind::Union(u) => {
             let Some(sym) = cx.symbol_of(it) else { return };
             cx.push_declared_params(sym);
+            // A payload field's default is checked against the field's type, as a struct
+            // field's is (spec §7.5, T-0237): it was accepted unchecked and never applied.
+            for (vi, v) in u.variants.iter().enumerate() {
+                for (fi, f) in v.fields.iter().enumerate() {
+                    let Some(default) = &f.default else { continue };
+                    let expected = match cx.table.get(sym) {
+                        Some(ItemSig::Union { variants, .. }) => variants
+                            .get(vi)
+                            .and_then(|sig| sig.fields.get(fi))
+                            .map(|field| field.ty.clone())
+                            .unwrap_or(Ty::Error),
+                        _ => Ty::Error,
+                    };
+                    let owner = BodyOwner::PayloadDefault { owner: sym, variant: vi, index: fi };
+                    let mut body = Body::new(cx, Some(sym), Ty::Void, owner, default.span);
+                    let checked = body.expr(default, Some(&expected));
+                    body.expect(&expected, &checked.ty, default.span);
+                    body.finish_value(default.span, checked);
+                }
+            }
             check_members(cx, sym, &u.methods);
             report_duplicate_methods(cx, sym);
             cx.pop_params();
