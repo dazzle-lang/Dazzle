@@ -44,8 +44,9 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    T-0236 (fixed) and T-0237, a payload field's default, the user's call.
 3. What is left of T-0231: `json`'s convert loop drops five moved-from `List<String>`s a
    record through its struct's drop, and builds a `Res<Record>` for every return.
-5. The user's decisions: whether `json` prices reflection (10–13 ms, T-0225) and `main`'s
-   region (T-0233, 4 ms and 9 MiB).
+5. `json`'s reflection, the user's choice of 2026-11-16: the writer stays reflective and
+   works out each type's plan once (T-0225); `json` is 0.93× on clang++ and 1.06× on g++.
+   Still the user's decision: `main`'s region (T-0233, 4 ms and 9 MiB).
 6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and
    T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
    could still cost something.

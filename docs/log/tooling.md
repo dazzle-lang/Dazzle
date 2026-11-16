@@ -2071,3 +2071,21 @@ New tests: `a_checks_location_is_a_constant_of_its_function` and
 `a_moved_union_is_left_plain_and_a_variant_is_built_in_place` in `dz/tests/run.rs`, and a
 union section in `tests/run/value_shapes`, the same output before and after on both
 compilers.
+
+## `json`'s reflective writer works out each type once (T-0225; 2026-11-16)
+
+Benchmark work, no compiler or language change. Asked whether reflection could be faster,
+the user chose to keep `json`'s writer reflective rather than write `to_json` by hand or
+generate it (§13.4). It was redoing, for every value, work whose answer depends only on the
+type: comparing the type's name with `"List<"`, reading each field's tag again (and checking
+it is UTF-8), and searching a list's fields for `m_data` and `m_len`. `Writer` now prepares
+a `Plan` per `TypeId` the first time it meets the type, keys quoted and tags read, and
+writing a value only reads it.
+
+Its own instructions halve on both compilers. `json` is 0.93× its C++ half on clang++ (from
+0.96×, 2.2% faster) and 1.06× on g++, level: there g++ then kept `String::push_str` out of
+line in `Formatter::write_str`, after inlining `make_room` into it, which costs about what
+the writer saved. A hand-made `cold, noinline` on `make_room` moved that luck around rather
+than removing it (better with this writer, worse with the old). The writer is more code:
+the release build from clean is 0.05 s longer on clang++ and 0.15 s on g++ (1.23 s against
+C++'s 0.70, inside T-0180's twice). T-0225 has the table.

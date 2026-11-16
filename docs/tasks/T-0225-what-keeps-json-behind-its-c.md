@@ -147,3 +147,29 @@ the general path on 226 million values, random bit patterns, decimals of few dig
 whole numbers, on both compilers: the same bytes. `tests/run/float_text` has both sides of
 each bound, with and without `to_chars`. On `json` alone: 2.2% fewer instructions on
 clang++ and 2.4% on g++ (`shortest_fixed` in `runtime.rs`).
+
+**2026-11-16: the reflective writer works out each type once**, the user's choice over
+writing `to_json` by hand or generating it with a macro (§13.4): the benchmark keeps pricing
+reflection at run time, done as a reflective serializer is done well. The writer (`Writer`
+in `tests/bench_programs/json/src/main.dz`) prepares a `Plan` per `TypeId` the first time
+it meets the type: an object's public fields with their keys already quoted, `"name":`, and
+their tags read; a list's storage and length offsets; an optional's. Writing a value reads
+its plan, where it compared the type's name with `"List<"`, read every field's tag again
+(`tag_value`, which also checks it is UTF-8 each time) and searched each list's fields for
+`m_data` and `m_len`, for every value. The checksum is the same.
+
+Against the build before it (instructions, and 11 interleaved runs):
+
+| `json` | Instructions | Time | Against the C++ half (`RESULTS.md`) |
+|---|---:|---:|---:|
+| clang++ | -4.0% | -2.2% | 0.93×, from 0.96× |
+| g++ | +3.3% | level | 1.06×, as it was |
+
+The writer's own instructions halve on both compilers (g++: 337 M to 153 M). On g++ the
+total still rises, because g++ then decides differently elsewhere: `String::push_str` is no
+longer inlined into `Formatter::write_str` (`max-inline-insns-single`), since g++ first
+inlined `make_room` into `push_str`; before, `make_room` stayed a call and `push_str` stayed
+small enough. Marking `make_room` `cold, noinline` by hand helped g++ with this writer
+(-1.5%) and hurt it with the old one (+2.1%), so it is inlining luck, not an attribute to
+add. The writer is more code: `json`'s release build from clean is 0.96 to 1.01 s on
+clang++ and 1.08 to 1.23 s on g++ (C++: 0.72 and 0.70).

@@ -545,120 +545,202 @@ fn write_text(f: &mut Formatter, s: &str) {
 
 const HEX: [16]u8 = ['0' as u8, '1' as u8, '2' as u8, '3' as u8, '4' as u8, '5' as u8, '6' as u8, '7' as u8, '8' as u8, '9' as u8, 'a' as u8, 'b' as u8, 'c' as u8, 'd' as u8, 'e' as u8, 'f' as u8]
 
-/// Every public field, by its tag's name when it has one.
-fn write_fields(f: &mut Formatter, value: ^u8, all: &[]FieldInfo) {
-    f.write_char('{')
-    let mut first = true
-    for &field in all {
-        if field.vis != Visibility::Public {
-            continue
-        }
-        if !first {
-            f.write_char(',')
-        }
-        first = false
-        f.write_char('"')
-        f.write_str(field.tag_value("json") or field.name)
-        f.write_str("\":")
-        write_value(f, at(value, field.offset), field.type_id)
-    }
-    f.write_char('}')
+/// How the writer writes a value of one type, worked out from the type table the first time
+/// it meets the type: the keys already quoted, with tags read; a list's storage found among
+/// its fields. Reading these for every value instead, by the type's name, each field's tag
+/// and each list's field names, was most of what the writer cost over the C++ half's
+/// hand-written one (T-0225).
+union Plan {
+    Null {}
+    Text {}
+    Bool {}
+    F32 {}
+    F64 {}
+    U64 {}
+    Maybe { value: usize, has: usize, elem: TypeId }
+    Array { data: usize, len: usize, elem: TypeId, step: usize }
+    Object { fields: List<Key> }
 }
 
-/// A `List<T>` as an array: its storage and length, from its own fields.
-fn write_list(f: &mut Formatter, value: ^u8, all: &[]FieldInfo) {
-    let mut data: usize = 0
-    let mut len: usize = 0
-    let mut elem = TypeId{ index: 0 }
-    for &field in all {
-        if field.name == "m_data" {
-            data = unsafe {
-                (at(value, field.offset) as ^usize)^
-            }
-            elem = typeinfo(field.type_id).elem
-        } else if field.name == "m_len" {
-            len = unsafe {
-                (at(value, field.offset) as ^usize)^
-            }
-        }
-    }
-    let step = typeinfo(elem).size
-    f.write_char('[')
-    for i in 0..len {
-        if i > 0 {
-            f.write_char(',')
-        }
-        write_value(f, unsafe {
-            (data + i * step) as ^u8
-        }, elem)
-    }
-    f.write_char(']')
+/// A field the writer writes: its key, as written, `"name":`, and where its value is.
+struct Key {
+    pub text:    String
+    pub offset:  usize
+    pub type_id: TypeId
 }
 
-/// The value of type `id` at `value`, as JSON.
-fn write_value(f: &mut Formatter, value: ^u8, id: TypeId) {
-    if id == typeid_of<String>() {
-        let s = unsafe {
-            value as ^String
-        } or unreachable
-        write_text(f, s.as_str())
-        return
+/// A serializer written once, against the type table, for every type (spec §13).
+struct Writer {
+    /// By `TypeId`'s index; `none` for a type not met yet.
+    m_plans: List<Plan?>
+
+    /// The plans: preparing one may move them all.
+    tie @plans = m_plans@items, m_plans[*]
+
+    /// The plan for `id` and for every type a value of it holds, each worked out once.
+    pub fn prepare(&mut self, id: TypeId) kills self@plans {
+        let i = id.index as usize
+        if i < m_plans.len() {
+            if let &_ = m_plans[i] {
+                return
+            }
+        }
+        let info = typeinfo(id)
+        // What a value of this type holds, prepared after this one is stored, so a type that
+        // holds itself stops there.
+        let mut inner: List<TypeId>
+        let plan = if id == typeid_of<String>() {
+            Plan::Text{}
+        } else {
+            switch info.kind {
+                case Struct {
+                    if info.name.starts_with("List<") {
+                        let mut data: usize = 0
+                        let mut len: usize = 0
+                        let mut elem = TypeId{ index: 0 }
+                        for &field in info.fields {
+                            if field.name == "m_data" {
+                                data = field.offset
+                                elem = typeinfo(field.type_id).elem
+                            } else if field.name == "m_len" {
+                                len = field.offset
+                            }
+                        }
+                        inner.push(elem)
+                        Plan::Array{ data: data, len: len, elem: elem, step: typeinfo(elem).size }
+                    } else {
+                        // Every public field, by its tag's name when it has one.
+                        let mut fields: List<Key>
+                        for &field in info.fields {
+                            if field.vis != Visibility::Public {
+                                continue
+                            }
+                            let name = field.tag_value("json") or field.name
+                            fields.push(Key{ text: format!("\"{}\":", name), offset: field.offset, type_id: field.type_id })
+                            inner.push(field.type_id)
+                        }
+                        Plan::Object{ fields: fields }
+                    }
+                }
+                case Bool {
+                    Plan::Bool{}
+                }
+                case F32 {
+                    Plan::F32{}
+                }
+                case F64 {
+                    Plan::F64{}
+                }
+                case U64 {
+                    Plan::U64{}
+                }
+                case Optional {
+                    inner.push(info.elem)
+                    Plan::Maybe{ value: info.fields[0].offset, has: info.fields[1].offset, elem: info.elem }
+                }
+                default {
+                    Plan::Null{}
+                }
+            }
+        }
+        if i >= m_plans.len() {
+            m_plans.resize(i + 1)
+        }
+        m_plans[i] = plan
+        for t in inner {
+            self.prepare(t)
+        }
     }
-    let info = typeinfo(id)
-    switch info.kind {
-        case Struct {
-            if info.name.starts_with("List<") {
-                write_list(f, value, info.fields)
-            } else {
-                write_fields(f, value, info.fields)
+
+    /// The value of type `id` at `value`, as JSON. `id`'s plan is prepared.
+    pub fn write(&self, f: &mut Formatter, value: ^u8, id: TypeId) {
+        if let &plan = m_plans[id.index as usize] {
+            switch plan {
+                case Null {
+                    f.write_str("null")
+                }
+                case Text {
+                    let s = unsafe {
+                        value as ^String
+                    } or unreachable
+                    write_text(f, s.as_str())
+                }
+                case Bool {
+                    f.write_str(if unsafe {
+                        (value as ^bool)^
+                    } {
+                        "true"
+                    } else {
+                        "false"
+                    })
+                }
+                case F32 {
+                    unsafe {
+                        (value as ^f32)^
+                    }.format(f)
+                }
+                case F64 {
+                    unsafe {
+                        (value as ^f64)^
+                    }.format(f)
+                }
+                case U64 {
+                    unsafe {
+                        (value as ^u64)^
+                    }.format(f)
+                }
+                case Maybe(&m) {
+                    if unsafe {
+                        (at(value, m.has) as ^bool)^
+                    } {
+                        self.write(f, at(value, m.value), m.elem)
+                    } else {
+                        f.write_str("null")
+                    }
+                }
+                case Array(&a) {
+                    let data = unsafe {
+                        (at(value, a.data) as ^usize)^
+                    }
+                    let len = unsafe {
+                        (at(value, a.len) as ^usize)^
+                    }
+                    f.write_char('[')
+                    for i in 0..len {
+                        if i > 0 {
+                            f.write_char(',')
+                        }
+                        self.write(f, unsafe {
+                            (data + i * a.step) as ^u8
+                        }, a.elem)
+                    }
+                    f.write_char(']')
+                }
+                case Object(&o) {
+                    f.write_char('{')
+                    for i, &key in o.fields.indexed() {
+                        if i > 0 {
+                            f.write_char(',')
+                        }
+                        f.write_str(key.text.as_str())
+                        self.write(f, at(value, key.offset), key.type_id)
+                    }
+                    f.write_char('}')
+                }
             }
-        }
-        case Bool {
-            f.write_str(if unsafe {
-                (value as ^bool)^
-            } {
-                "true"
-            } else {
-                "false"
-            })
-        }
-        case F32 {
-            unsafe {
-                (value as ^f32)^
-            }.format(f)
-        }
-        case F64 {
-            unsafe {
-                (value as ^f64)^
-            }.format(f)
-        }
-        case U64 {
-            unsafe {
-                (value as ^u64)^
-            }.format(f)
-        }
-        case Optional {
-            if unsafe {
-                (at(value, info.fields[1].offset) as ^bool)^
-            } {
-                write_value(f, at(value, info.fields[0].offset), info.elem)
-            } else {
-                f.write_str("null")
-            }
-        }
-        default {
-            f.write_str("null")
         }
     }
 }
 
 /// Any value as JSON: the one generic entry point, which is all the type table needs.
 fn to_json<view T>(value: &T) -> String {
+    let mut writer: Writer
+    writer.prepare(typeid_of<T>())
     let mut out = String()
     {
         let mut f = Formatter::string(&mut out)
         let p: ^T = value
-        write_value(&mut f, unsafe {
+        writer.write(&mut f, unsafe {
             p as ^u8
         }, typeid_of<T>())
     }

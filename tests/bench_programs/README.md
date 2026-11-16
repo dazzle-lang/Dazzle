@@ -148,8 +148,13 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   compiler ([T-0234](../../docs/tasks/T-0234-what-kept-json-raytrace-behind-c.md)). What
   was found instead, with what each is worth, is in that task; two were fixed with it, a
   pushed element moved once less and g++'s limit on how far a whole program may grow by
-  inlining. About 10 ms of what is left is the benchmark's own: this half writes through
-  reflection and the C++ half's writer is by hand. On the way before that: `{}` writes a float's
+  inlining. Part of what is left is the benchmark's own: this half writes through
+  reflection and the C++ half's writer is by hand. Since 2026-11-16 the reflective writer
+  works out how to write each type once, from the type table, its keys quoted and its tags
+  read, rather than by the type's name, each field's tag and each list's field names for
+  every value: its own instructions halve, and `json` is 0.93× on clang++, from 0.96×, and
+  1.06× on g++, where the inliner then kept `String::push_str` out of line elsewhere
+  (T-0225). On the way before that: `{}` writes a float's
   shortest digits through `std::to_chars` (r130, D-0101), where it was `snprintf("%g")`; a
   moved-from local that nothing can see is not reset, and `let v = f() or return` names the
   value where it is; `List` starts small; and a `^mut Allocator` is one word (r132,
