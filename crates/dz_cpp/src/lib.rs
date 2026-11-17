@@ -302,6 +302,8 @@ pub fn emit_selected(
             file_local: HashSet::new(),
             local_protos: String::new(),
             in_place_source: None,
+            moved_locals: Vec::new(),
+            keep_holder: false,
             site_consts: None,
         };
         e.emitting = module.id;
@@ -492,6 +494,8 @@ pub fn emit_selected(
             file_local: HashSet::new(),
             local_protos: String::new(),
             in_place_source: None,
+            moved_locals: Vec::new(),
+            keep_holder: false,
             site_consts: None,
         };
         if type_info == dz_project::TypeInfo::All {
@@ -842,6 +846,12 @@ struct Emitter<'a> {
     /// the statement's own block that nothing reads again, so a `let` it initialises can
     /// name it rather than move out of it (see `StmtKind::Let`).
     in_place_source: Option<String>,
+    /// The current body's locals that are moved out before anything can leave their
+    /// block, built in storage C++ never destroys ([`Emitter::moved_out_locals`]).
+    moved_locals: Vec<LocalId>,
+    /// Set by a `let` of such a local whose value `or_in_place` reads where it is: the
+    /// result or optional holding it goes in storage C++ never destroys too.
+    keep_holder: bool,
     /// While a function's body is emitted, the locations it passes, each declared once at
     /// the top of the body as a `static constexpr` constant (T-0220): the field list a
     /// location is built from, and the constant's name. `None` outside a body, where a
@@ -4218,7 +4228,10 @@ impl<'a> Emitter<'a> {
         let views = dz_flow::views::loop_views(body, self.table, self.res);
         let saved_loop_views = std::mem::replace(&mut self.loop_views, views);
         let saved_views = std::mem::take(&mut self.views);
+        let moved = self.moved_out_locals(body);
+        let saved_moved = std::mem::replace(&mut self.moved_locals, moved);
         let result = self.capture(f);
+        self.moved_locals = saved_moved;
         self.loop_views = saved_loop_views;
         self.views = saved_views;
         self.body = saved_body;
@@ -4639,10 +4652,30 @@ impl<'a> Emitter<'a> {
                         }
                         return;
                     }
+                    // A local moved out before anything can leave its block is an empty husk
+                    // when the block ends. When the `let` reads it where an `or` found it and
+                    // its drop is silent, the result or optional holding it, which C++ would
+                    // destroy with it, is built in storage C++ never destroys (T-0231).
+                    let keep =
+                        self.moved_locals.contains(l) && self.binds_in_place(*init, &local_ty);
                     self.in_place_source = None;
+                    self.keep_holder = keep;
                     let (pre, v) = self.capture(|e| e.stored(&local_ty, *init));
+                    self.keep_holder = false;
                     let in_place = self.in_place_source.take();
                     let unused = self.unused_attr(l.index());
+                    // `let v = f() or return`: the value is where `or` read it, in a
+                    // temporary of this block declared just before `v` and read by nothing
+                    // else, so `v` names it rather than moving it out. The value dies with
+                    // the temporary, right after where `v` would have, so the drops run in
+                    // the order they did; one move of a union per element of a JSON parse is
+                    // gone (T-0225). Only a `let` of the value's own type: a reference to the
+                    // payload is not the `T?` that `let x: T? = f() or return` declares.
+                    let whole = |src: &String| {
+                        (v == *src || v == format!("::dz::rt::mv({src})"))
+                            && body.ty(*init) == &local_ty
+                    };
+                    let in_place = in_place.filter(whole);
                     // A value its region frees whole, whose drop would only free, is built in
                     // storage C++ never destroys: the region's release is its drop (spec
                     // §14.6, T-0118). The name is a reference to it, so every use reads as
@@ -4680,19 +4713,7 @@ impl<'a> Emitter<'a> {
                         self.line(&made(&format!("({v})")));
                     } else {
                         self.write_captured(&pre);
-                        // `let v = f() or return`: the value is where `or` read it, in a
-                        // temporary of this block declared just before `v` and read by
-                        // nothing else, so `v` names it rather than moving it out. The value
-                        // dies with the temporary, right after where `v` would have, so
-                        // the drops run in the order they did; one move of a union per
-                        // element of a JSON parse is gone (T-0225).
-                        // Only a `let` of the value's own type: a reference to the payload is
-                        // not the `T?` that `let x: T? = f() or return` declares.
-                        let whole = |src: &String| {
-                            (v == *src || v == format!("::dz::rt::mv({src})"))
-                                && body.ty(*init) == &local_ty
-                        };
-                        match in_place.filter(whole) {
+                        match in_place {
                             Some(src) => self.line(&format!("{unused}{ty}& {name} = {src};")),
                             None => self.line(&format!("{unused}{ty} {name} = {v};")),
                         }
@@ -6093,10 +6114,38 @@ impl<'a> Emitter<'a> {
         }
 
         // Anything else is built in a lambda, which keeps field defaults working.
+        //
+        // A field that owns something, at a default that owns nothing and drops silently,
+        // moved in from a place, is moved into where it is, over the default, rather than
+        // assigned: the assignment destroyed the default first, a call that found it empty,
+        // for every `List` and `String` of every record `json` converts (T-0231). Not where
+        // the field's declaration gives it a default, which may own something, nor in a
+        // struct C++ does not lay out as Dazzle sees it. Not a value a call builds either:
+        // built over the field, it took the literal's address into the call, and clang++
+        // then kept `words`' `Entry` in memory.
+        let sig = self.table.struct_sig(sym);
+        let rebuilds = sig.is_some_and(|s| s.ctors.is_empty())
+            && !self.is_foreign(sym)
+            && self.thin_impl(sym).is_none();
         let tmp = self.fresh("lit");
         let mut out = format!("[&] {{ {ty} {tmp}{{}}; ");
         for (i, v) in &values {
-            let _ = write!(out, "{tmp}.{} = {v}; ", order[*i].0);
+            let (name, field) = &order[*i];
+            let rebuild = rebuilds
+                && sig.and_then(|s| s.fields.get(*i)).is_some_and(|f| !f.has_default)
+                && fields[*i].is_some_and(|f| {
+                    self.cur().ty(f) == field
+                        && matches!(self.cur().expr(f).kind, hir::ExprKind::Move(_))
+                })
+                && !self.ref_member(field)
+                && self.table.needs_drop(field)
+                && self.default_owns_nothing(field);
+            if rebuild {
+                let fty = self.cpp_ty(field);
+                let _ = write!(out, "::new (static_cast<void*>(&{tmp}.{name})) {fty}({v}); ");
+            } else {
+                let _ = write!(out, "{tmp}.{name} = {v}; ");
+            }
         }
         let _ = write!(out, "return {tmp}; }}()");
         out
@@ -6960,6 +7009,26 @@ impl<'a> Emitter<'a> {
                     || (body.fallible && whole_local && !self.table.plain(body.ty(v)));
                 let ret = body.ret.clone();
                 let text = self.stored(&ret, v);
+                // A literal of a value that owns something is built in the result itself,
+                // where through `good` it was a temporary, moved in and destroyed empty: a
+                // `Record` for each of `json`'s records, and a `Json` for each value its
+                // parser returns (T-0231). Not a value with a `drop` of the program's own,
+                // which would run once less (`drops_silently`).
+                let literal = matches!(
+                    body.expr(v).kind,
+                    hir::ExprKind::StructLit { .. } | hir::ExprKind::UnionVariant { .. }
+                );
+                if body.fallible
+                    && literal
+                    && body.ty(v) == &ret
+                    && self.table.needs_drop(&ret)
+                    && self.drops_silently(&ret)
+                {
+                    let ret = self.cpp_ty(&ret);
+                    return format!(
+                        "return ::dz::rt::Res<{ret}>(::dz::rt::BuiltBy{{}}, [&] {{ return {text}; }})"
+                    );
+                }
                 let text = if moved { format!("::dz::rt::mv({text})") } else { text };
                 if body.fallible {
                     let ret = self.cpp_ty(&body.ret);
@@ -7079,6 +7148,8 @@ impl<'a> Emitter<'a> {
         clause: &hir::OrClause,
         ty: &Ty,
     ) -> Option<String> {
+        // Taken first, so an `or` inside the operand never sees it.
+        let keep = std::mem::take(&mut self.keep_holder);
         if !self.or_reads_in_place(operand, clause, ty) {
             return None;
         }
@@ -7087,20 +7158,36 @@ impl<'a> Emitter<'a> {
         let span = body.expr(e).span;
         let cpp = self.cpp_ty(ty);
         let v = self.expr(operand);
-        let (tmp, source) = if is_res {
-            let tmp = self.fresh("res");
-            self.line(&format!("::dz::rt::Res<{cpp}> {tmp} = {v};"));
-            self.line(&format!("if (!{tmp}.ok) {{"));
-            (tmp.clone(), format!("{tmp}.value"))
+        let (holder, tmp) = if is_res {
+            (format!("::dz::rt::Res<{cpp}>"), self.fresh("res"))
         } else {
-            let tmp = self.fresh("opt");
-            // As in `or_expr`: a move-only optional is consumed.
-            let v = if self.table.copyable(ty) { v } else { self.moved_out(operand, v) };
-            self.line(&format!("::dz::rt::Opt<{cpp}> {tmp} = {v};"));
+            (format!("::dz::rt::Opt<{cpp}>"), self.fresh("opt"))
+        };
+        // As in `or_expr`: a move-only optional is consumed.
+        let v = if is_res || self.table.copyable(ty) { v } else { self.moved_out(operand, v) };
+        if keep {
+            // The `let` this value initialises moves it out before its block can end
+            // ([`Emitter::moved_out_locals`]), so the holder is a husk by then, and is built
+            // in storage C++ never destroys. Only on failure does it hold a value of its
+            // own, the default one it was built with, which the failing branch destroys.
+            self.line(&format!(
+                "::dz::rt::NoDrop<{holder}> {tmp}_kept(::dz::rt::BuiltBy{{}}, [&] {{ return {holder}({v}); }});"
+            ));
+            self.line(&format!("{holder}& {tmp} = {tmp}_kept.value;"));
+        } else {
+            self.line(&format!("{holder} {tmp} = {v};"));
+        }
+        let source = if is_res {
+            self.line(&format!("if (!{tmp}.ok) {{"));
+            format!("{tmp}.value")
+        } else {
             self.line(&format!("if (!{tmp}.has) {{"));
-            (tmp.clone(), format!("::dz::rt::opt_get({tmp})"))
+            format!("::dz::rt::opt_get({tmp})")
         };
         self.indent += 1;
+        if keep {
+            self.line(&format!("::dz::rt::destroy({tmp}.value);"));
+        }
         let error = format!("{tmp}.error");
         self.clause(clause, Dest::None, is_res.then_some(error.as_str()), span);
         self.indent -= 1;
@@ -7177,6 +7264,142 @@ impl<'a> Emitter<'a> {
             Ty::Tuple(parts) => parts.iter().all(|t| self.drops_silently(t)),
             Ty::Param(_) | Ty::Assoc(_) => false,
             _ => !self.table.needs_drop(ty),
+        }
+    }
+
+    /// Whether a `ty` at its defaults owns nothing and drops silently, so building another
+    /// value over it without destroying it loses nothing ([`Self::struct_literal`]). `std`'s
+    /// types own nothing at their defaults ([`Self::drops_silently`]); a struct of the
+    /// program's owns nothing when no constructor builds it and none of its owning fields
+    /// declares a default; an empty optional still holds a default payload.
+    fn default_owns_nothing(&self, ty: &Ty) -> bool {
+        if !self.table.needs_drop(ty) {
+            return true;
+        }
+        if !self.drops_silently(ty) {
+            return false;
+        }
+        match ty {
+            Ty::Named { sym, args } => {
+                if self.res.symbol(*sym).module == self.res.prelude {
+                    return true;
+                }
+                match self.table.get(*sym) {
+                    Some(ItemSig::Struct(s)) => {
+                        s.ctors.is_empty()
+                            && s.fields
+                                .iter()
+                                .zip(self.table.field_types(*sym, args, &s.fields))
+                                .all(|(f, t)| {
+                                    (!f.has_default || !self.table.needs_drop(&t))
+                                        && self.default_owns_nothing(&t)
+                                })
+                    }
+                    Some(ItemSig::Enum { .. }) => true,
+                    _ => false,
+                }
+            }
+            Ty::Optional(inner) | Ty::Array { elem: inner, .. } => self.default_owns_nothing(inner),
+            Ty::Tuple(parts) => parts.iter().all(|t| self.default_owns_nothing(t)),
+            _ => false,
+        }
+    }
+
+    /// The `let x = … or …` locals of `body` that are empty husks whenever their block ends
+    /// (T-0231), so the result or optional the `or` left `x` in, where `x` is named in place
+    /// ([`Self::or_in_place`]), need not be destroyed. A local qualifies when:
+    ///
+    /// - its drop is silent ([`Self::drops_silently`]), so not running it on a moved-from
+    ///   value changes nothing a program sees;
+    /// - its last use is a `move` of the whole local, which a later statement of the
+    ///   `let`'s own block always evaluates ([`always_reaches_stmt`]);
+    /// - nothing from the `let` up to that statement can leave the block, no `return`,
+    ///   `break` or `continue`, `or return` included, except the statement itself being the
+    ///   `return` whose value moves it; with no unwinding, a panic leaves nothing to drop.
+    ///
+    /// `json`'s `let r = to_record(…) or return` then `records.push(r)` is the case: the
+    /// `Res<Record>` holding `r` was destroyed empty, a call into `Record`'s `List` and
+    /// `String` drops, at the end of every record's block. Not where a pointer made by an
+    /// explicit cast could write a value into the husk, which nothing would then drop.
+    ///
+    /// Any other local qualifying so could be built in storage C++ never destroys as well,
+    /// and was, measured: no faster on `json`, and slower on `words`, where `List::exchange`
+    /// moves an element through a local whose inlined drop the compiler had already folded
+    /// away, and clang++ then kept that local on the stack.
+    fn moved_out_locals(&self, body: &hir::Body) -> Vec<LocalId> {
+        use hir::ExprKind as K;
+        if makes_pointers_by_cast(body) {
+            return Vec::new();
+        }
+        let mut exits = Vec::new();
+        let mut uses: HashMap<LocalId, Vec<ExprId>> = HashMap::new();
+        let mut moves: HashMap<ExprId, ExprId> = HashMap::new();
+        for (i, e) in body.exprs.iter().enumerate() {
+            let id = hir::ExprId(i as u32);
+            match e.kind {
+                K::Return(_) | K::Break(_) | K::Continue(_) => exits.push(id),
+                K::Local(l) => uses.entry(l).or_default().push(id),
+                K::Move(x) => {
+                    moves.insert(x, id);
+                }
+                _ => {}
+            }
+        }
+        let within =
+            |outer: Span, inner: Span| outer.start <= inner.start && inner.end <= outer.end;
+        let mut out = Vec::new();
+        for block in &body.blocks {
+            for (i, s) in block.stmts.iter().enumerate() {
+                let hir::StmtKind::Let { local: Some(l), init: Some(init) } = body.stmt(*s).kind
+                else {
+                    continue;
+                };
+                let ty = &body.local(l).ty;
+                if !matches!(body.expr(init).kind, K::Or { .. })
+                    || matches!(ty, Ty::Ref { .. })
+                    || !self.table.needs_drop(ty)
+                    || !self.drops_silently(ty)
+                {
+                    continue;
+                }
+                // The last use, strictly after every other: a macro's tokens share its
+                // invocation's span, which orders nothing.
+                let Some(uses) = uses.get(&l) else { continue };
+                let at = |e: &ExprId| body.expr(*e).span.start;
+                let Some(last) = uses.iter().copied().max_by_key(at) else { continue };
+                if uses.iter().any(|u| *u != last && at(u) >= at(&last)) {
+                    continue;
+                }
+                let Some(&m) = moves.get(&last) else { continue };
+                let rest = &block.stmts[i + 1..];
+                let Some(j) = rest.iter().position(|t| always_reaches_stmt(body, *t, m)) else {
+                    continue;
+                };
+                let range = &rest[..=j];
+                let returned = match body.stmt(range[j]).kind {
+                    hir::StmtKind::Expr(e) if matches!(body.expr(e).kind, K::Return(_)) => Some(e),
+                    _ => None,
+                };
+                let leaves = exits.iter().any(|x| {
+                    Some(*x) != returned
+                        && range.iter().any(|t| within(body.stmt(*t).span, body.expr(*x).span))
+                });
+                if !leaves {
+                    out.push(l);
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether `let x: ty = init` names its value where an `or` read it ([`Self::or_in_place`]).
+    fn binds_in_place(&self, init: ExprId, ty: &Ty) -> bool {
+        let body = self.cur();
+        match &body.expr(init).kind {
+            hir::ExprKind::Or { operand, clause } => {
+                body.ty(init) == ty && self.or_reads_in_place(*operand, clause, ty)
+            }
+            _ => false,
         }
     }
 
@@ -7688,7 +7911,12 @@ fn moved_out_params(body: &hir::Body, table: &TypeTable) -> Vec<LocalId> {
 /// what they are built from, a call's arguments, a literal's fields, and a nested `{ … }`
 /// or `unsafe { … }`, but nothing conditional, looped or deferred.
 fn always_reaches_block(body: &hir::Body, b: hir::BlockId, target: hir::ExprId) -> bool {
-    body.block(b).stmts.iter().any(|s| match &body.stmt(*s).kind {
+    body.block(b).stmts.iter().any(|s| always_reaches_stmt(body, *s, target))
+}
+
+/// Whether running statement `s` always evaluates `target` ([`always_reaches_block`]).
+fn always_reaches_stmt(body: &hir::Body, s: StmtId, target: hir::ExprId) -> bool {
+    match &body.stmt(s).kind {
         hir::StmtKind::Let { init: Some(e), .. }
         | hir::StmtKind::LetTuple { init: e, .. }
         | hir::StmtKind::Expr(e) => always_reaches(body, *e, target),
@@ -7696,7 +7924,7 @@ fn always_reaches_block(body: &hir::Body, b: hir::BlockId, target: hir::ExprId) 
             always_reaches(body, *value, target) || always_reaches(body, *t, target)
         }
         _ => false,
-    })
+    }
 }
 
 fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool {
@@ -7727,6 +7955,9 @@ fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool
             fields.iter().flatten().any(|x| always_reaches(body, *x, target))
         }
         K::Block(b) => always_reaches_block(body, *b, target),
+        // The value is evaluated before the `return` leaves, the operand before the clause
+        // is considered.
+        K::Return(Some(x)) | K::Or { operand: x, .. } => always_reaches(body, *x, target),
         _ => false,
     }
 }

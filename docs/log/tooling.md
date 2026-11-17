@@ -2114,3 +2114,40 @@ read zero, and a default of the wrong type compiled. Now:
 outermost block, on the heap instead, built behind a switch: `json` no smaller (187.2 MiB
 against 187.7 on clang++, 186.7 against 184.7 on g++) and about 1% slower; the other four
 level. The 10 MiB and 4 ms of 2026-11-14 went with r134 and r135. Kept; the switch removed.
+
+## What a move leaves behind, not destroyed where nothing sees it (T-0231; 2026-11-17)
+
+Compiler and runtime work, no language change: every program prints what it printed, drops
+of the program's own included. `json`'s convert loop destroyed five moved-from values a
+record, each a call into `List<String>`'s out-of-line drop that found it empty. Three go, by
+rules that hold for any type whose drops are silent (`drops_silently`):
+
+- **The result an `or` names a local in.** `let r = to_record(…) or return` names `r` where
+  the call's `Res<Record>` holds it (T-0225), and that `Res` was destroyed, empty, at the
+  end of the block. When `r` is moved out before anything can leave the block
+  (`moved_out_locals`), the `Res` is built in `NoDrop`, a union C++ never destroys. On
+  failure it holds a default value of its own, which may own memory (a field default can
+  allocate), so the failing branch destroys that first.
+- **A literal returned from a `!->` function** is built in the result, `Res(BuiltBy, f)`,
+  where `good` took a temporary, moved it in and destroyed it.
+- **A literal's field moved in from a place** is move-constructed over its default, where
+  that default owns nothing (`default_owns_nothing`), rather than assigned, which destroyed
+  the default first.
+
+Instructions against the compiler before, the same day, clang++ / g++: `json` -1.6% /
+-3.0%, `expr` +0.4% / -0.1%, `astar`, `raytrace` and `words` level. Interleaved at full size,
+`json` 205.7 → 203.8 ms on clang++ and 219.2 → 214.9 on g++, and `expr` within 1%.
+`RESULTS.md` is the run after (load 1.0): `json` 204 ms on clang++ (0.92×) and 218 on g++
+(1.05×), its peak memory 184 MiB on both, from 186 and 188; its ten-run medians do not show
+the 2% on g++ that fifteen interleaved runs did. The other programs as they were.
+
+Measured piece by piece, and two pieces not kept: any local moved out so, not only an
+`or`'s, built where C++ never destroys it, which gained nothing on `json` and cost `words`
+0.2% (clang++ kept `List::exchange`'s held element on the stack, in bytes or in a union);
+and a field built by a call over its default, which took the literal's address into the
+call, +0.13% on `words`. The variant literal built in the result costs `expr` 0.6% on g++
+and saves `json` 1.7%, so it stays. What is left of the five, the `tags` local that an `or
+return` can leave before its move and `push`'s by-value parameter, is one call each a record.
+
+New test: `a_moved_out_value_leaves_no_husk_to_destroy` in `dz/tests/run.rs`, which also
+holds a printing `drop` to the order it had and the failing branch to no leak.

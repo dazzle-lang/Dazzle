@@ -251,7 +251,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
 - **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (8 open)
+## M15 — `dz bench`, and the C++ comparison (7 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -260,7 +260,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
-- **[T-0231](tasks/T-0231-moved-from-value-drop-called-though.md)** A moved-from value's drop is called though flow knows it is empty · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

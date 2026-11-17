@@ -1589,6 +1589,149 @@ fn a_moved_union_is_left_plain_and_a_variant_is_built_in_place() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// What a move leaves behind is not destroyed where nothing could see it (T-0231): the
+/// result `let r = f() or return` names `r` in, when `r` is moved out before anything can
+/// leave its block; a literal returned from a `!->` function, built in the result rather
+/// than moved in; and a literal's field moved in over its default rather than assigned.
+/// Not where something could leave the block first (`continue`), nor a field whose
+/// declaration gives it a default, nor anything with a `drop` of the program's own: the
+/// drops print as they did. A failing call's result holds a default value, which the
+/// failing branch destroys: `Pre`'s allocates, and nothing leaks.
+#[test]
+fn a_moved_out_value_leaves_no_husk_to_destroy() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_husks",
+        "[module]\nname = \"husks\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        HUSKS_SRC,
+    );
+    let out =
+        Command::new(dz()).args(["run", "--track-memory", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(!stderr.contains("leak"), "{stderr}");
+    assert_eq!(
+        stdout,
+        "3 2 a tag long enough to be on the heap\n1 0\n\
+         drop 0\ndrop 0\ndrop 0\ndrop 0\ndrop 0\nshelved 1\ndrop 5"
+    );
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/husks.cpp")).unwrap();
+    let body = |name: &str| {
+        let start = cpp
+            .match_indices(&format!(" {name}("))
+            .map(|(i, _)| i)
+            .find(|&i| cpp[i..].lines().next().is_some_and(|l| l.ends_with('{')))
+            .expect(name);
+        let end = cpp[start..].find("\n}\n").map_or(cpp.len(), |e| start + e);
+        cpp[start..end].to_owned()
+    };
+    let make = body("make");
+    assert!(make.contains("::dz::rt::Res<Rec>(::dz::rt::BuiltBy{}"), "{make}");
+    assert!(make.contains("::new (static_cast<void*>(&_dz_lit1.tags))"), "{make}");
+    let pre = body("make_pre");
+    assert!(pre.contains(".text = ::dz::rt::mv(s);"), "a declared default is assigned:\n{pre}");
+    assert!(body("collect").contains("::dz::rt::NoDrop<::dz::rt::Res<Rec>>"));
+    assert!(!body("collect_some").contains("NoDrop"), "`continue` leaves before the move");
+    let first = body("first_pre");
+    assert!(first.contains("::dz::rt::destroy(_dz_res"), "the failing branch:\n{first}");
+    let noisy = body("shelve_noisy");
+    assert!(!noisy.contains("NoDrop"), "{noisy}");
+    assert!(!body("make_noisy").contains("BuiltBy"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const HUSKS_SRC: &str = "\
+struct Rec {
+    pub name: String
+    pub tags: List<String>
+}
+
+struct Pre {
+    pub text: String = String(\"a default long enough to be on the heap\")
+}
+
+struct Noisy {
+    pub id: i32 = 0
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        println!(\"drop {}\", id)
+    }
+}
+
+fn make(n: i32) !-> Rec {
+    if n < 0 {
+        return error(\"no record {}\", n)
+    }
+    let name = String(\"a name long enough to be on the heap\")
+    let mut tags = List<String>()
+    tags.push(String(\"a tag long enough to be on the heap\"))
+    return Rec{ name: name, tags: tags }
+}
+
+fn make_pre(n: i32) !-> Pre {
+    if n < 0 {
+        return error(\"no pre {}\", n)
+    }
+    let s = String(\"a text long enough to be on the heap\")
+    return Pre{ text: s }
+}
+
+fn make_noisy(id: i32) !-> Noisy {
+    return Noisy{ id: id }
+}
+
+fn collect(n: i32) !-> List<Rec> {
+    let mut out = List<Rec>()
+    for i in 0..n {
+        let r = make(i) or return
+        out.push(r)
+    }
+    return out
+}
+
+fn collect_some(n: i32) !-> List<Rec> {
+    let mut out = List<Rec>()
+    for i in 0..n {
+        let r = make(i) or return
+        if i == 1 {
+            continue
+        }
+        out.push(r)
+    }
+    return out
+}
+
+fn first_pre(n: i32) !-> usize {
+    let p = make_pre(n) or return
+    let mut kept = List<Pre>()
+    kept.push(p)
+    return kept.len()
+}
+
+fn shelve_noisy(shelf: &mut List<Noisy>) !-> void kills shelf@items {
+    let n = make_noisy(5) or return
+    shelf.push(n)
+}
+
+fn main() {
+    let all = collect(3) or unreachable
+    let some = collect_some(3) or unreachable
+    println!(\"{} {} {}\", all.len(), some.len(), all[2].tags[0])
+    let a = first_pre(1) or 0
+    let b = first_pre(-1) or 0
+    println!(\"{} {}\", a, b)
+    let mut shelf = List<Noisy>()
+    shelve_noisy(&mut shelf) or unreachable
+    println!(\"shelved {}\", shelf.len())
+}
+";
+
 /// A by-value parameter the body moves on, on every path, is used where it is (T-0234):
 /// the body's own binding, which fixes when a parameter drops under every ABI, cost a
 /// second move of every element pushed to a `List`. Not one the body only reads or moves on

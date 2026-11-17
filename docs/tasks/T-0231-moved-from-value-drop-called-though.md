@@ -2,7 +2,7 @@
 id: T-0231
 title: A moved-from value's drop is called though flow knows it is empty
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
 where: `crates/dz_cpp/src/lib.rs`: where a local's or temporary's C++ destructor runs at scope end; `crates/dz_flow/src/lib.rs`: the move analysis that knows a place was moved from; `crates/dz_project/src/std/memory/box.dz`: `Box`'s drop
@@ -93,3 +93,48 @@ neither measured since.
 |---|---|
 | A variant literal built in place | `union_literal` in `crates/dz_cpp/src/lib.rs`; `no_payload` in `runtime.rs` |
 | A moved-from union left in its first variant | `move_from` in `union_decl`, `crates/dz_cpp/src/lib.rs` |
+
+**Progress, 2026-11-17: structs, and done.** The five a record were, counted with callgrind
+on a debug build: the `tags` local in `to_record`, moved into the literal; the default
+`tags` the literal's move-assignment destroyed; the literal's temporary, moved into
+`Res::good`; the `Res<Record>` that `let r = to_record(…) or return` names `r` in, destroyed
+after `records.push(r)`; and `push`'s by-value parameter. Three are gone, by rules that hold
+for any type whose drops are silent (`drops_silently`), so no `drop` of the program's own
+runs a different number of times:
+
+- **The `or` holder.** A `let x = … or return` local moved out before anything can leave its
+  block (`moved_out_locals`: its last use a `move` a later statement always reaches, with
+  no `return`, `break` or `continue` in between) has its result or optional built in
+  `NoDrop`, a union C++ never destroys; the failing branch destroys the default value the
+  result holds there, which may own memory (a field default can allocate).
+- **A literal returned from a `!->` function** is built in the `Res` (`Res(BuiltBy, f)`),
+  a struct's or a variant's, with no temporary.
+- **A literal's field moved in from a place** is move-constructed over its default rather
+  than assigned, where the default owns nothing (`default_owns_nothing`) and the field's
+  declaration gives none.
+
+Instructions against the compiler before (`8103c0a`), clang++ / g++: `json` -1.6% / -3.0%,
+`expr` +0.4% / -0.1%, `astar`, `raytrace` and `words` level. Interleaved, `json` 205.7 →
+203.8 ms on clang++ and 219.2 → 214.9 on g++; `expr` within 1% either way. In `expr` the
+holder costs clang++ what it saves g++: a moved-from `Expr` is plain, and its inlined drop
+was already folded away, so only the code around it moved.
+
+**Tried and not kept:**
+
+- **Any local moved out so**, not only an `or`'s, built in storage C++ never destroys:
+  nothing more on `json`, and `words` +0.2% on both compilers, where `List::exchange`'s
+  `held` element went to the stack on clang++, bytes or union alike.
+- **A field built by a call** constructed over its default: it took the literal's address
+  into the out-of-line call, and clang++ kept `words`' `Entry` in memory, +0.13%.
+
+**Not done, and why it is not worth a task:** the `tags` local, which every `or return` in
+the loop above can leave before its move, so skipping its drop needs a drop at each of those
+exits; and `push`'s parameter, which the caller destroys under the Itanium ABI. One call
+each a record, 0.13% of `json` on clang++ and 0.04% on g++ together.
+
+| Piece | Where |
+|---|---|
+| The `or` holder never destroyed | `moved_out_locals`, `binds_in_place`, `keep_holder` in `or_in_place`, `crates/dz_cpp/src/lib.rs`; `NoDrop` in `runtime.rs` |
+| A returned literal built in the result | `return_expr`, `crates/dz_cpp/src/lib.rs`; `Res(BuiltBy, f)` in `runtime.rs` |
+| A moved field built over its default | `struct_literal`, `default_owns_nothing`, `crates/dz_cpp/src/lib.rs` |
+| The test | `a_moved_out_value_leaves_no_husk_to_destroy` in `crates/dz/tests/run.rs` |

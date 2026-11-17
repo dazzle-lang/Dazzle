@@ -223,6 +223,18 @@ struct Error {
 // optional's still is, which C++17 allows only when a member of the union is initialised.
 struct OptEmpty { constexpr OptEmpty() {} };
 struct OptSome {};
+// A result whose value a function returns, built where it goes (`Res(BuiltBy, f)`).
+struct BuiltBy {};
+
+// A value C++ never destroys: the result `let v = f() or return` names `v` in, when `v` is
+// moved out before anything can leave its block, so the result is an empty husk by the time
+// the block ends, and its drop is silent (T-0231). `f` returns the initial value, which
+// C++17 builds in place.
+template <class T> union NoDrop {
+    T value;
+    template <class F> NoDrop(BuiltBy, F f) : value(f()) {}
+    ~NoDrop() {}
+};
 
 // An optional's storage. A payload that owns something is always built, empty or not, so
 // that every `T` in the program is one its destructor may meet.
@@ -302,6 +314,9 @@ struct Res {
     Res(T&& v) : value(static_cast<T&&>(v)), error(), ok(true) {}
     Res(const T& v) : value(v), error(), ok(true) {}
     Res(Error e) : value(), error(e), ok(false) {}
+    // `return Record{ … }`: `f` returns the literal, which C++17 builds in `value` itself.
+    // Through `good` it was a temporary, moved in and then destroyed empty (T-0231).
+    template <class F> Res(BuiltBy, F f) : value(f()), error(), ok(true) {}
     static Res good(T&& v) { return Res(static_cast<T&&>(v)); }
     static Res good(const T& v) { return Res(v); }
     static Res bad(Error e) { return Res(e); }
