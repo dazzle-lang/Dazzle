@@ -127,8 +127,8 @@ fn main() -> ExitCode {
         Some("explain") => cmd_explain(args.get(1).map(String::as_str)),
         Some("new") => cmd_new(args.get(1).map(String::as_str)),
         Some("--version" | "-V") => {
-            // A release build is named by its tag (`0.1.0`), set by the release workflow,
-            // so a bug report says which build it came from; any other build is plain 0.1.0.
+            // A release build is named by its tag (`0.2.0`), set by the release workflow,
+            // so a bug report says which build it came from; any other is the crate's version.
             println!("dz {}", option_env!("DZ_RELEASE").unwrap_or(env!("CARGO_PKG_VERSION")));
             ExitCode::SUCCESS
         }

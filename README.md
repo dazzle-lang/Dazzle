@@ -128,7 +128,7 @@ special members, no allocator to pass around, encapsulation the compiler enforce
 values instead of exceptions, and generics checked where they are written. The compiler is
 written in Rust.
 
-> **Status: 0.1, released November 2026.** Dazzle compiles, runs, checks ownership,
+> **Status: 0.2, released 17 November 2026.** Dazzle compiles, runs, checks ownership,
 > places memory, calls C and C++, and has a language server;
 > [`examples/breakout`](examples/breakout) is a complete game written in it. It is young:
 > the standard library is still growing (see [Status](#status-and-roadmap)), and **the
@@ -834,30 +834,29 @@ different C library, built from source and called with no bindings:
 
 ## Status and roadmap
 
-**0.1 was released on 4 November 2026.** You can write a real program in it today: the
-[examples](examples) include a complete game on raylib, a real-time 3D scene on SDL3 with a
-Dear ImGui panel, rigid-body physics on Box2D and a synthesizer on miniaudio. A program
-with no `unsafe` has no undefined behaviour on one thread, whole programs run about as fast
-as their C++, and VS Code has a language server, a debugger and run buttons. Releases are
-built for Linux, macOS and Windows.
+**0.2 was released on 17 November 2026**, and 0.1 on 4 November. You can write a real
+program in it today: the [examples](examples) include a complete game on raylib, a real-time
+3D scene on SDL3 with a Dear ImGui panel, rigid-body physics on Box2D and a synthesizer on
+miniaudio. A program with no `unsafe` has no undefined behaviour on one thread, whole
+programs run about as fast as their C++, and VS Code has a language server, a debugger and
+run buttons. Releases are built for Linux, macOS and Windows.
 
 It is young. The language still changes, and every change is a row in the
 [changelog](docs/spec/21-changelog.md). The standard library is still growing.
 
-### Next: 0.2
+### What 0.2 brought
 
-**Landed since 0.1:** automatic memory placement across calls with `sends`, incremental
-builds, and a [Dear ImGui panel in the SDL3 example](examples/sdl3). Both small-program
-build targets have been met on Linux.
-
-**Remaining:** code generation and tooling fixes, standard-library additions, broader C++
-imports, new benchmarks, and release notes. [The road to 0.2](https://dazzle-lang.github.io/project/roadmap/)
-has the current work and measurements.
+Memory placed across calls with `sends`; values that move by default; builds that keep
+what they compiled, a debug build of a small program from clean as fast as its C++; Dear
+ImGui called as C++ writes it, `ImGui::Text` included; dependencies and C++ libraries
+fetched with git and pinned by `dazzle.lock`; and seven benchmark programs, at 0.70 to
+1.06 times their C++. [The release notes](docs/releases/v0.2.0.md) have the whole list,
+and [the road to 0.2](https://dazzle-lang.github.io/project/roadmap/) how it got there.
 
 ### Later
 
-- **Packages:** dependencies fetched from git, Dazzle packages and C libraries alike,
-  pinned by a lockfile, if they miss 0.2.
+- **Packages:** a command that lists newer releases of a dependency, and the examples' other
+  C libraries fetched with git rather than kept as submodules.
 - **Scale:** a game of ten thousand lines, to see how the safety rules hold in a large
   program, and fewer of the cases where the compiler still puts memory on the heap.
 - **Hot reload:** a rebuilt module swapped into a running game, keeping its state.
@@ -867,27 +866,32 @@ has the current work and measurements.
 - **The web:** the same game running in a browser, through Emscripten.
 - **Threads:** a mutex, atomics and a job system.
 
-The website's [road to 0.2](https://dazzle-lang.github.io/project/roadmap/) links each item
-to its task. The milestones are in [spec §19](docs/spec/19-roadmap.md), and every open task
-is in the backlog, [`docs/tasks.md`](docs/tasks.md).
+The milestones are in [spec §19](docs/spec/19-roadmap.md), and every open task is in the
+backlog, [`docs/tasks.md`](docs/tasks.md).
 
-**How fast it is today:** whole programs take 0.77 to 1.17 times as long in Dazzle as in
+**How fast it is today:** whole programs take 0.70 to 1.06 times as long in Dazzle as in
 C++; [Benchmarks](#benchmarks) has the numbers.
 
 ## Benchmarks
 
-Three whole programs, each written idiomatically in both languages, built by the same
+Seven whole programs, each written idiomatically in both languages, built by the same
 compiler with the same flags (`-O2` and link-time optimisation), checked to print the same
 checksum over their whole result, and timed end to end as a user would run them:
 
 | Program | What it does | clang++ | g++ | Peak memory |
 |---|---|---:|---:|---:|
-| A\* search | 200 searches across a 400×400 grid: a generic binary heap, hash maps keyed by a struct, allocation in every search | **0.77×** (319 / 413 ms) | **0.88×** (350 / 397 ms) | **0.75×** (9.5 / 12.6 MiB) |
-| Tokenizer, parser and evaluator | 100,000 generated statements: a tree of tagged unions per statement, one in eight failing through `!->` | 1.17× (157 / 134 ms) | 1.07× (157 / 147 ms) | **0.94×** (141 / 151 MiB) |
-| Word count | 2,000,000 generated words counted in a hash map, then sorted | **0.91×** (141 / 155 ms) | 1.02× (171 / 166 ms) | 1.17× (37.6 / 32.2 MiB) |
+| A\* search | 200 searches across a 400×400 grid: a generic binary heap, hash maps keyed by a struct, allocation in every search | **0.79×** (324 / 413 ms) | **0.88×** (349 / 397 ms) | **0.74×** (9.4 / 12.7 MiB) |
+| A battle on an ECS library | 600 units for 100 steps on an entity-component-system library of its own: a query inside a query, writing another unit's component; in Rust too | **0.70×** (130 / 187 ms) | 1.00× (124 / 124 ms) | **0.95×** (3.6 / 3.8 MiB) |
+| Tokenizer, parser and evaluator | 100,000 generated statements: a tree of tagged unions per statement, one in eight failing through `!->` | **0.96×** (129 / 134 ms) | **0.87×** (127 / 146 ms) | **0.94×** (141 / 151 MiB) |
+| Generic code | an ordered map, a sort and a search of the program's own, instantiated for six key types against the same as C++ templates | **0.85×** (467 / 547 ms) | **0.93×** (503 / 544 ms) | 1.00× (24.7 / 24.8 MiB) |
+| JSON reader and writer | 100,000 records parsed into a tree, turned into structs, and written back through reflection | **0.92×** (204 / 221 ms) | 1.01× (210 / 208 ms) | 1.03× (185 / 180 MiB) |
+| Ray tracer | 960×540 at 16 rays a pixel: `f32` vector math through operator traits, a tagged union in the inner loop | 1.06× (481 / 454 ms) | **0.95×** (594 / 624 ms) | **0.98×** (4.9 / 5.0 MiB) |
+| Word count | 2,000,000 generated words counted in a hash map, then sorted | **0.87×** (134 / 155 ms) | **0.87×** (144 / 166 ms) | 1.05× (33.7 / 32.2 MiB) |
 
 Each figure is Dazzle's over C++'s, below 1.00× where Dazzle is ahead, from the median of
-ten alternating runs (AMD Ryzen 7 H 255, clang 19, g++ 14, Dazzle at `f0a0ab9`).
+ten alternating runs (AMD Ryzen 7 H 255, clang 19, g++ 14, 17 November 2026, at 0.2).
+Every recorded run is kept in
+[`tests/bench_programs/HISTORY.md`](tests/bench_programs/HISTORY.md).
 
 Each half uses its own standard library the obvious way, as benchmarks between languages
 usually do: the C++ uses `std::vector`, `std::unordered_map`, `std::priority_queue`,
@@ -899,11 +903,12 @@ ported line for line into the C++ halves, A\* search was even with C++ (1.00× a
 the parser and evaluator 1.13–1.19× and the word count 1.13–1.29×. Some of Dazzle's cost
 is its own, by design: every index is checked and integer arithmetic wraps in every build.
 
-**Building** takes longer than the C++ half's single file: 1.6–2.1 s against 0.4–0.6 s.
-Dazzle's own phases, from reading the manifests to emitting the C++, take about 100 ms;
-importing `stdlib.h` with libclang about 85 ms; nearly all the rest is the C++ compiler on
-the generated code, most of it the standard library's C++, compiled again in every build
-(T-0102).
+**Building** a release from clean takes 0.9 to 1.8 times as long as the C++ half's single
+file (0.34–1.30 s against 0.30–0.91 s). A debug build after a one-line change is faster
+than the C++ half's, 0.16–0.33 s against 0.25–0.59 s, since only the program's own C++ is
+compiled again: the standard library's is compiled once per machine. Dazzle's own phases,
+from reading the manifests to emitting the C++, take 42–170 ms; the rest is the C++
+compiler.
 
 [`tests/bench_programs`](tests/bench_programs) has the programs, the rules and
 [`RESULTS.md`](tests/bench_programs/RESULTS.md), the latest run in full, and

@@ -1,6 +1,6 @@
 # The Dazzle Language Specification
 
-**Version:** 0.1 (released 2026-11-04), revision 143
+**Version:** 0.2 (released 2026-11-17), revision 143
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have no
 undefined behaviour outside `unsafe` on one thread (§1.1), get their memory where the
@@ -13,9 +13,12 @@ Open work is the backlog, `docs/tasks.md`; what was built, milestone by mileston
 
 **0.1 was released on 2026-11-04**, at revision 117, by the author's decision: a language
 server to work in (§19 M9), a standard library a game is written against (M12), and C++
-interop (M7) were all there. The language is still young and still changes. This document is
-revised, not versioned: the revision numbers in §21 track *changes to the language*, and the
-compiler's releases (`v0.1.0`, `v0.1.1`, …) say which revision they carry.
+interop (M7) were all there. **0.2 was released on 2026-11-17**, at revision 143, again the
+author's decision: memory placed across calls, incremental builds, Dear ImGui called as C++
+writes it, dependencies fetched with git, and benchmarks level with C++. The language is still
+young and still changes. This document is revised, not versioned: the revision numbers in §21
+track *changes to the language*, and the compiler's releases (`v0.1.0`, `v0.2.0`, …) say
+which revision they carry.
 **Target:** a systems language that compiles to readable C++17, for the places C++ is used
 today: games and engines, embedded systems, tools, and real-time code.
 

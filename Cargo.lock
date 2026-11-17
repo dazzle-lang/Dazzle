@@ -99,7 +99,7 @@ dependencies = [
 
 [[package]]
 name = "dz"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "dz_ast"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_lex",
  "dz_span",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "dz_check"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
@@ -145,7 +145,7 @@ dependencies = [
 
 [[package]]
 name = "dz_cpp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "dz_cppimport"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clang-sys",
  "serde",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "dz_diag"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "codespan-reporting",
  "dz_span",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "dz_driver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "dz_flow"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "dz_fmt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "dz_hir"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_resolve",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "dz_lex"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_diag",
  "dz_span",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "dz_lsp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "dz_macro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "dz_mono"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_check",
@@ -293,7 +293,7 @@ dependencies = [
 
 [[package]]
 name = "dz_parse"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
@@ -304,7 +304,7 @@ dependencies = [
 
 [[package]]
 name = "dz_project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_cppimport",
  "dz_diag",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "dz_resolve"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dz_ast",
  "dz_diag",
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "dz_span"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "encode_unicode"

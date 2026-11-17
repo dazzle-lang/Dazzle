@@ -9,6 +9,10 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
+**0.2 is released (2026-11-17, `v0.2.0`, at r143)**, the user's call once every part of the
+plan below was done; its notes are `docs/releases/v0.2.0.md`. What comes next is the user's
+to plan. The sections below are the record of how 0.2 was reached.
+
 **Done 2026-11-15: values move by default (T-0235, D-0106, r135)**, decided by the user and
 put ahead of the performance work, so that work and the new benchmarks are written in the
 new language: `move` is removed, plain data copies, and every other copy is written
@@ -131,7 +135,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    over time (T-0075, done 2026-11-17: `generics`, 0.85× and 0.93× at run time and 1.3–1.4×
    to build from clean; every recorded run in `tests/bench_programs/HISTORY.md`, and a
    run compared with the last). The other programs get no Rust half.
-6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
+6. **The release.** Done 2026-11-17: `v0.2.0`, its notes `docs/releases/v0.2.0.md`, which
+   the release workflow adds to the GitHub release; packages (T-0077) made it in. Planned as:
+   Release notes from the §21 rows since r117 (0.1's revision), and
    packages (T-0077) if there is time, otherwise 0.3. The version stays 0.1 and nothing is
    tagged until the user asks. **The notes must also cover build times**, which §21 does
    not hold since they are not a language change (the user asked for this on 2026-11-09):

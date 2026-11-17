@@ -12,10 +12,10 @@ hook (`.claude/settings.json`) runs `git pull --ff-only` and prints the result; 
 the pull failed, or the pull cannot fast-forward cleanly (uncommitted changes, a conflict, a
 diverged branch), stop and tell the user rather than stashing, rebasing or resolving it.
 
-Where it stands: 0.1 is released (2026-11-04). M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
-Code extension) was pulled forward; **now: the 0.2 release**, planned on 2026-11-09 in the
-`## Now` section of `docs/tasks/README.md` (build times, stdlib, ImGui in the SDL3 example,
-new benchmarks), with M12, the stdlib, whose criterion (Breakout) is met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
+Where it stands: 0.2 is released (2026-11-17, at r143; 0.1 was 2026-11-04). M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
+Code extension) was pulled forward; what 0.2 was is in the `## Now` section of
+`docs/tasks/README.md`, and what comes next is the user's to plan, with M12, the stdlib,
+whose criterion (Breakout) is met. **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
 Spec §19 is the roadmap.
 
 **Formatting is rustfmt's**, configured by `rustfmt.toml` (`use_small_heuristics = "Max"`,
@@ -69,13 +69,14 @@ section, append rather than shift.
 The user drives language design; Claude writes the compiler. Propose alternatives freely,
 but design changes are the user's call, not something to slip into an implementation.
 
-### The version is 0.1
+### The version is 0.2
 
-**0.1 was released on 2026-11-04** (`v0.1.0`, at revision 117), the user's decision. A
-compiler release is a tag, `v0.1.N`, built and published by `.github/workflows/release.yml`;
-tag one only when the user asks for a release.
+**0.2 was released on 2026-11-17** (`v0.2.0`, at revision 143), and 0.1 on 2026-11-04
+(`v0.1.0`, at revision 117), each the user's decision. A compiler release is a tag, `v0.2.N`,
+built and published by `.github/workflows/release.yml`, with `docs/releases/<tag>.md`, when
+there is one, as its notes; tag one only when the user asks for a release.
 
-**Do not bump the version number** past 0.1: the next version is the user's call. The spec
+**Do not bump the version number** past 0.2: the next version is the user's call. The spec
 is *revised*, not versioned: `r1`, `r2`, … in §21. If a change feels big enough to deserve a
 version bump, it deserves a revision row and nothing more.
 

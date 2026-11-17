@@ -57,7 +57,7 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             echo "DZ_RELEASE=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           else
-            echo "DZ_RELEASE=0.1.0-dev.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+            echo "DZ_RELEASE=0.2.0-dev.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           fi
 
       - name: Build dz
@@ -177,4 +177,8 @@ jobs:
 
           **VS Code:** download \`dazzle.vsix\` below and run \`code --install-extension dazzle.vsix\`. It uses the \`dz\` on your PATH.
           EOF
+          # What the release brings, written by hand for it, when there is a file for it.
+          if [ -f "docs/releases/$tag.md" ]; then
+            { echo; cat "docs/releases/$tag.md"; } >> notes.md
+          fi
           gh release create "$tag" dist/* --title "Dazzle ${tag#v}" --notes-file notes.md --verify-tag --latest

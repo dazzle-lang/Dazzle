@@ -2,7 +2,7 @@
   "name": "dazzle",
   "displayName": "Dazzle",
   "description": "Dazzle language support: highlighting, diagnostics as you type, hover, go to definition, references, rename, completion, and running the project.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "dazzle-lang",
   "license": "MIT",
   "private": true,

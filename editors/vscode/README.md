@@ -82,7 +82,7 @@ npm install
 npm run deploy
 ```
 
-`deploy` packages `dazzle.vsix` and installs it with `--force`. The version stays 0.1.0, and
+`deploy` packages `dazzle.vsix` and installs it with `--force`. The version stays 0.2.0, and
 without `--force` VS Code keeps the build it already has. Then run **Developer: Reload
 Window**.
 
