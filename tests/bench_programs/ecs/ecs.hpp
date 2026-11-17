@@ -81,15 +81,13 @@ template <class T> struct Storage final : AnyStorage {
 
 template <class A, class B> class Query2 {
 public:
-    Query2(Storage<A>& a, Storage<B>& b) : a_(a), b_(b), scan_a_(a.len() <= b.len()) {}
+    Query2(Storage<A>& a, Storage<B>& b)
+        : a_(a), b_(b), scan_a_(a.len() <= b.len()), end_(scan_a_ ? a.len() : b.len()) {}
 
     class iterator {
     public:
         iterator(Query2* q, size_t row) : q_(q), row_(row) { seek(); }
-        std::tuple<Entity, A&, B&> operator*() const {
-            if (q_->scan_a_) return {q_->a_.entities[row_], q_->a_.values[row_], q_->b_.values[other_]};
-            return {q_->b_.entities[row_], q_->a_.values[other_], q_->b_.values[row_]};
-        }
+        std::tuple<Entity, A&, B&> operator*() const { return {e_, q_->a_.values[in_a_], q_->b_.values[in_b_]}; }
         iterator& operator++() {
             ++row_;
             seek();
@@ -99,19 +97,21 @@ public:
 
     private:
         // To the first row at or after `row_` whose entity the other storage has too,
-        // remembering where.
+        // remembering the entity and its row in each.
         void seek() {
-            if (q_->scan_a_) {
-                for (; row_ < q_->a_.len(); ++row_) {
-                    if (auto found = q_->b_.row_of(q_->a_.entities[row_])) {
-                        other_ = *found;
+            for (; row_ < q_->end_; ++row_) {
+                if (q_->scan_a_) {
+                    e_ = q_->a_.entities[row_];
+                    if (auto found = q_->b_.row_of(e_)) {
+                        in_a_ = row_;
+                        in_b_ = *found;
                         return;
                     }
-                }
-            } else {
-                for (; row_ < q_->b_.len(); ++row_) {
-                    if (auto found = q_->a_.row_of(q_->b_.entities[row_])) {
-                        other_ = *found;
+                } else {
+                    e_ = q_->b_.entities[row_];
+                    if (auto found = q_->a_.row_of(e_)) {
+                        in_a_ = *found;
+                        in_b_ = row_;
                         return;
                     }
                 }
@@ -119,16 +119,20 @@ public:
         }
         Query2* q_;
         size_t row_;
-        size_t other_ = 0;
+        Entity e_{0, 0};
+        size_t in_a_ = 0;
+        size_t in_b_ = 0;
     };
 
     iterator begin() { return iterator(this, 0); }
-    iterator end() { return iterator(this, scan_a_ ? a_.len() : b_.len()); }
+    iterator end() { return iterator(this, end_); }
 
 private:
     Storage<A>& a_;
     Storage<B>& b_;
     bool scan_a_;
+    // Neither storage can change while a query walks them, or the iterators would dangle.
+    size_t end_;
 };
 
 class World;

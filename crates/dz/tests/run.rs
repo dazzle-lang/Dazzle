@@ -1589,6 +1589,47 @@ fn a_moved_union_is_left_plain_and_a_variant_is_built_in_place() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A function whose body can never return is `[[noreturn]]` in C++ (T-0240): `List`'s
+/// failing bounds check calls one, and without the attribute g++ assumed the call returned,
+/// having changed any memory, after every check, 18% of `ecs`'s time. Not a function with a
+/// `return` anywhere in it, or whose last statement can complete, where C++ would make the
+/// attribute undefined behaviour; and a file-local one says it before `static`.
+#[test]
+fn a_function_that_never_returns_is_noreturn() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_noreturn",
+        "[module]\nname = \"failing\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "fn fail(i: usize) {\n    panic!(\"bad {}\", i)\n}\n\nfn spin() {\n    loop {\n        fail(1)\n    }\n}\n\nfn maybe(i: usize) {\n    if i > 5 {\n        return\n    }\n    panic!(\"small {}\", i)\n}\n\nfn checks(i: usize) -> usize {\n    if i > 3 {\n        fail(i)\n    }\n    return i\n}\n\nfn main() {\n    maybe(9)\n    println!(\"{}\", checks(2))\n    if checks(3) == 4 {\n        spin()\n    }\n    fail(7)\n}\n",
+    );
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "`fail(7)` panics");
+    assert_eq!(stdout, "2");
+    assert!(stderr.contains("bad 7"), "{stderr}");
+    // A formatted panic is a lambda C++ does not know never returns, so each such body
+    // ends saying it cannot be reached: without it, clang++'s `-Winvalid-noreturn`.
+    for cxx in ["clang++", "g++"] {
+        if matches!(Command::new(cxx).arg("--version").output(), Ok(o) if o.status.success()) {
+            assert_cpp_warning_clean(cxx, &dir.join("build/cpp"));
+        }
+    }
+    let cpp = std::fs::read_to_string(dir.join("build/cpp/failing.cpp")).unwrap();
+    for f in ["fail", "spin"] {
+        assert!(cpp.contains(&format!("[[noreturn]] static void {f}(")), "{f}:\n{cpp}");
+        assert!(cpp.contains(&format!("[[maybe_unused]] [[noreturn]] static void {f}(")), "{cpp}");
+    }
+    for f in ["maybe", "checks"] {
+        assert!(!cpp.contains(&format!("[[noreturn]] static void {f}(")), "{f}:\n{cpp}");
+        assert!(!cpp.contains(&format!("[[noreturn]] static size_t {f}(")), "{f}:\n{cpp}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A `Box` of an abstract base, made from a `Box` of a type that overrides it (spec §7.3,
 /// §14.5): what `ecs`'s world keeps its storages in (T-0172). The instance has no
 /// constructor taking the abstract value, which C++ refuses to declare and nothing could

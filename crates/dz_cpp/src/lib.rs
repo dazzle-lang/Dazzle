@@ -3430,7 +3430,21 @@ impl<'a> Emitter<'a> {
         let decl = self.decl_params(&owner);
         let cpp = sanitize(name);
         let inline = if self.is_inline(&owner) { "inline " } else { "" };
-        Some(format!("{inline}{ret} {cpp}({decl});"))
+        let noreturn = self.noreturn_attr(&owner);
+        Some(format!("{noreturn}{inline}{ret} {cpp}({decl});"))
+    }
+
+    /// `[[noreturn]] ` for a function whose body can never return ([`never_returns`]):
+    /// `List`'s `list_index_out_of_bounds`, which every checked index calls on failure.
+    /// Without it the C++ compiler must assume the call returns, having changed any memory,
+    /// so after each check it reloads the list and cannot merge one check into the next:
+    /// g++ ran `ecs` 18% slower for it (T-0240). clang++ works it out itself under LTO.
+    fn noreturn_attr(&self, owner: &BodyOwner) -> &'static str {
+        if self.find_body(owner).is_some_and(never_returns) {
+            "[[noreturn]] "
+        } else {
+            ""
+        }
     }
 
     /// Declare, before any struct is defined, the module's free functions a field default
@@ -3500,7 +3514,12 @@ impl<'a> Emitter<'a> {
         // and must not be a second one from the C++ compiler (invariant 7).
         let local = self.file_local.contains(&sym);
         if local {
-            let _ = writeln!(self.local_protos, "[[maybe_unused]] static {proto}");
+            // Attributes before `static`: after it, C++ reads one as the type's.
+            let (attrs, rest) = match proto.strip_prefix("[[noreturn]] ") {
+                Some(rest) => ("[[maybe_unused]] [[noreturn]]", rest),
+                None => ("[[maybe_unused]]", proto.as_str()),
+            };
+            let _ = writeln!(self.local_protos, "{attrs} static {rest}");
         } else {
             let _ = writeln!(self.header, "{proto}");
         }
@@ -3511,7 +3530,8 @@ impl<'a> Emitter<'a> {
         let params = self.decl_params(&owner);
         self.current_fn = name.to_owned();
         let stat = if local { "static " } else { "" };
-        let head = format!("{stat}{ret} {cpp}({params}) {{");
+        let noreturn = self.noreturn_attr(&owner);
+        let head = format!("{noreturn}{stat}{ret} {cpp}({params}) {{");
         self.emit_body(&owner, &head);
     }
 
@@ -4004,8 +4024,12 @@ impl<'a> Emitter<'a> {
         // `dz_flow` proved every Dazzle path returns, but C++ cannot see that through an
         // exhaustive `switch` with no `default` — and a `-Wreturn-type` warning in generated
         // code is a compiler bug, not a user error (invariant 7).
-        let unreachable = (!matches!(body.ret, Ty::Void | Ty::Error | Ty::Never)
-            && !ends_in_return(body))
+        // And a body that never returns, `[[noreturn]]` (`noreturn_attr`), says so at its end:
+        // its last statement may be a formatted panic, a lambda C++ does not know never
+        // returns, and clang++ warns that the function might (`-Winvalid-noreturn`).
+        let never = never_returns(body);
+        let unreachable = (never
+            || (!matches!(body.ret, Ty::Void | Ty::Error | Ty::Never) && !ends_in_return(body)))
         .then(|| self.source_location(body.span));
         let sites = std::mem::replace(&mut self.site_consts, outer_sites).unwrap_or_default();
         for (fields, name) in &sites {
@@ -4015,8 +4039,8 @@ impl<'a> Emitter<'a> {
             ));
         }
         self.write_captured(&text);
-        // A `!-> void` still has to say it succeeded.
-        if body.fallible && matches!(body.ret, Ty::Void) {
+        // A `!-> void` still has to say it succeeded, unless it never returns.
+        if body.fallible && matches!(body.ret, Ty::Void) && !never {
             self.line("return ::dz::rt::Res<void>::good();");
         } else if let Some(loc) = unreachable {
             self.line(&format!("::dz::rt::unreachable({loc});"));
@@ -7995,6 +8019,22 @@ fn incoming_name(name: &str, table: &TypeTable, ty: &Ty) -> String {
 /// Only the shallow case is recognised, because that is the only one C++ recognises too:
 /// anything deeper (an exhaustive `switch`, an `if`/`else` where both sides return) needs
 /// the trap the caller emits.
+/// Whether `body` can never return to its caller: there is no `return` anywhere in it, and
+/// its last statement never completes, an expression whose type is `!` (`panic!`,
+/// `unreachable`) or a `loop` no `break` leaves (D-0102). C++ makes a `[[noreturn]]`
+/// function that does return undefined, so anything less certain answers no.
+fn never_returns(body: &hir::Body) -> bool {
+    if body.exprs.iter().any(|e| matches!(e.kind, hir::ExprKind::Return(_))) {
+        return false;
+    }
+    let Some(last) = body.block(body.root).stmts.last() else { return false };
+    match &body.stmt(*last).kind {
+        hir::StmtKind::Expr(e) => matches!(body.ty(*e), Ty::Never),
+        hir::StmtKind::While { forever, .. } => *forever,
+        _ => false,
+    }
+}
+
 /// The value of a body that is one expression: a static's initialiser, a field's default.
 fn body_value(body: &hir::Body) -> Option<ExprId> {
     match body.block(body.root).stmts.first().map(|s| &body.stmt(*s).kind) {

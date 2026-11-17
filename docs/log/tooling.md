@@ -2204,3 +2204,34 @@ loops; the gap to C++ is T-0240. The other programs are as they were.
 
 New tests: `a_box_of_an_abstract_base_holds_a_derived_value` in `dz/tests/run.rs`, a case
 in each of `typed/` and `typeerrors/`, and `ecs` in the benchmarks' agreement test.
+
+## `ecs` from 1.35-1.41× to 1.14-1.09× C++: `[[noreturn]]`, and a query `get` can inline (T-0240; 2026-11-17)
+
+Dazzle ran 1.33× the C++ half's instructions on clang++ and 1.45× on g++, so the gap was work
+done. Found by editing the generated C++ through a wrapper standing in for the compiler, and
+counting each change with callgrind:
+
+- **`[[noreturn]]`** (compiler). A function whose body can never return, with no `return` in
+  it and a last statement that never completes, is `[[noreturn]]` in C++ and ends saying it
+  cannot be reached (`never_returns`, `noreturn_attr`). `List`'s `list_index_out_of_bounds`,
+  which every failing index calls, was plain `void`, so after each check g++ assumed it had
+  returned having changed any memory: `ecs` on g++ 911 M → 786 M instructions, 161 → 132 ms.
+  clang++ works it out itself under LTO. A formatted panic is a lambda C++ does not know never
+  returns, which is why such a body ends with `::dz::rt::unreachable`: without it clang++'s
+  `-Winvalid-noreturn` (invariant 7, caught by the warning-clean tests). One cost: `astar` on
+  g++ is 5% slower (327 → 345 ms) with 1.8% fewer instructions, a layout change that marking
+  the functions `cold` does not undo.
+- **A query whose `get` inlines** (the benchmark, all three halves). clang++ priced the
+  query's `get` too high to inline: it branched on which storage the query walks, three
+  checked reads each way, so every element was two calls with the iterator in memory. Now
+  `seek` keeps the entity and its row in each storage, `get` is two reads, and `valid`
+  compares with the walked storage's length, taken once. clang++ 280 → 212 ms.
+
+`RESULTS.md` (load 1.1): `ecs` 214 ms on clang++ and 135 on g++, 1.14× and 1.09× C++ (188,
+125); Rust 240 ms collecting or with `Cell`s, 112 in index loops. What is left is the bounds
+checks. Forcing `seek` inline too made clang++ faster than C++, but `#[inline]` leaves the
+choice to the C++ compiler (§12.8), and an attribute that forces it would be a language change.
+Tried and not kept: `cold` on the failure path, `List::get` `#[inline]` with `row_of` written
+with it, `#[inline]` on the query's methods (clang++ still declined).
+
+New test: `a_function_that_never_returns_is_noreturn` in `dz/tests/run.rs`.

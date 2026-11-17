@@ -178,12 +178,16 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   (2026-11-15) it is 0.97× on g++ and 1.06× on clang++, where what is left is the layout
   of the types
   ([T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md)).
-- **`ecs`** (added 2026-11-17, T-0172) is 1.35× its C++ half on clang++ and 1.41× on g++,
-  the furthest of any program: it is the first to index arrays in tight loops, every index
-  checked, where C++ checks none ([T-0240](../../docs/tasks/T-0240-ecs-dazzle-1-35-1-41x.md)).
-  Against Rust, Dazzle on g++ (161 ms) is faster than the two versions that keep the nested
-  queries' shape, collecting (243 ms) and `Cell`s (243), and 1.43× the one written as index
-  loops with `get_disjoint_mut` (113), which is as fast as C++ on g++ (115).
+- **`ecs`** (added 2026-11-17, T-0172) was 1.35× its C++ half on clang++ and 1.41× on g++,
+  the first program to index arrays in tight loops, every index checked
+  ([T-0240](../../docs/tasks/T-0240-ecs-dazzle-1-35-1-41x.md)). Two things were most of
+  it, neither the checks: on g++, the function a failing check calls was not
+  `[[noreturn]]`, so after every check g++ assumed it had returned having changed memory;
+  on clang++, the query's `get` branched on which storage it walks and was priced too
+  high to inline. Both are fixed, the second in all three halves alike, and `ecs` is
+  1.14× and 1.09×; what is left is the checks. Against Rust, Dazzle on g++ (135 ms) is
+  faster than the versions that keep the nested queries' shape, collecting and `Cell`s
+  (240 each), and 1.21× the one written as index loops with `get_disjoint_mut` (112).
 - **`json`** (added 2026-11-14, T-0173) is 0.96× its C++ half on clang++ and 1.06× on g++,
   since a float's text is `std::to_chars`' own where that is already D-0101's (T-0225), a
   check's location a constant (T-0220) and a union built in place (T-0231), all

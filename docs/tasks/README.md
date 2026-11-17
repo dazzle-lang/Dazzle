@@ -55,7 +55,9 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    allocation put back on the heap and goes without LTO, so it is g++'s layout of `main`,
    not the regions. T-0172 is done (2026-11-17): `ecs`, an ECS library and a battle on
    it in Dazzle, C++ and Rust (three ways), the user's design: a real library, no outside
-   ones. It needed a `Box` of an abstract base (fixed) and found T-0238 and T-0239.
+   ones. It needed a `Box` of an abstract base (fixed) and found T-0238 and T-0239. First
+   1.35× and 1.41× its C++ half, 1.14× and 1.09× with T-0240 (`[[noreturn]]`, and a query
+   whose `get` inlines).
 
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
 `List<String>` filled with `format!` text in its region now skips its drop, so the user's

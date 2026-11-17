@@ -30,30 +30,36 @@ pub view struct Query2<A, B> {
     pub(module) first:      &mut Storage<A>
     pub(module) second:     &mut Storage<B>
     pub(module) scan_first: bool
-    /// The row in the storage walked, and the matching row in the other.
-    row:   usize = 0
-    other: usize = 0
+    /// How many rows the storage walked has: neither storage can change while the query
+    /// holds them, since anything that could would end it.
+    pub(module) end: usize
+    /// The row walked, and what `seek` found there: the entity, and its row in each.
+    row:    usize = 0
+    entity: Entity = Entity{ index: 0, generation: 0 }
+    in_a:   usize = 0
+    in_b:   usize = 0
 
     tie @items = first, second
 
     /// Move to the first row at or after `row` whose entity the other storage has too.
     pub(module) fn seek(&mut self) {
-        if scan_first {
-            while row < first.len() {
-                if let found = second.row_of(first.entity_at(row)) {
-                    other = found
+        while row < end {
+            if scan_first {
+                entity = first.entity_at(row)
+                if let found = second.row_of(entity) {
+                    in_a = row
+                    in_b = found
                     return
                 }
-                row += 1
-            }
-        } else {
-            while row < second.len() {
-                if let found = first.row_of(second.entity_at(row)) {
-                    other = found
+            } else {
+                entity = second.entity_at(row)
+                if let found = first.row_of(entity) {
+                    in_a = found
+                    in_b = row
                     return
                 }
-                row += 1
             }
+            row += 1
         }
     }
 }
@@ -62,17 +68,11 @@ impl<A, B> Iterate for Query2<A, B> {
     type Item = (Entity, &mut A, &mut B)
 
     fn valid(&self) -> bool {
-        if scan_first {
-            return row < first.len()
-        }
-        return row < second.len()
+        return row < end
     }
 
     fn get(&self) -> (Entity, &mut A, &mut B) in self@items {
-        if scan_first {
-            return (first.entity_at(row), first.value_at(row), second.value_at(other))
-        }
-        return (second.entity_at(row), first.value_at(other), second.value_at(row))
+        return (entity, first.value_at(in_a), second.value_at(in_b))
     }
 
     fn advance(&mut self) {

@@ -44,7 +44,9 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    allocation put back on the heap and goes without LTO, so it is g++'s layout of `main`,
    not the regions. T-0172 is done (2026-11-17): `ecs`, an ECS library and a battle on
    it in Dazzle, C++ and Rust (three ways), the user's design: a real library, no outside
-   ones. It needed a `Box` of an abstract base (fixed) and found T-0238 and T-0239.
+   ones. It needed a `Box` of an abstract base (fixed) and found T-0238 and T-0239. First
+   1.35× and 1.41× its C++ half, 1.14× and 1.09× with T-0240 (`[[noreturn]]`, and a query
+   whose `get` inlines).
 
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
 `List<String>` filled with `format!` text in its region now skips its drop, so the user's
@@ -256,7 +258,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
 - **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (8 open)
+## M15 — `dz bench`, and the C++ comparison (7 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -265,7 +267,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 - **[T-0238](tasks/T-0238-virtual-method-with-body-cannot-promise.md)** A virtual method with a body cannot promise what its overrides kill · design, ownership
 - **[T-0239](tasks/T-0239-kills-clause-checker-suggests-names-box.md)** A kills clause the checker suggests names Box's private m_ptr instead of its @value tie · bug, diagnostics
-- **[T-0240](tasks/T-0240-ecs-dazzle-1-35-1-41x.md)** "ecs: Dazzle is 1.35-1.41x its C++ half" · feature, codegen
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 

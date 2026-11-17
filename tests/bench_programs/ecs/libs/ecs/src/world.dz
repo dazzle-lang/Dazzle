@@ -107,7 +107,13 @@ pub struct World {
     pub fn query2<A, B>(&mut self) -> Query2<A, B> in self@components {
         let a = self.storage<A>()
         let b = self.storage<B>()
-        let mut q = Query2<A, B>{ first: a, second: b, scan_first: a.len() <= b.len() }
+        let scan_first = a.len() <= b.len()
+        let end = if scan_first {
+            a.len()
+        } else {
+            b.len()
+        }
+        let mut q = Query2<A, B>{ first: a, second: b, scan_first: scan_first, end: end }
         q.seek()
         return q
     }
