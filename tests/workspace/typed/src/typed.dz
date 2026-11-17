@@ -1151,6 +1151,15 @@ fn boxes_an_abstract(owned: Box<Circle>) -> i32 {
     return d.area()
 }
 
+// So in an `Rc`, and a `Weak` of one, written with its argument or without (T-0232).
+fn shares_an_abstract(shared: Rc<Circle>) -> usize {
+    let rc: Rc<Drawable> = shared
+    let watch = Weak<Drawable>(&rc)
+    let _also: Weak<Drawable> = Weak(&rc)
+    let d = rc or return 0
+    return d.area() as usize + watch.is_null() as usize
+}
+
 // A trait implemented for a base is implemented for everything that inherits it, and a
 // more specific implementation replaces the inherited one.
 trait Measured {

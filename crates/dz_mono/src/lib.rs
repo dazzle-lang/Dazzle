@@ -590,6 +590,20 @@ impl Worklist<'_> {
                 }
                 _ => table_body(self.table, b, &map, None),
             };
+            // A constructor taking an abstract value can never be called, since no such
+            // value exists (spec §7.3): `Rc<Shape>`'s `Rc(value: Shape)`. Codegen leaves it
+            // out of the instance, so what only it uses is not instantiated either:
+            // `RcBlock<Shape>` would hold a `Shape` (T-0232).
+            let abstract_param = |p: &dz_hir::LocalId| {
+                matches!(&concrete.local(*p).ty, Ty::Named { sym, .. }
+                    if self.table.abstract_method(*sym).is_some())
+            };
+            if matches!(b.owner, BodyOwner::Ctor { .. })
+                && concrete.params.iter().any(abstract_param)
+            {
+                bodies.push(concrete);
+                continue;
+            }
             self.visit_body(&concrete);
             bodies.push(concrete);
         }

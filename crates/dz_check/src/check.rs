@@ -4924,11 +4924,15 @@ impl<'a, 'c> Body<'a, 'c> {
         args: &[Expr],
         span: Span,
         name: &str,
+        handle: bool,
     ) -> (FnSig, Vec<Ty>) {
         let mut map: HashMap<u32, Ty> = HashMap::new();
 
         if !seg.generics.is_empty() {
-            let written: Vec<Ty> = seg.generics.iter().map(|t| self.cx.lower_type(t)).collect();
+            // A constructor of `Box`, `Rc` or `Weak` may be written of an abstract base,
+            // `Weak<Shape>(&shapes)`, as its type may (T-0232).
+            let written: Vec<Ty> =
+                seg.generics.iter().map(|t| self.cx.lower_checked_type(t, handle)).collect();
             if written.len() != sig.generics.len() {
                 let (wanted, got) = (sig.generics.len(), written.len());
                 self.cx.error_help(
@@ -5113,7 +5117,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 &bare
             }
         };
-        self.solve_call(&sig, seg, args, span, name)
+        self.solve_call(&sig, seg, args, span, name, false)
     }
 
     /// Does the type chosen for a parameter satisfy the parameter's bounds (spec §8.1)?
@@ -6172,8 +6176,9 @@ impl<'a, 'c> Body<'a, 'c> {
                             let generic =
                                 FnSig { generics: self.cx.table.type_params(sym).to_vec(), ..sig };
                             let last = p.segments.last().expect("a path has segments");
+                            let handle = self.cx.is_prelude_handle(sym);
                             let (solved, targs) =
-                                self.solve_call(&generic, last, args, span, &name);
+                                self.solve_call(&generic, last, args, span, &name, handle);
                             (solved, Ty::Named { sym, args: targs })
                         } else {
                             (sig, Ty::plain(sym))
@@ -6202,7 +6207,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     let mut type_args = Vec::new();
                     if sig.is_generic() {
                         let last = p.segments.last().expect("a path has segments");
-                        let (solved, targs) = self.solve_call(&sig, last, args, span, &name);
+                        let (solved, targs) = self.solve_call(&sig, last, args, span, &name, false);
                         sig = solved;
                         type_args = targs;
                     }

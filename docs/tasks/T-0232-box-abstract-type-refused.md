@@ -2,7 +2,7 @@
 id: T-0232
 title: A Box of an abstract type is refused
 milestone: M12
-status: open
+status: done
 kind: feature
 area: stdlib
 where: `crates/dz_check/src/check.rs`: the abstract-by-value check (`DZ0545`); `crates/dz_project/src/std/memory/box.dz`: `Box(value: T)`; `crates/dz_project/src/std/memory/rc.dz`: `Rc(value: T)`
@@ -29,6 +29,23 @@ refused).
 
 | What | Where |
 |---|---|
-| The refusal | `crates/dz_check/src/check.rs`, `DZ0545` |
+| The refusal, and the handles it allows | `lower_checked_type`, `abstract_by_value`, `is_prelude_handle` in `crates/dz_check/src/lib.rs`; `solve_call` in `check.rs` for `Weak<Shape>(…)` |
 | The constructors that take `T` by value | `crates/dz_project/src/std/memory/box.dz`, `rc.dz` |
-| Which members an instance has | `crates/dz_mono/src/lib.rs`, `Called` (T-0199) |
+| A constructor of an abstract value not instantiated | `instantiate_type` in `crates/dz_mono/src/lib.rs` |
+| Nor emitted | `ctor_takes_abstract` in `crates/dz_cpp/src/lib.rs` |
+
+**Done 2026-11-17.** `Box` first, for `ecs`'s world (T-0172): an abstract type may be the
+argument of a `Box`, the check no longer looks inside type arguments (each is checked where
+it is written, so `Box<List<Shape>>` says so once, not three times), and an instance leaves
+out a constructor taking an abstract value. Then `Rc` and `Weak` (`is_prelude_handle`),
+written as a type or on a constructor call (`Weak<Shape>(&rc)`). `Rc<Shape>` needed one more
+step: its constructor builds an `RcBlock<Shape>`, which holds a `Shape` by value, so
+monomorphization no longer walks a constructor taking an abstract value, and nothing only it
+uses is instantiated. `Box<Shape>(…)` of an abstract value is still refused, since no such
+value can be written.
+
+Tests: `a_box_of_an_abstract_base_holds_a_derived_value` and
+`an_rc_of_an_abstract_base_holds_a_derived_value` (two derived types, a `Weak`, both modes,
+`--track-memory`), in `dz/tests/run.rs`; in `typed/`, a `Box`, an `Rc` and a `Weak` of
+`Drawable`; in `typeerrors/`, a `Box<List<Abstract>>` and an `Rc<[2]Abstract>`, which hold
+abstract values.

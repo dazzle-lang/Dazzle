@@ -235,7 +235,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (20 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (19 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -256,7 +256,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
-- **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
 
 ## M15 — `dz bench`, and the C++ comparison (7 open)
 

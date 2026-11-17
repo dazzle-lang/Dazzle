@@ -806,6 +806,11 @@ fn boxes_abstracts_by_value(b: Box<List<Abstract>>) -> usize {
     return list.len()
 }
 
+// Nor an `Rc` of an array of them, which holds them by value (T-0232).
+fn shares_abstracts_by_value(r: Rc<[2]Abstract>) -> usize {
+    return r.count()
+}
+
 fn builds_an_abstract() -> i32 {
     let a = StillAbstract{}
     return a.n

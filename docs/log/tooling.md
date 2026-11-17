@@ -2267,3 +2267,16 @@ own, three errors before and none after.
 New test: `inline_forces_every_call_in_an_optimised_build` (a recursive and a mutually
 recursive `#[inline]` pair, both compilers, both modes); `another_modules_inline_reaches_its_instances`
 now expects `DZ_INLINE` for what is written `#[inline]`.
+
+## An `Rc` and a `Weak` of an abstract base (T-0232; 2026-11-17)
+
+Compiler work, no language change: §7.3 and §14.5 already say a handle to an abstract base is
+what `virtual` is for. `Box<Shape>` was allowed for `ecs` (T-0172); `Rc<Shape>` and
+`Weak<Shape>` now are too, written as a type or on a constructor call, `Weak<Shape>(&rc)`,
+whose written arguments `solve_call` lowers. `Rc` needed monomorphization's help: its
+constructor builds an `RcBlock<T>` holding the value, and `RcBlock<Shape>` cannot exist, so
+`instantiate_type` keeps a constructor taking an abstract value in the instance without
+walking it, codegen leaves it out (`ctor_takes_abstract`), and nothing only it uses is made.
+Tested on both compilers, debug and release, under `--track-memory`:
+`an_rc_of_an_abstract_base_holds_a_derived_value`, and a case in each of `typed/` and
+`typeerrors/`.

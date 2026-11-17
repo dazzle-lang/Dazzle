@@ -2317,19 +2317,20 @@ impl<'a> Ctx<'a> {
         self.lower_checked_type(t, false)
     }
 
-    /// [`Self::lower_type`], where `behind_box` says `t` is a `Box`'s argument, which may
+    /// [`Self::lower_type`], where `behind_handle` says `t` is the argument of a `Box`, an
+    /// `Rc` or a `Weak` ([`Self::is_prelude_handle`]), which may
     /// itself be abstract ([`Self::abstract_by_value`]).
-    fn lower_checked_type(&mut self, t: &Type, behind_box: bool) -> Ty {
+    pub(crate) fn lower_checked_type(&mut self, t: &Type, behind_handle: bool) -> Ty {
         let ty = self.lower_type_inner(t);
         // An abstract type has a method with no body, so a value of it would have nothing
         // to call. Behind a reference or a pointer it is exactly what `virtual` is for
         // (spec §7.3, 18.32). Checked here, as a handle's by-value use is, so C++ never
         // has to report it — a C++ error in generated code is a compiler bug (invariant 7).
-        // A `Box` holds its value behind a pointer and drops it through the vtable, as the
-        // type it was made as, so a `Box` of an abstract base is what a `Box` of a derived
-        // one converts to (spec §7.3, §14.5, D-0104).
+        // A `Box`, an `Rc` or a `Weak` holds its value behind a pointer and drops it as the
+        // type it was made as, so one of an abstract base is what one of a derived type
+        // converts to (spec §7.3, §14.5, D-0064, D-0104; T-0232).
         let by_value = match &ty {
-            Ty::Named { .. } if behind_box => None,
+            Ty::Named { .. } if behind_handle => None,
             _ => self.abstract_by_value(&ty),
         };
         if let Some(sym) = by_value {
@@ -2385,10 +2386,12 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Whether `sym` is `std`'s `Box`.
-    fn is_prelude_box(&self, sym: SymbolId) -> bool {
+    /// Whether `sym` is one of `std`'s handles to a value they hold behind a pointer, and
+    /// which a handle to a derived type converts to: `Box`, `Rc` and `Weak` (spec §14.5,
+    /// D-0064, D-0104). Its argument may be abstract (T-0232).
+    pub(crate) fn is_prelude_handle(&self, sym: SymbolId) -> bool {
         let symbol = self.res.symbol(sym);
-        symbol.module == self.res.prelude && symbol.name == "Box"
+        symbol.module == self.res.prelude && matches!(symbol.name.as_str(), "Box" | "Rc" | "Weak")
     }
 
     /// The first imported handle inside `t` that is not behind a pointer, if there is one.
@@ -2864,9 +2867,9 @@ impl<'a> Ctx<'a> {
     /// instantiation and the one mistake produces one diagnostic.
     fn type_args(&mut self, sym: SymbolId, seg: &PathSegment) -> Vec<Ty> {
         let wanted = self.table.type_params(sym).len();
-        let boxed = self.is_prelude_box(sym);
+        let handle = self.is_prelude_handle(sym);
         let args: Vec<Ty> =
-            seg.generics.iter().map(|t| self.lower_checked_type(t, boxed)).collect();
+            seg.generics.iter().map(|t| self.lower_checked_type(t, handle)).collect();
         if args.len() == wanted {
             let params: Vec<ParamDef> = self.table.type_params(sym).to_vec();
             for ((def, arg), written) in params.iter().zip(&args).zip(&seg.generics) {

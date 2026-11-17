@@ -21294,6 +21294,38 @@ body fn boxes_an_abstract -> i32
     return: !
       call-method Drawable::area: i32
         local _3 d: &Drawable
+body fn shares_an_abstract -> usize
+  param _0 shared: Rc<Circle>
+  block
+    let _1 rc: Rc<Drawable>
+      move: Rc<Circle>
+        local _0 shared: Rc<Circle>
+    let _2 watch: Weak<Drawable>
+      call-ctor Weak#0: Weak<Drawable>
+        ref: &Rc<Drawable>
+          local _1 rc: Rc<Drawable>
+    let _3 _also: Weak<Drawable>
+      call-ctor Weak#0: Weak<Drawable>
+        ref: &Rc<Drawable>
+          local _1 rc: Rc<Drawable>
+    let _5 d: &Drawable
+      or: &Drawable
+        guarded: ^Drawable
+          guard _4 _guard
+          call-method Nullable::guard: Rc<Drawable>
+            local _1 rc: Rc<Drawable>
+          call-method Nullable::ptr: ^mut Drawable
+            local _4 _guard: Rc<Drawable>
+        return: !
+          int 0: usize
+    return: !
+      binary +: usize
+        cast: usize
+          call-method Drawable::area: i32
+            local _5 d: &Drawable
+        cast: usize
+          call-method Nullable::is_null: bool
+            local _2 watch: Weak<Drawable>
 body impl#169 method measure -> i32
   param _0 self: Drawable
   block

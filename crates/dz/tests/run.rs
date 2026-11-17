@@ -1705,6 +1705,82 @@ fn a_box_of_an_abstract_base_holds_a_derived_value() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An `Rc` and a `Weak` of an abstract base, as a `Box` of one (T-0232): two derived types
+/// in one list, each read through the base, counted, and dropped and freed whole. The
+/// instance leaves out `Rc(value: Shape)`, which nothing could call, and so does not make the
+/// `RcBlock<Shape>` only it would have used, which would hold a `Shape` C++ cannot have.
+#[test]
+fn an_rc_of_an_abstract_base_holds_a_derived_value() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_abstract_rc",
+        "[module]\nname = \"shapes\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        ABSTRACT_RC_SRC,
+    );
+    for mode in ["--debug", "--release"] {
+        let out = Command::new(dz())
+            .args(["run", "--track-memory", mode, dir.to_str().unwrap()])
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{mode}: {stderr}");
+        assert!(!stderr.contains("leak"), "{mode}: {stderr}");
+        assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "21 1 1\ngone", "{mode}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const ABSTRACT_RC_SRC: &str = "\
+struct Shape {
+    pub virtual fn area(&self) -> i32
+}
+
+struct Square : Shape {
+    pub side: i32 = 0
+    pub name: String = String(\"a name long enough to be on the heap\")
+
+    pub override fn area(&self) -> i32 {
+        return side * side
+    }
+}
+
+struct Circle : Shape {
+    pub r: i32 = 0
+
+    pub override fn area(&self) -> i32 {
+        return 3 * r * r
+    }
+}
+
+fn total(shapes: &List<Rc<Shape>>) -> i32 {
+    let mut t = 0
+    for &s in shapes {
+        if let &x = s {
+            t += x.area()
+        }
+    }
+    return t
+}
+
+fn main() {
+    let mut shapes = List<Rc<Shape>>()
+    let sq: Rc<Shape> = Rc<Square>(Square{ side: 3 })
+    let watch = Weak<Shape>(&sq)
+    shapes.push(sq)
+    shapes.push(Rc<Circle>(Circle{ r: 2 }))
+    println!(\"{} {} {}\", total(&shapes), shapes[0].count(), shapes[0].weak_count())
+    shapes.clear()
+    if let &gone = watch {
+        println!(\"still {}\", gone.area())
+    } else {
+        println!(\"gone\")
+    }
+}
+";
+
 /// What a move leaves behind is not destroyed where nothing could see it (T-0231): the
 /// result `let r = f() or return` names `r` in, when `r` is moved out before anything can
 /// leave its block; a literal returned from a `!->` function, built in the result rather
