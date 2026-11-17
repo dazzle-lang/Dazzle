@@ -45,7 +45,7 @@ pub(crate) fn stdlib() -> Header {
         cpp: format!("::{name}"),
         loc: loc(name),
         docs: String::new(),
-        kind: DeclKind::Fn { params, ret, ret_cast: false },
+        kind: DeclKind::Fn { params, ret, ret_cast: false, printf: false },
     };
     let param = |name: &str, ty: CType| Param {
         name: name.to_owned(),

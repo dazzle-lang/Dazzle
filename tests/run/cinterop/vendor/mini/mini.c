@@ -1,10 +1,28 @@
 #include "mini.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
 #ifndef MINI_SCALE
 #error "MINI_SCALE comes from the recipe's `defines` in dazzle.toml"
 #endif
 
 int mini_scale(int v) { return v * MINI_SCALE; }
+
+static char mini_logged[128];
+
+int mini_log(int level, const char *fmt, ...) {
+    char text[100];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(text, sizeof text, fmt, args);
+    va_end(args);
+    return snprintf(mini_logged, sizeof mini_logged, "[%d] %s", level, text);
+}
+
+const char *mini_last_log(void) { return mini_logged; }
+
+int mini_count_args(int n, ...) { return n; }
 
 MiniVec2 mini_add(MiniVec2 a, MiniVec2 b) {
     MiniVec2 r;

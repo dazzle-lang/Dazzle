@@ -404,6 +404,19 @@ impl<'a> Emitter<'a> {
     }
 }
 
+/// `n` as C++ that is warning-clean on both compilers: a value of the unsigned 64-bit range
+/// is written unsigned and stored as the bits `VariantInfo::value` holds, and `i64::MIN`,
+/// whose magnitude no signed literal has, as an expression.
+fn int64_literal(n: i128) -> String {
+    if n == i64::MIN as i128 {
+        "(-9223372036854775807ll - 1)".to_owned()
+    } else if n < 0 {
+        format!("({n}ll)")
+    } else {
+        format!("{n}ull")
+    }
+}
+
 fn describe_named(
     e: &mut Emitter<'_>,
     mut row: TypeRow,
@@ -435,19 +448,19 @@ fn describe_named(
                 });
             }
         }
-        Some(ItemSig::Enum { backing, variants, .. }) => {
+        Some(ItemSig::Enum { backing, variants, values }) => {
             row.kind = "Enum";
             row.elem = e.reflect_id(&Ty::Int(backing));
-            // An imported C enum's constants are the header's to spell; a Dazzle enum's
-            // values are read off the C++ enum so they are exactly what is stored.
-            if !foreign {
-                for v in &variants {
-                    row.variants.push(VariantRow {
-                        name: v.name.clone(),
-                        value: format!("{cpp}::{}", sanitize(&v.name)),
-                        fields: Vec::new(),
-                    });
-                }
+            // A Dazzle enum's values are read off the C++ enum, so they are exactly what is
+            // stored. An imported one's are the numbers libclang read from the header
+            // (T-0048): `Type::Variant` is not a spelling every C enum has (a `typedef enum
+            // { … } Foo` names none), and the number needs none.
+            for (i, v) in variants.iter().enumerate() {
+                let value = match values.get(i).copied().flatten() {
+                    Some(n) if foreign => int64_literal(n),
+                    _ => format!("{cpp}::{}", sanitize(&v.name)),
+                };
+                row.variants.push(VariantRow { name: v.name.clone(), value, fields: Vec::new() });
             }
         }
         Some(ItemSig::Union { variants, .. }) => {

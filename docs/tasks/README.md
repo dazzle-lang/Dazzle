@@ -123,8 +123,10 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    (T-0176, done 2026-11-14, r126) and `BitSet` (T-0177, done 2026-11-14, r127); `str[a..b]` (T-0098, done 2026-11-14, r129, D-0100: arrays, slices and `List` cut with `[a..b]` and `slice` and have `get`; text says its unit, `cut_bytes` or `cut_chars`, and `len()` counts characters); then `indexed()` (T-0037, done 2026-11-17, r138: a value outside a loop head, `xs.indexed()` on a container and `Indexed(it)` on an iterator) and
    generic trait methods (T-0007, done 2026-11-17, r139, D-0108: not through a trait object); then whatever the benchmarks and the ImGui panel miss.
 4. **C++ interop: Dear ImGui in the SDL3 scene** (T-0171), the ImGui half of T-0010, with
-   what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
-   variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
+   what it needs on the way: overloaded free functions (T-0016), variadics (T-0008, done
+   2026-11-17, r143, D-0111: a printf-style function takes one text, passed after `"%s"`),
+   enum variants (T-0048, done the same day: reflection lists them; a `switch` stays
+   closed). Done. No Jolt. Then a C++ namespace reached as a module of its own,
    `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
    day; done 2026-11-17, r141, D-0109: the dependency lists the namespaces it names bare,
    `imgui = { cpp = "imgui", namespaces = ["ImGui"] }`, and a name already taken is

@@ -2,11 +2,23 @@
 id: T-0048
 title: An imported C or C++ enum's variants are not in the type table
 milestone: M12
-status: open
+status: done
 kind: deferral
 area: codegen
-where: `dz_cppimport`, enum import
+where: the variants are imported by `dz_cppimport` (`DeclKind::Enum`) and typed in `crates/dz_check/src/lib.rs` (`ItemSig::Enum`, with `values`); reflection's row is `describe_named` in `crates/dz_cpp/src/reflect.rs`; tested by `tests/run/cinterop`
 ---
+
+**Done 2026-11-17 (D-0111, r143).** What this said was missing had mostly arrived since:
+an imported enum's variants were named (`shp::shapes::Kind::Round`) and a `switch` over one
+was exhaustive. What was still missing was the type table: `typeinfo_of` an imported enum
+listed no variants, since reflection named each value `Type::Variant` in C++ and a C enum
+need not have that spelling. It now writes the value libclang read from the header, so a
+`typedef enum { … } MiniShape` lists `MINI_CIRCLE = 1` and `MINI_SQUARE = 4`
+(`tests/run/cinterop`). The question below, whether a `switch` over an imported enum must
+have a `default` arm, the user answered: they stay closed, as today. A value outside the
+list ends a value-producing `switch` in a panic and runs no arm of a statement one.
+
+What follows is the task as it was written.
 
 **What is and is not imported.** When `import cpp` reads a C or C++ enum, the **type**
 arrives properly — its name, its size and its backing integer type are all recorded, so a

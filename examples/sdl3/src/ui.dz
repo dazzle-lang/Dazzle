@@ -9,6 +9,8 @@
 // - overloads chosen by their arguments: `Combo` has three, and the one that takes its
 //   items as one string is picked by the string;
 // - `float col[3]` parameters, which take a whole `[3]f32` by reference;
+// - printf-style variadics, `ImGui::Text` and `SetItemTooltip`, which take the text
+//   `format!` made (the call passes it after a `"%s"`, so a `%` in it is printed);
 // - `GetIO()`, which returns a C++ reference whose fields are read and written in place;
 // - SDL's own types, which ImGui's backend header only declares and SDL's defines: one C++
 //   type, so `sdl::SDL_Window` and SDL's event pass straight through.
@@ -62,7 +64,7 @@ pub fn draw_panel(s: &mut Settings, camera: &mut Camera, fps: f32) {
     let width = ImGui::GetFontSize() * 25
     ImGui::SetNextWindowSize(&imgui::ImVec2{ x: width, y: 0 }, imgui::ImGuiCond_FirstUseEver)
     ImGui::Begin("Scene")
-    ImGui::TextUnformatted(format!("{} fps, drawn by Dazzle", fps.round() as i32))
+    ImGui::Text(format!("{} fps, drawn by Dazzle", fps.round() as i32))
 
     // One string, each preset's name ended by a zero byte: the `Combo` that takes this.
     if ImGui::Combo("Preset", &mut s.preset, "Afternoon\0Dusk\0Night\0") {
@@ -73,7 +75,9 @@ pub fn draw_panel(s: &mut Settings, camera: &mut Camera, fps: f32) {
         ImGui::Checkbox("Paused (Space)", &mut s.paused)
         ImGui::SliderFloat("Speed", &mut s.speed, 0, 4, "%.2fx")
         ImGui::Checkbox("Camera orbits", &mut s.orbit)
-        if ImGui::Button("Reset camera") {
+        let reset = ImGui::Button("Reset camera")
+        ImGui::SetItemTooltip(format!("Back to the start; time runs at {}%", (s.speed * 100).round() as i32))
+        if reset {
             let fresh: Camera
             camera = fresh
         }

@@ -6676,6 +6676,13 @@ impl<'a> Emitter<'a> {
                 rendered[index + receiver] = arg;
             }
         }
+        // A variadic function of `printf`'s kind takes its text after a `"%s"` format, so a
+        // `%` in the text is printed rather than read as a specifier (spec §15.2, T-0008).
+        if let hir::Callee::Fn { sym, .. } = callee {
+            if self.table.printf_fns.contains(sym) && !rendered.is_empty() {
+                rendered.insert(rendered.len() - 1, "\"%s\"".to_owned());
+            }
+        }
         let call = format!("{target}({})", rendered.join(", "));
         match imported {
             Some(sig) if sig.ret_cast => {

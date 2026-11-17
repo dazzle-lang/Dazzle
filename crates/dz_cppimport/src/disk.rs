@@ -193,6 +193,7 @@ mod tests {
                         }],
                         ret: int,
                         ret_cast: false,
+                        printf: false,
                     },
                 ),
                 decl(

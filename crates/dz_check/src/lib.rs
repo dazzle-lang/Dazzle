@@ -401,6 +401,9 @@ pub struct TypeTable {
     /// An imported integer constant's value, by its symbol: it is untyped as a literal is,
     /// so a narrow context checks its range as a literal's (spec §5.1, §15.2, T-0021).
     pub foreign_ints: HashMap<SymbolId, i128>,
+    /// Imported variadic functions of `printf`'s kind, whose last argument is a text the call
+    /// passes after a `"%s"` format (spec §15.2, T-0008).
+    pub printf_fns: HashSet<SymbolId>,
     /// The generic parameters of a struct, union or trait, in declaration order (spec
     /// §8.1). A generic *function*'s parameters live on its [`FnSig`] instead, because a
     /// method has a signature but no `SymbolId` of its own.
@@ -1373,6 +1376,7 @@ impl<'a> Ctx<'a> {
                 benches: Vec::new(),
                 sigs: HashMap::new(),
                 foreign_ints: HashMap::new(),
+                printf_fns: HashSet::new(),
                 type_params: HashMap::new(),
                 param_bounds: HashMap::new(),
                 assoc_params: HashMap::new(),
@@ -1489,8 +1493,11 @@ impl Ctx<'_> {
                     }
                     _ => None,
                 };
+                if let DeclKind::Fn { printf: true, .. } = &d.kind {
+                    self.table.printf_fns.insert(sym);
+                }
                 let sig = match &d.kind {
-                    DeclKind::Fn { params, ret, ret_cast } => ItemSig::Fn(FnSig {
+                    DeclKind::Fn { params, ret, ret_cast, .. } => ItemSig::Fn(FnSig {
                         ret_cast: *ret_cast,
                         // A C++ class's own `virtual` is its business: Dazzle calls it
                         // through C++'s dispatch and never declares one (spec §15.2).

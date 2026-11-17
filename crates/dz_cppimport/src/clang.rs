@@ -1021,14 +1021,27 @@ impl Walker {
             return;
         }
         self.fn_names.insert(qualified);
-        if clang_isFunctionTypeVariadic(clang_getCursorType(c)) != 0 {
+        // A variadic function is imported only when it is `printf`'s kind, its last fixed
+        // parameter the format: Dazzle then passes one text argument there and the call
+        // writes `"%s"` in its place, so no text is read as specifiers and nothing unchecked
+        // crosses (spec §15.2, T-0008, D-0111). Any other is left out.
+        let printf = clang_isFunctionTypeVariadic(clang_getCursorType(c)) != 0;
+        if printf && !printf_format(c) {
             return self.skip(
                 name,
                 loc,
-                "a variadic function; spec §15.2 imports a fixed-arity one",
+                "a variadic function that is not printf-style; spec §15.2 imports those and \
+                 fixed-arity ones",
             );
         }
         let Some(params) = self.parameters(c, &name, loc) else { return };
+        if printf && !params.last().is_some_and(|p| p.ty == CType::CStr) {
+            return self.skip(
+                name,
+                loc,
+                "a printf-style function whose format is not a `const char*`",
+            );
+        }
         let result = clang_getCursorResultType(c);
         let ret = self.map_type(result);
         if let CType::Unsupported(what) = &ret {
@@ -1036,7 +1049,7 @@ impl Walker {
             return self.skip(name, loc, reason);
         }
         let ret_cast = self.mismatched_spelling(result).is_some();
-        self.push_at(c, name, loc, DeclKind::Fn { params, ret, ret_cast });
+        self.push_at(c, name, loc, DeclKind::Fn { params, ret, ret_cast, printf });
     }
 
     unsafe fn record(&mut self, c: CXCursor, loc: Loc) {
@@ -1837,6 +1850,37 @@ unsafe fn is_anonymous(c: CXCursor) -> bool {
     name.is_empty() || name.contains(' ') || clang_Cursor_isAnonymous(c) != 0
 }
 
+/// Whether the variadic free function `c` is declared `printf`'s kind with its last fixed
+/// parameter as the format and the `...` as its arguments: `format(printf, N, N + 1)` with
+/// `N` the number of fixed parameters. ImGui writes it `IM_FMTARGS(1)`, SDL
+/// `SDL_PRINTF_VARARG_FUNC(1)`; either way clang holds it as a `format` attribute, which
+/// libclang does not expose but prints with the declaration.
+unsafe fn printf_format(c: CXCursor) -> bool {
+    let fixed = clang_Cursor_getNumArguments(c);
+    if fixed < 1 {
+        return false;
+    }
+    let policy = clang_getCursorPrintingPolicy(c);
+    let printed = string(clang_getCursorPrettyPrinted(c, policy));
+    clang_PrintingPolicy_dispose(policy);
+    printf_attribute(&printed, fixed as usize)
+}
+
+/// [`printf_format`]'s reading of a printed declaration.
+fn printf_attribute(printed: &str, fixed: usize) -> bool {
+    let compact: String = printed.chars().filter(|c| !c.is_whitespace()).collect();
+    // Each `format(` in it, as `format(printf,1,2)` or `__format__(__printf__,1,2)`.
+    compact.match_indices("format__(").chain(compact.match_indices("format(")).any(|(at, m)| {
+        let rest = &compact[at + m.len()..];
+        let Some(args) = rest.split(')').next() else { return false };
+        let parts: Vec<&str> = args.split(',').collect();
+        let [kind, index, first] = parts[..] else { return false };
+        let kind = kind.trim_matches('_');
+        let printf_kind = matches!(kind, "printf" | "gnu_printf" | "ms_printf");
+        printf_kind && index.parse() == Ok(fixed) && first.parse() == Ok(fixed + 1)
+    })
+}
+
 unsafe fn tokens(tu: CXTranslationUnit, range: CXSourceRange) -> Vec<String> {
     let mut toks: *mut CXToken = std::ptr::null_mut();
     let mut n: c_uint = 0;
@@ -1881,4 +1925,37 @@ pub(crate) fn number(body: &[&str]) -> Option<ConstValue> {
         digits.parse().ok()?
     };
     Some(ConstValue::Int(if negative { -v } else { v }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::printf_attribute;
+
+    /// What clang prints for each spelling the libraries use, and the shapes that are not
+    /// the one supported: the format the last fixed parameter, the `...` its arguments.
+    #[test]
+    fn a_printf_format_on_the_last_fixed_parameter_is_recognised() {
+        let imgui = "void Text(const char *fmt, ...) __attribute__((format(printf, 1, 2)))";
+        assert!(printf_attribute(imgui, 1));
+        let gnu = "void LabelText(const char *label, const char *fmt, ...) \
+                   __attribute__((format(gnu_printf, 2, 3)))";
+        assert!(printf_attribute(gnu, 2));
+        let reserved =
+            "int SDL_Log(const char *fmt, ...) __attribute__((__format__(__printf__, 1, 2)))";
+        assert!(printf_attribute(reserved, 1));
+        // `scanf`'s kind reads into its arguments; a format not last; a `va_list` form (0).
+        assert!(!printf_attribute(
+            "int s(const char *f, ...) __attribute__((format(scanf, 1, 2)))",
+            1
+        ));
+        assert!(!printf_attribute(
+            "int f(const char *f, int n, ...) __attribute__((format(printf, 1, 3)))",
+            2
+        ));
+        assert!(!printf_attribute(
+            "int v(const char *f, va_list a) __attribute__((format(printf, 1, 0)))",
+            2
+        ));
+        assert!(!printf_attribute("int plain(int n, ...)", 1));
+    }
 }

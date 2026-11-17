@@ -21,6 +21,18 @@ typedef enum MiniShape {
 } MiniShape;
 
 int mini_scale(int v);
+
+/* A variadic function of printf's kind, its format the last fixed parameter: imported as
+   taking one text, which the call passes after a "%s" (spec §15.2, T-0008). Returns how
+   many characters it wrote. One that is variadic but not printf's kind is left out. */
+#if defined(__GNUC__) || defined(__clang__)
+#define MINI_PRINTF(n) __attribute__((format(printf, n, n + 1)))
+#else
+#define MINI_PRINTF(n)
+#endif
+int mini_log(int level, const char *fmt, ...) MINI_PRINTF(2);
+int mini_count_args(int n, ...);
+const char *mini_last_log(void);
 MiniVec2 mini_add(MiniVec2 a, MiniVec2 b);
 float mini_length_sq(MiniVec2 v);
 int mini_sides(MiniShape s);

@@ -18,6 +18,10 @@ impl Add for mini::MiniVec2 {
 fn main() {
     // `MINI_SCALE=3` comes from the recipe's `defines`.
     println!("scaled {}", mini::mini_scale(5))
+    // A printf-style variadic takes one text where its format was: the call passes it
+    // after a "%s", so its `%` is printed, not read as a specifier (spec §15.2, T-0008).
+    let wrote = mini::mini_log(2, format!("{}% done", 100))
+    println!("logged {} {}", wrote, unsafe { mini::mini_last_log() as &str })
 
     // A C struct is a Dazzle struct; a literal names the fields it sets, and the rest
     // are zero, as `{}` makes them in C.
@@ -35,6 +39,12 @@ fn main() {
     println!("sides {} {}", mini::mini_sides(.MINI_CIRCLE), mini::mini_sides(mini::MiniShape::MINI_SQUARE))
     let square: i32 = mini::MINI_SQUARE
     println!("square {} version {} half {}", square, mini::MINI_VERSION, mini::MINI_HALF)
+    // Reflection lists an imported enum's variants and the values the header gave them
+    // (T-0048), though this C one has no `MiniShape::MINI_CIRCLE` spelling in C.
+    let shape = typeinfo_of<mini::MiniShape>()
+    for &v in shape.variants {
+        println!("variant {} = {}", v.name, v.value)
+    }
 
     // `int *` is a `^mut i32` and `const int *` a `^i32` (§18.37): a writable array's
     // `.ptr` passes to both.

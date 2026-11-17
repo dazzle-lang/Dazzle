@@ -219,14 +219,14 @@ libclang pass runs once and not on every build.
 | destructor | **C++ runs it.** Dazzle emits no `drop` for an imported type; the type is move-only instead, so it is never destroyed twice |
 | C++ copy constructor | what makes such a type copyable again: a class with a destructor *and* a public copy constructor is an ordinary value |
 | `namespace A::B` | nested scope: `ns::A::B::thing`. An `inline` namespace adds no segment, as in C++ |
-| `enum` | `enum`, and each enumerator also an untyped integer constant at the header's scope (§18.38) |
+| `enum` | `enum`, and each enumerator also an untyped integer constant at the header's scope (§18.38). Its variants are a closed set to `switch`, as a Dazzle enum's are, and reflection lists them with the values the header gave them (§13; D-0111) |
 | `enum class` | `enum`, its enumerators reached only through it |
 | overload set | see §15.3 |
 | `virtual` method | callable normally; Dazzle types cannot inherit from it |
 | template | not imported unless explicitly instantiated (§15.4) |
 | macro `#define X 1` | constant, emitted by its own name: an integer is untyped, a float `f32` when written with `f` and untyped otherwise (§18.38). A macro whose value is another expression clang can type keeps that type — raylib's `RAYWHITE` is a `Color` |
 | function-like macro | not imported |
-| variadic `...` | not imported; use a fixed-arity overload |
+| variadic `...` | **printf's kind** — declared `format(printf, N, N+1)`, its format the last fixed parameter, as `ImGui::Text(const char* fmt, ...)` and `SDL_Log` are — takes one text where the format was: `ImGui::Text(format!("{} fps", fps))`. The call passes it after a `"%s"` format, so a `%` in it is printed, never read as a specifier, and nothing unchecked crosses. Any other variadic function is not imported; use a fixed-arity one (D-0111) |
 
 **A namespace may be named bare.** A header's namespace is reached through its dependency's
 key, `imgui::ImGui::Begin`. When most of a library sits in one namespace, as `ImGui::`,

@@ -1,10 +1,13 @@
 scaled 15
+logged 13 [2] 100% done
 sum 3 4
 plus 4 6
 length sq 25
 zero 0 0
 sides 0 4
 square 4 version 7 half 0.5
+variant MINI_CIRCLE = 1
+variant MINI_SQUARE = 4
 total 24
 name mini
 length 5

@@ -189,7 +189,17 @@ pub struct Decl {
 pub enum DeclKind {
     /// `ret_cast` is the Dazzle-side C++ type a returned pointer must be cast back to,
     /// for the same reason as [`Param::c_cast`].
-    Fn { params: Vec<Param>, ret: CType, ret_cast: bool },
+    ///
+    /// `printf`: a variadic function of `printf`'s kind, whose last parameter is its format
+    /// (`ImGui::Text(const char* fmt, ...)`). Dazzle passes one text there, and the call is
+    /// written with `"%s"` as the format and the text after it (spec §15.2, T-0008).
+    Fn {
+        params: Vec<Param>,
+        ret: CType,
+        ret_cast: bool,
+        #[serde(default)]
+        printf: bool,
+    },
     /// `opaque` when the header declares the struct and never defines it — `RGFW_window`,
     /// `FILE`. Its size is unknown, so it is a handle: usable behind a pointer and never by
     /// value, and it has no fields to name (spec §15.2, §18.40).
@@ -473,13 +483,14 @@ mod tests {
         // Where it is, what its comment says and what its parameters are called differ by C
         // library (`__size`, `_Size`); what it is cannot.
         let unnamed = |kind: &super::DeclKind| match kind {
-            super::DeclKind::Fn { params, ret, ret_cast } => super::DeclKind::Fn {
+            super::DeclKind::Fn { params, ret, ret_cast, printf } => super::DeclKind::Fn {
                 params: params
                     .iter()
                     .map(|p| super::Param { name: String::new(), ..p.clone() })
                     .collect(),
                 ret: ret.clone(),
                 ret_cast: *ret_cast,
+                printf: *printf,
             },
             other => other.clone(),
         };

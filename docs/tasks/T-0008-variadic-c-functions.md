@@ -2,10 +2,23 @@
 id: T-0008
 title: Variadic C functions
 milestone: M7b
-status: open
+status: done
 kind: feature
 area: interop
+where: `function` and `printf_format` in `crates/dz_cppimport/src/clang.rs` (the attribute, read from the pretty-printed declaration); `DeclKind::Fn::printf`; `TypeTable::printf_fns` in `crates/dz_check/src/lib.rs`; the `"%s"` in the call, `crates/dz_cpp/src/lib.rs` before `let call = format!("{target}(…)")`; tested by `tests/run/cinterop` (`mini_log`) and `examples/sdl3/src/ui.dz`
 ---
+
+**Done 2026-11-17, the user's choice of the first option, made safe (D-0111, r143).** A
+variadic free function declared `format(printf, N, N+1)`, its format the last fixed
+parameter, imports as taking one text there, and the call passes it after `"%s"`:
+`ImGui::Text(format!("{} fps", fps))` is `ImGui::Text("%s", text)`, so the "catch" below, a
+`%` in the user's text, is gone. libclang does not expose the `format` attribute, but prints
+it with the declaration (`clang_getCursorPrettyPrinted`), which is read for the kind
+(`printf`, `gnu_printf`, `__printf__`) and the two indices. Every other variadic stays out:
+one without the attribute (`TraceLog`), one whose format is not last, a printf-style method,
+and the `va_list` forms. The SDL3 panel writes `ImGui::Text` and `SetItemTooltip`.
+
+What follows is the task as it was written.
 
 **What is missing.** A C function declared with a trailing `...` — `printf`,
 `ImGui::Text(const char* fmt, ...)`, `TraceLog(int level, const char* text, ...)` — is
