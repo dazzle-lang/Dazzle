@@ -52,17 +52,9 @@ error[DZ0003]: dependency `noPath` says nothing about where it comes from
    ┌─ badmanifest/dazzle.toml:14:11
    │
 14 │ noPath  = { version = "1.0" }
-   │           ^^^^^^^^^^^^^^^^^^^ expected `path`, `cpp` or `via`
+   │           ^^^^^^^^^^^^^^^^^^^ expected `path`, `cpp`, `via` or `git`
    │
-   = help: `path = "../libs/math"` for a project, `cpp = "raylib"` for a `[cpp.libs]` recipe's header, `via = "rl::shapes"` for a public dependency of a dependency (spec §3.2)
-
-error[DZ0004]: unknown key `version` in dependency `noPath`
-   ┌─ badmanifest/dazzle.toml:14:13
-   │
-14 │ noPath  = { version = "1.0" }
-   │             ^^^^^^^ not a key of a dependency
-   │
-   = help: a dependency takes one of `path`, `cpp` or `via`, and `open`, `pub` and `flags` (spec §3.2)
+   = help: `path = "../libs/math"` for a project, `git = "https://…"` with `version` or `rev` for one fetched, `cpp = "raylib"` for a `[cpp.libs]` recipe's header, `via = "rl::shapes"` for a public dependency of a dependency (spec §3.2)
 
 error[DZ0004]: directory `no/such/dir` does not exist
    ┌─ badmanifest/dazzle.toml:18:17
@@ -102,4 +94,4 @@ error[DZ0004]: unknown key `optimise` in `[cpp.libs.broken]`
 27 │ optimise = "fast"
    │ ^^^^^^^^ not a key of this table
    │
-   = help: the keys here are `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import`, `keeps`, `cmake`, `options`, `uses` (spec §15.1)
+   = help: the keys here are `git`, `version`, `rev`, `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import`, `keeps`, `cmake`, `options`, `uses` (spec §15.1)

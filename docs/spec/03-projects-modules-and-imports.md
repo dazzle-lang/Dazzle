@@ -95,13 +95,19 @@ GLES   = { cpp = "gles" }                       # GLES::DrawArrays
   naming it. `dz new` writes `std = { open = true }`.
 - **Only a dependency's `pub` declarations are reachable**, and never what *it* depends on,
   unless it says so (below).
+- **`namespaces = ["ImGui"]` on a `cpp` dependency names a namespace of its header bare**:
+  `imgui = { cpp = "imgui", namespaces = ["ImGui"] }` makes `ImGui::Begin` mean
+  `imgui::ImGui::Begin` in every file of the module, and the key still reaches the
+  header's global declarations, `imgui::ImGui_ImplSDL3_Init`. The name has to be free
+  (§15.2, `DZ0318`). `[DECIDED — D-0109]`
 
 **A bare name** is looked for in this order, and the first place that has it wins:
 
 1. locals and generic parameters;
 2. the module's own declarations, in any of its files;
 3. a `{ … }` import in this file (below);
-4. the module's `[names]` choices;
+4. the module's `[names]` choices, and the C++ namespaces its dependencies' `namespaces`
+   name bare;
 5. the opened dependencies — and here, **two different declarations of the name are an
    error** (`DZ0310`), reported on the line that writes it, not at the manifest. There is no
    precedence among dependencies, by order or otherwise: `let a = Vec2{}` with two opened
@@ -121,6 +127,32 @@ a conflict. `[DECIDED — §18.57]`
 A dependency nothing in the module names — no path through its key, no import, no opened
 name, no `[names]` choice or `via` — is a warning on its manifest line (`DZ0313`). A public
 one is part of the module's interface whether or not the module uses it, and is not.
+
+**A dependency fetched with git.** A module that is not in the repository is named by its
+repository and pinned, by a release or by a commit:
+
+```toml
+[dependencies]
+ui    = { git = "https://github.com/someone/dazzle-ui", version = "0.4.0" }  # the tag v0.4.0, or 0.4.0
+noise = { git = "https://github.com/someone/noise", rev = "6e9f4c…" }        # a commit, all 40 digits
+```
+
+- **One of `version` and `rev` is required.** A `version` is a release, the repository's tag
+  `v0.4.0` or `0.4.0`; a `rev` is a commit written in full. A branch is neither, since it
+  names different code from one day to the next.
+- **`dazzle.lock`, beside the root manifest and checked in, records the commit** each one
+  resolved to, so every machine builds the same code and a tag moved upstream changes
+  nothing until its entry is deleted. The commit is git's hash of the whole tree, so it is
+  also the content's hash. `dz` writes it when a source is new or no longer used; the
+  lockfiles of dependencies are not read.
+- **`dz build`, `dz run` and `dz check` fetch** what is not yet in the per-user cache, by
+  running `git`; each commit is checked out once and shared by every project. The editor
+  never fetches: a source not yet fetched is `DZ0008` there, and one that cannot be is
+  `DZ0007`.
+- **Fetched source is source.** The repository's `dazzle.toml`, at its root, is read like
+  any dependency's, and its own dependencies are resolved from it. Nothing in it is run;
+  a `[cpp.libs]` recipe with a CMake build is the one exception, built as one in the
+  repository is (§15.1). `[DECIDED — D-0110]`
 
 **Public dependencies.** A dependency is private: the module can use it, and modules that
 depend on *this* one cannot see it. `pub = true` makes it part of the module's interface:

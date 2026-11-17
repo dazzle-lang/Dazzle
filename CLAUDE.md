@@ -147,8 +147,9 @@ tests/workspace/      multi-module workspaces; typed/ must check with ZERO diagn
                       typeerrors/ has one deliberate failure per type rule
 examples/             real projects, every one built by `every_example_builds`, held to `dz fmt`
 examples/vendor/      the C libraries the examples use, as git submodules (raylib, SDL, RGFW, sokol,
-                      stb, miniaudio, Box2D; `git submodule update --init`),
-                      until a recipe can fetch its own source (T-0077)
+                      stb, miniaudio, Box2D; `git submodule update --init`); a recipe
+                      can now fetch its own source with `git` (T-0077), as
+                      examples/sdl3's ImGui does, pinned in its `dazzle.lock`
 ```
 
 Crates still to come are listed in spec §17.1. Follow that layout rather than inventing one.

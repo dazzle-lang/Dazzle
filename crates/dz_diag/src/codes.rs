@@ -105,6 +105,12 @@ pub const MANIFEST_BAD_VALUE: &str = "DZ0004";
 pub const MANIFEST_NO_SOURCES: &str = "DZ0005";
 /// Modules depend on one another in a cycle (spec §3.2).
 pub const MODULE_CYCLE: &str = "DZ0006";
+/// A git source that could not be fetched: no `git`, no such repository, version or
+/// commit, or the lockfile could not be written (spec §3.2, §15.1).
+pub const GIT_FETCH_FAILED: &str = "DZ0007";
+/// A git source the editor finds neither pinned nor in the cache: the editor never
+/// fetches, and a `dz build` or `dz check` does (spec §3.2).
+pub const GIT_NOT_FETCHED: &str = "DZ0008";
 
 // --- DZ03xx: name resolution and visibility ------------------------------------
 
@@ -147,6 +153,10 @@ pub const ATTRIBUTE_NOT_IMPLEMENTED: &str = "DZ0316";
 /// An `extern fn` outside the standard library, or inside a body: its body is C++ only the
 /// compiler supplies (spec §7.2, 18.65).
 pub const EXTERN_OUTSIDE_STD: &str = "DZ0317";
+/// A C++ namespace a dependency's `namespaces` names bare whose name the module already
+/// uses: a dependency key, a declaration of its own, a `[names]` choice or another
+/// namespace named so (spec §15.2).
+pub const NAMESPACE_NAME_TAKEN: &str = "DZ0318";
 
 // --- DZ04xx: ownership and flow analysis (spec §6) -----------------------------
 

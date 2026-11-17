@@ -5,10 +5,13 @@
 fn main() {
     // A namespace is a nested scope: `shp` is the header, `shapes` the namespace in it.
     let a = shp::shapes::Point{ x: 1, y: 2 }
-    let b = shp::shapes::Point{ x: 4, y: 6 }
+    // The manifest's `namespaces` names `shapes` bare too, so the header's key can be left
+    // out, struct literals and types included (§15.2, T-0179).
+    let b = shapes::Point{ x: 4, y: 6 }
+    let c: shapes::Point = b
 
-    // A nested namespace takes one more segment.
-    println!("manhattan {}", shp::shapes::geom::manhattan(a, b))
+    // A nested namespace takes one more segment, or none when it is named bare as well.
+    println!("manhattan {} {}", shp::shapes::geom::manhattan(a, c), geom::manhattan(a, c))
 
     // A scoped enum's enumerators are reached only through it (§18.38).
     println!("round {} square {}",

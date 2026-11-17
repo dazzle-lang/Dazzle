@@ -47,3 +47,22 @@ Modules may not depend on one another in a cycle (spec §3.2): each is checked a
 depends on, which a cycle makes impossible. Move what both need into a third module.
 
 No example: it takes two modules, each with its own `dazzle.toml`.
+
+## DZ0007
+
+A dependency or a `[cpp.libs]` recipe that names a git repository, `git = "https://…"`
+with a `version` or a `rev`, could not be fetched (spec §3.2, §15.1). The message says why:
+`git` is not installed or not on the PATH, the repository cannot be reached, it has no tag
+for the `version` (both `v1.2.0` and `1.2.0` are tried), or the `rev` is not one of its
+commits. Also reported, as a warning, when `dazzle.lock` cannot be written.
+
+No example: the mistake is in `dazzle.toml`, not in Dazzle source.
+
+## DZ0008
+
+The editor found a git source that is not in the cache yet. The language server never
+touches the network, so it reads only what a build already fetched; `dz build` or
+`dz check` fetches it, pins its commit in `dazzle.lock`, and the editor then sees it
+(spec §3.2).
+
+No example: it is about what is on this machine, not about the program.

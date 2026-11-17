@@ -4,13 +4,14 @@
 //! module and lists the files that belong to it; folders carry no meaning. Dependencies
 //! name other manifests by path, and the graph they form must be acyclic (spec §3.2).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_span::{FileId, SourceMap, Span};
 
 pub mod cmake;
+pub mod fetch;
 pub mod toml;
 
 pub use cmake::CmakeBuild;
@@ -378,6 +379,25 @@ pub struct ViaDep {
     pub public: bool,
 }
 
+/// `imgui = { cpp = "imgui", namespaces = ["ImGui"] }`: a C++ namespace of an imported
+/// header named bare, `ImGui::Begin`, in every file of this module (spec §15.2).
+#[derive(Debug, Clone)]
+pub struct LiftedNamespace {
+    /// The namespace's path inside the header: `["ImGui"]`, `["b2", "detail"]`.
+    pub path: Vec<String>,
+    /// Where the string is in the manifest.
+    pub span: Span,
+    /// The dependency key whose header holds it.
+    pub dep: String,
+}
+
+impl LiftedNamespace {
+    /// The name code writes it by: the path's last segment.
+    pub fn name(&self) -> &str {
+        self.path.last().map(String::as_str).unwrap_or_default()
+    }
+}
+
 /// `Vec2 = "std"` under `[names]`: which opened dependency a bare name means (spec §3.2).
 #[derive(Debug, Clone)]
 pub struct NamePick {
@@ -411,6 +431,8 @@ pub struct Module {
     pub via_deps: Vec<ViaDep>,
     /// `[names]` (spec §3.2).
     pub names: Vec<NamePick>,
+    /// The C++ namespaces its `cpp` dependencies lift to bare names (spec §15.2).
+    pub namespaces: Vec<LiftedNamespace>,
     /// The flags this package declares under `[flags]` (spec §12.10).
     pub flags: Vec<FlagDecl>,
     pub build: BuildConfig,
@@ -495,6 +517,7 @@ impl Workspace {
                     cpp_deps: Vec::new(),
                     via_deps: Vec::new(),
                     names: Vec::new(),
+                    namespaces: Vec::new(),
                     flags: Vec::new(),
                     build: BuildConfig::default(),
                     cpp: CppConfig::default(),
@@ -635,7 +658,7 @@ impl Workspace {
 /// problem is reported as a diagnostic and loading continues, so one broken dependency
 /// does not hide the rest.
 pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Option<Workspace> {
-    load_for(entry, map, diags, None, &mut |_, _| {})
+    load_for(entry, map, diags, None, true, &mut |_, _| {})
 }
 
 /// [`load`] for one build. `optimize` overrides every manifest's `[build] optimize`, since
@@ -644,18 +667,27 @@ pub fn load(entry: &Path, map: &mut SourceMap, diags: &mut Diagnostics) -> Optio
 /// headers are the ones their install holds (spec §15.1, D-0090). The editor passes one
 /// that does nothing. When it reports an error, loading stops there and the result is
 /// `None`, since every header it should have installed would be reported missing too.
+/// `online` lets a git source be fetched, and the lockfile written (spec §3.2, T-0077):
+/// `dz` passes true, the editor false, so analysing a file never touches the network.
 pub fn load_for(
     entry: &Path,
     map: &mut SourceMap,
     diags: &mut Diagnostics,
     optimize: Option<Optimize>,
+    online: bool,
     prepare: &mut dyn FnMut(&Workspace, &mut Diagnostics),
 ) -> Option<Workspace> {
     let manifest_path =
         normalize(&if entry.is_dir() { entry.join("dazzle.toml") } else { entry.to_owned() });
 
-    let mut loader =
-        Loader { map, diags, modules: Vec::new(), by_path: HashMap::new(), globs: Vec::new() };
+    let mut loader = Loader {
+        map,
+        diags,
+        modules: Vec::new(),
+        by_path: HashMap::new(),
+        globs: Vec::new(),
+        fetcher: None,
+    };
     let prelude = loader.add_prelude();
     // The prelude's headers are read before any project module exists, so their modules
     // and files come straight after the prelude's own and are numbered the same in every
@@ -674,6 +706,8 @@ pub fn load_for(
     let load_times = LoadTimes { headers: started.elapsed(), ..LoadTimes::default() };
     let prelude_layer = layer.modules.len() as u32;
     loader.modules = layer.modules;
+    // After the prelude, whose files are numbered the same in every analysis.
+    loader.fetcher = Some(fetch::Fetcher::new(&manifest_path, online, loader.map, loader.diags));
     let root = loader.load_module(&manifest_path, None)?;
 
     // Every module depends on the standard library, because the language's own constructs
@@ -681,6 +715,16 @@ pub fn load_for(
     // dependency anyway, marked implicit, which name resolution treats as not nameable.
     let mut modules = loader.modules;
     let globs = loader.globs;
+    // Only after a load with no error, since a source that failed to fetch is missing from
+    // what was used, and writing then would drop its pinned commit.
+    if let Some(fetcher) = loader.fetcher.take().filter(|_| !diags.has_errors()) {
+        if let Err(e) = fetcher.save() {
+            diags.push(Diagnostic::warning(
+                codes::GIT_FETCH_FAILED,
+                format!("could not write `{}`: {e}", fetcher.lockfile().display()),
+            ));
+        }
+    }
     // Not an imported header, which is C declarations and depends on nothing.
     for m in modules.iter_mut().filter(|m| m.foreign.is_none()) {
         if m.id != prelude && !m.deps.iter().any(|d| d.module == prelude) {
@@ -1230,6 +1274,7 @@ struct LoadedDeps {
     deps: Vec<Dependency>,
     cpp: Vec<CppDep>,
     via: Vec<ViaDep>,
+    namespaces: Vec<LiftedNamespace>,
 }
 
 struct Loader<'a> {
@@ -1240,6 +1285,9 @@ struct Loader<'a> {
     by_path: HashMap<PathBuf, ModuleId>,
     /// Every source pattern expanded, with what it matched (`Workspace::globs`).
     globs: Vec<(String, Vec<PathBuf>)>,
+    /// The lockfile and the cache of git sources; `None` only while the prelude loads,
+    /// which fetches nothing.
+    fetcher: Option<fetch::Fetcher>,
 }
 
 impl<'a> Loader<'a> {
@@ -1272,6 +1320,7 @@ impl<'a> Loader<'a> {
             deps: Vec::new(),
             via_deps: Vec::new(),
             names: Vec::new(),
+            namespaces: Vec::new(),
             // The C library, which `Allocators::Global` allocates from (spec §14.2).
             cpp_deps: vec![CppDep {
                 alias: STD_LIBC.to_owned(),
@@ -1399,6 +1448,7 @@ impl<'a> Loader<'a> {
             cpp_deps: Vec::new(),
             via_deps: Vec::new(),
             names: Vec::new(),
+            namespaces: Vec::new(),
             flags,
             build,
             cpp,
@@ -1413,6 +1463,7 @@ impl<'a> Loader<'a> {
         module.cpp_deps = loaded.cpp;
         module.via_deps = loaded.via;
         module.names = names;
+        module.namespaces = loaded.namespaces;
 
         Some(id)
     }
@@ -1633,7 +1684,18 @@ impl<'a> Loader<'a> {
 
             let open = self.bool_field(file, key, fields, "open");
             let public = self.bool_field(file, key, fields, "pub");
-            const KEYS: &[&str] = &["path", "cpp", "via", "open", "pub", "flags"];
+            const KEYS: &[&str] = &[
+                "path",
+                "cpp",
+                "via",
+                "git",
+                "version",
+                "rev",
+                "open",
+                "pub",
+                "flags",
+                "namespaces",
+            ];
             for f in fields {
                 if !KEYS.contains(&f.key.as_str()) {
                     self.diags.push(
@@ -1643,15 +1705,36 @@ impl<'a> Loader<'a> {
                         )
                         .at(file, f.key_span, "not a key of a dependency")
                         .with_help(
-                            "a dependency takes one of `path`, `cpp` or `via`, and `open`, \
-                             `pub` and `flags` (spec §3.2)",
+                            "a dependency takes one of `path`, `cpp`, `via` or `git` (with \
+                             `version` or `rev`), and `open`, `pub`, `flags` and, on a `cpp` \
+                             one, `namespaces` (spec §3.2)",
+                        ),
+                    );
+                }
+            }
+            // `namespaces = ["ImGui"]`: only a header has namespaces; a Dazzle module's
+            // nested modules are dependencies of its own, reached with `via` (spec §3.2).
+            if let Some(ns) = fields.iter().find(|f| f.key == "namespaces") {
+                if fields.iter().any(|f| f.key == "cpp") {
+                    out.namespaces.extend(self.lifted_namespaces(file, key, &ns.value));
+                } else {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("dependency `{key}` has no C++ namespaces to name"),
+                        )
+                        .at(file, ns.key_span, "only a `cpp` dependency takes `namespaces`")
+                        .with_help(
+                            "`namespaces` names namespaces of an imported header, \
+                             `imgui = { cpp = \"imgui\", namespaces = [\"ImGui\"] }`; a module's \
+                             public dependency is named with `via` (spec §3.2, §15.2)",
                         ),
                     );
                 }
             }
             let source: Vec<&toml::Entry> = fields
                 .iter()
-                .filter(|f| ["path", "cpp", "via"].contains(&f.key.as_str()))
+                .filter(|f| ["path", "cpp", "via", "git"].contains(&f.key.as_str()))
                 .collect();
 
             // `std = { open = true }`: the compiler's own, found without a path (§14.4).
@@ -1683,25 +1766,44 @@ impl<'a> Loader<'a> {
                 let (msg, label) = if source.is_empty() {
                     (
                         format!("dependency `{key}` says nothing about where it comes from"),
-                        "expected `path`, `cpp` or `via`",
+                        "expected `path`, `cpp`, `via` or `git`",
                     )
                 } else {
                     (
                         format!("dependency `{key}` names more than one source"),
-                        "one of `path`, `cpp` or `via`",
+                        "one of `path`, `cpp`, `via` or `git`",
                     )
                 };
                 self.diags.push(
                     Diagnostic::error(codes::MANIFEST_MISSING_FIELD, msg)
                         .at(file, *span, label)
                         .with_help(
-                            "`path = \"../libs/math\"` for a project, `cpp = \"raylib\"` for a \
+                            "`path = \"../libs/math\"` for a project, `git = \"https://…\"` with \
+                             `version` or `rev` for one fetched, `cpp = \"raylib\"` for a \
                              `[cpp.libs]` recipe's header, `via = \"rl::shapes\"` for a public \
                              dependency of a dependency (spec §3.2)",
                         ),
                 );
                 continue;
             };
+            // `version` and `rev` pin a git source and mean nothing on any other.
+            if source.key != "git" {
+                if let Some(f) = fields.iter().find(|f| f.key == "version" || f.key == "rev") {
+                    self.diags.push(
+                        Diagnostic::error(
+                            codes::MANIFEST_BAD_VALUE,
+                            format!("`{}` pins a git source, and `{key}` is not one", f.key),
+                        )
+                        .at(file, f.key_span, format!("`{key}` comes from its `{}`", source.key))
+                        .with_help(
+                            "a dependency fetched with git is `{ git = \"https://…\", version = \
+                             \"1.2.0\" }`; one in the repository is a `path` and has no version \
+                             (spec §3.2)",
+                        ),
+                    );
+                    continue;
+                }
+            }
             let Value::Str(value, value_span) = &source.value else {
                 self.type_error(
                     file,
@@ -1750,10 +1852,22 @@ impl<'a> Loader<'a> {
             }
             let (rel, path_span) = (value, value_span);
 
-            // A dependency path names a directory unless it points straight at a
-            // manifest. Deciding by extension rather than by `is_dir` keeps the error
-            // message sensible when the directory does not exist at all.
-            let dep_path = normalize(&root_dir.join(rel));
+            // A git source is its checkout's `dazzle.toml`, at the root of the repository
+            // (T-0077). Otherwise a dependency path names a directory unless it points
+            // straight at a manifest. Deciding by extension rather than by `is_dir` keeps
+            // the error message sensible when the directory does not exist at all.
+            let dep_path = if source.key == "git" {
+                let Some(pin) = self.git_pin(file, &format!("dependency `{key}`"), *span, fields)
+                else {
+                    continue;
+                };
+                match self.git_checkout(file, rel, *path_span, &pin) {
+                    Some(dir) => dir,
+                    None => continue,
+                }
+            } else {
+                normalize(&root_dir.join(rel))
+            };
             let dep_manifest = if dep_path.extension().is_some_and(|e| e == "toml") {
                 dep_path
             } else {
@@ -1978,6 +2092,165 @@ impl<'a> Loader<'a> {
 
     /// A dependency's `flags = ["PROFILE"]`. Whether each names a flag the dependency
     /// declares is checked once every module is loaded (spec §12.10).
+    /// What pins a git source among `fields`: exactly one of `version`, a release tag, or
+    /// `rev`, a commit written in full (spec §3.2, T-0077). A branch is neither: it names
+    /// different code from one day to the next.
+    fn git_pin(
+        &mut self,
+        file: FileId,
+        what: &str,
+        at: Span,
+        fields: &[toml::Entry],
+    ) -> Option<fetch::Pin> {
+        let version = fields.iter().find(|f| f.key == "version");
+        let rev = fields.iter().find(|f| f.key == "rev");
+        let (entry, make): (&toml::Entry, fn(String) -> fetch::Pin) = match (version, rev) {
+            (Some(v), None) => (v, fetch::Pin::Version),
+            (None, Some(r)) => (r, fetch::Pin::Rev),
+            (None, None) | (Some(_), Some(_)) => {
+                let both = version.is_some();
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_MISSING_FIELD,
+                        if both {
+                            format!("{what} has both a `version` and a `rev`")
+                        } else {
+                            format!("{what} is fetched with git and says nothing about which code")
+                        },
+                    )
+                    .at(
+                        file,
+                        at,
+                        if both { "one of the two" } else { "expected `version` or `rev`" },
+                    )
+                    .with_help(
+                        "`version = \"1.93.0\"` for a release, its tag `v1.93.0` or `1.93.0`, or \
+                         `rev = \"…\"` for a commit written in full; `dazzle.lock` then records \
+                         the commit, so every build gets the same code (spec §3.2)",
+                    ),
+                );
+                return None;
+            }
+        };
+        let Value::Str(text, span) = &entry.value else {
+            self.type_error(file, &entry.value, &format!("{what}'s `{}`", entry.key), "a string");
+            return None;
+        };
+        if entry.key == "rev" && !fetch::is_commit(text) {
+            self.diags.push(
+                Diagnostic::error(codes::MANIFEST_BAD_VALUE, format!("`{text}` is not a commit"))
+                    .at(file, *span, "expected a commit's 40 hex digits")
+                    .with_help(
+                        "a `rev` is a commit written in full, which names one tree for good; for \
+                         a release write `version = \"…\"`, and a branch is not a version (spec \
+                         §3.2)",
+                    ),
+            );
+            return None;
+        }
+        Some(make(text.clone()))
+    }
+
+    /// The checkout of `url` at `pin`, fetched when it must be and this load may (see
+    /// [`fetch::Fetcher`]); each way it can fail is a diagnostic at the URL.
+    fn git_checkout(
+        &mut self,
+        file: FileId,
+        url: &str,
+        at: Span,
+        pin: &fetch::Pin,
+    ) -> Option<PathBuf> {
+        use fetch::FetchError as E;
+        let fetcher = self.fetcher.as_mut().expect("only the prelude loads without a fetcher");
+        let err = match fetcher.checkout(url, pin) {
+            Ok(dir) => return Some(dir),
+            Err(e) => e,
+        };
+        let d = match err {
+            E::NotFetched => Diagnostic::error(
+                codes::GIT_NOT_FETCHED,
+                format!("`{url}` at {} is not fetched yet", pin.describe()),
+            )
+            .at(file, at, "not in the cache")
+            .with_help("`dz build` or `dz check` fetches it; the editor never does (spec §3.2)"),
+            E::NoCache => Diagnostic::error(
+                codes::GIT_FETCH_FAILED,
+                format!("cannot fetch `{url}`: there is no per-user cache to keep it in"),
+            )
+            .at(file, at, "nowhere to put it")
+            .with_help("set `DZ_CACHE_DIR` to a folder `dz` may write"),
+            E::NoGit(e) => Diagnostic::error(
+                codes::GIT_FETCH_FAILED,
+                format!("cannot fetch `{url}`: `git` could not be run ({e})"),
+            )
+            .at(file, at, "fetched with git")
+            .with_help("install git, or put it on the PATH"),
+            E::NoSuchVersion { tried } => Diagnostic::error(
+                codes::GIT_FETCH_FAILED,
+                format!("`{url}` has no release {}", pin.describe()),
+            )
+            .at(file, at, format!("no tag {}", tried.join(" or ")))
+            .with_help("a `version` names a tag of the repository; `rev` names a commit"),
+            E::Git(e) => Diagnostic::error(
+                codes::GIT_FETCH_FAILED,
+                format!("could not fetch `{url}` at {}", pin.describe()),
+            )
+            .at(file, at, "git failed")
+            .with_note(e),
+        };
+        self.diags.push(d);
+        None
+    }
+
+    /// `namespaces = ["ImGui", "b2::detail"]` on the `cpp` dependency `dep` (spec §15.2):
+    /// each a path of identifiers. Whether the header has it is name resolution's to say.
+    fn lifted_namespaces(
+        &mut self,
+        file: FileId,
+        dep: &str,
+        value: &Value,
+    ) -> Vec<LiftedNamespace> {
+        let Value::Array(items, _) = value else {
+            self.type_error(
+                file,
+                value,
+                &format!("dependencies.{dep}.namespaces"),
+                "an array of C++ namespaces",
+            );
+            return Vec::new();
+        };
+        let ident = |s: &str| {
+            s.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_')
+                && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+        };
+        let mut out = Vec::new();
+        for item in items {
+            let Value::Str(text, span) = item else {
+                self.type_error(
+                    file,
+                    item,
+                    &format!("dependencies.{dep}.namespaces entry"),
+                    "a string",
+                );
+                continue;
+            };
+            let path: Vec<String> = text.split("::").map(str::to_owned).collect();
+            if !path.iter().all(|s| ident(s)) {
+                self.diags.push(
+                    Diagnostic::error(
+                        codes::MANIFEST_BAD_VALUE,
+                        format!("`{text}` is not a C++ namespace"),
+                    )
+                    .at(file, *span, "expected a namespace, `Name` or `Outer::Inner`")
+                    .with_help("for example `namespaces = [\"ImGui\"]` (spec §15.2)"),
+                );
+                continue;
+            }
+            out.push(LiftedNamespace { path, span: *span, dep: dep.to_owned() });
+        }
+        out
+    }
+
     fn dependency_flags(
         &mut self,
         file: FileId,
@@ -2095,6 +2368,9 @@ impl<'a> Loader<'a> {
         const MODULE_KEYS: &[&str] =
             &["include_dirs", "defines", "lib_dirs", "link_libs", "frameworks"];
         const LIB_KEYS: &[&str] = &[
+            "git",
+            "version",
+            "rev",
             "root",
             "sources",
             "header",
@@ -2129,21 +2405,66 @@ impl<'a> Loader<'a> {
         // A library's `root` is needed before any of its paths can be resolved, and nothing
         // stops its target sections coming first, so roots are read in a pass of their own.
         let mut roots: HashMap<String, PathBuf> = HashMap::new();
+        // Recipes whose git source could not be had: reported once at the URL, and their
+        // paths not resolved, which would only report every one of them missing.
+        let mut unfetched: HashSet<String> = HashSet::new();
         for table in &doc.tables {
             let parts: Vec<&str> = table.name.split('.').collect();
             if let ["cpp", "libs", name] = parts[..] {
+                // `git = "https://…"`: the paths are the fetched tree's, `root` within it
+                // (spec §15.1, T-0077).
+                let (base, base_desc) = match table.entry("git") {
+                    None => {
+                        if let Some(f) =
+                            table.entries.iter().find(|f| f.key == "version" || f.key == "rev")
+                        {
+                            self.diags.push(
+                                Diagnostic::error(
+                                    codes::MANIFEST_BAD_VALUE,
+                                    format!("`{}` pins a git source, and `[{}]` has no `git`", f.key, table.name),
+                                )
+                                .at(file, f.key_span, "nothing to pin")
+                                .with_help("a library fetched with git says where from: `git = \"https://…\"` (spec §15.1)"),
+                            );
+                        }
+                        (root_dir.to_path_buf(), MANIFEST_DIR)
+                    }
+                    Some(entry) => {
+                        let Value::Str(url, url_span) = &entry.value else {
+                            self.type_error(
+                                file,
+                                &entry.value,
+                                &format!("{}.git", table.name),
+                                "a string",
+                            );
+                            unfetched.insert(name.to_owned());
+                            continue;
+                        };
+                        let what = format!("`[{}]`", table.name);
+                        let checkout = self
+                            .git_pin(file, &what, table.header_span, &table.entries)
+                            .and_then(|pin| self.git_checkout(file, url, *url_span, &pin));
+                        match checkout {
+                            Some(dir) => (dir, "the root of the fetched repository"),
+                            None => {
+                                unfetched.insert(name.to_owned());
+                                continue;
+                            }
+                        }
+                    }
+                };
                 let root = match table.get("root") {
-                    None => root_dir.to_path_buf(),
+                    None => base,
                     Some(Value::Str(r, span)) => {
-                        let p = normalize(&root_dir.join(r));
+                        let p = normalize(&base.join(r));
                         if !p.is_dir() {
-                            self.missing_dir(file, r, *span, MANIFEST_DIR);
+                            self.missing_dir(file, r, *span, base_desc);
                         }
                         p
                     }
                     Some(other) => {
                         self.type_error(file, other, &format!("{}.root", table.name), "a string");
-                        root_dir.to_path_buf()
+                        base
                     }
                 };
                 roots.insert(name.to_owned(), root);
@@ -2175,6 +2496,10 @@ impl<'a> Loader<'a> {
                             libs.len() - 1
                         }
                     };
+                    // Still a recipe, so a `cpp = "…"` naming it is not also an error.
+                    if unfetched.contains(name) {
+                        continue;
+                    }
                     if let ["cpp", "libs", _, "target", os] = parts[..] {
                         let applies = self.check_target(file, table, os) && os == host;
                         let mut elsewhere = Lists::default();
@@ -2342,8 +2667,10 @@ impl<'a> Loader<'a> {
             ) {
                 out.compile_keys.push((key.to_owned(), entry.key_span));
             }
-            if key == "root" {
-                continue; // read in a pass of its own, before any path is resolved
+            // Where the source comes from: read in a pass of its own, before any path is
+            // resolved. A new `version` changes `root`, so it needs no compile key of its own.
+            if matches!(key, "root" | "git" | "version" | "rev") {
+                continue;
             }
             // `cmake = "vendor/SDL"`: a library built by its own CMake (spec §15.1, D-0090).
             if key == "cmake" {

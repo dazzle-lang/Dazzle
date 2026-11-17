@@ -94,7 +94,8 @@ jobs:
 
     steps:
       # raylib and RGFW are submodules under `examples/vendor/`, and `every_example_builds`
-      # compiles them from that source.
+      # compiles them from that source. Dear ImGui is not: `dz` fetches it with git, at the
+      # commit `examples/sdl3/dazzle.lock` pins (T-0077).
       - uses: actions/checkout@v7
         with:
           submodules: true

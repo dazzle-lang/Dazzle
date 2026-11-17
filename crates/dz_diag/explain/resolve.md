@@ -341,3 +341,14 @@ fn main() {
     println!("{}", t.elapsed().as_secs_f64() >= 0.0)
 }
 ```
+
+## DZ0318
+
+`imgui = { cpp = "imgui", namespaces = ["ImGui"] }` names the header's namespace `ImGui`
+bare in every file of the module: `ImGui::Begin` rather than `imgui::ImGui::Begin` (spec
+§15.2). The name has to be free. A dependency key, a declaration of the module, a
+`[names]` choice or another namespace named so that is already called `ImGui` would make
+`ImGui::` mean two things, so it is an error rather than one of them quietly winning.
+Rename the declaration or the dependency key, or leave the namespace written in full.
+
+No example: the mistake is in `dazzle.toml`, which every example here shares.

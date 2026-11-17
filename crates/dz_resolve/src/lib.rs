@@ -651,7 +651,80 @@ fn module_names(r: &mut Resolution, ws: &Workspace, module: ModuleId) {
             ),
         }
     }
+    lift_namespaces(r, m, &mut names);
     r.names.insert(module, names);
+}
+
+/// `imgui = { cpp = "imgui", namespaces = ["ImGui"] }`: each namespace becomes a bare name
+/// of the module, as a `[names]` choice is, so `ImGui::Begin` walks it like
+/// `imgui::ImGui::Begin` (spec §15.2). A name the module already uses is an error, never
+/// shadowed, since `ImGui::` would then mean one thing in a file and another to a reader.
+fn lift_namespaces(r: &mut Resolution, m: &dz_project::Module, names: &mut ModuleNames) {
+    // Where each lifted name came from, to point at the first when a second takes it.
+    let mut lifted: HashMap<String, Span> = HashMap::new();
+    for ns in &m.namespaces {
+        let Some(&dep) = names.deps.get(&ns.dep) else { continue };
+        r.used_deps.insert((m.id, ns.dep.clone()));
+        let found = ns.path.split_first().and_then(|(first, rest)| {
+            let mut at = r.lookup(dep, first)?;
+            for seg in rest {
+                if r.symbol(at).kind != SymbolKind::Namespace {
+                    return None;
+                }
+                at = r.inner(at, seg)?;
+            }
+            Some(at)
+        });
+        let Some(sym) = found.filter(|s| r.symbol(*s).kind == SymbolKind::Namespace) else {
+            r.diagnostics.push(
+                Diagnostic::error(
+                    codes::UNRESOLVED_NAME,
+                    format!("the header of `{}` has no namespace `{}`", ns.dep, ns.path.join("::")),
+                )
+                .at(m.manifest, ns.span, "no such C++ namespace")
+                .with_help(
+                    "`namespaces` names namespaces the dependency's header declares, written as \
+                     C++ writes them: `\"ImGui\"`, `\"b2::detail\"` (spec §15.2)",
+                ),
+            );
+            continue;
+        };
+        let name = ns.name().to_owned();
+        let taken = if names.deps.contains_key(&name) {
+            Some("a dependency key of this module".to_owned())
+        } else if let Some(&own) = r.lookup(m.id, &name).as_ref() {
+            Some(format!("a {} of this module", r.symbol(own).kind.describe()))
+        } else if lifted.contains_key(&name) {
+            Some("another namespace named in `namespaces`".to_owned())
+        } else if names.picks.contains_key(&name) {
+            Some("a `[names]` choice".to_owned())
+        } else {
+            None
+        };
+        if let Some(what) = taken {
+            let mut d = Diagnostic::error(
+                codes::NAMESPACE_NAME_TAKEN,
+                format!(
+                    "the namespace `{}` cannot be named `{name}`: that is already {what}",
+                    ns.path.join("::")
+                ),
+            )
+            .at(m.manifest, ns.span, format!("`{name}` is taken"))
+            .with_help(format!(
+                "rename what is called `{name}`, or write the namespace in full, `{}::{}::…` \
+                 (spec §15.2)",
+                ns.dep,
+                ns.path.join("::")
+            ));
+            if let Some(first) = lifted.get(&name) {
+                d = d.with_label(dz_diag::Label::secondary(m.manifest, *first, "named here first"));
+            }
+            r.diagnostics.push(d);
+            continue;
+        }
+        lifted.insert(name.clone(), ns.span);
+        names.picks.insert(name, sym);
+    }
 }
 
 /// `["rl", "shapes"]` from a module whose keys are `names`: the first segment a key, each

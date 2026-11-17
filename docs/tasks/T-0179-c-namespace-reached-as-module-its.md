@@ -2,12 +2,32 @@
 id: T-0179
 title: A C++ namespace reached as a module of its own: ImGui::Begin, not imgui::ImGui::Begin
 milestone: M7b
-status: open
+status: done
 kind: feature
 area: interop
+where: `LiftedNamespace` and `lifted_namespaces` in `crates/dz_project/src/lib.rs` (the manifest key); `lift_namespaces` in `crates/dz_resolve/src/lib.rs` (a pick per namespace, and the collisions); the type-path branch of `crates/dz_check/src/lib.rs` that walks `module::Type` (a path starting at a bare namespace); tests in `crates/dz_driver/tests/namespaces.rs` and `tests/run/cppinterop`
 ---
 
 Planned for 0.2 by the user on 2026-11-09.
+
+**Done 2026-11-17, the user's design (D-0109, r141), which is neither option below.** The
+dependency lists the namespaces to name bare: `imgui = { cpp = "imgui", namespaces =
+["ImGui"] }` makes `ImGui::Begin` mean `imgui::ImGui::Begin`, and the key keeps the
+header's globals, `imgui::ImGui_ImplSDL3_Init`. A nested namespace is named by its last
+segment. Each lifted namespace is a `[names]`-style choice in the module's `ModuleNames.picks`,
+so resolution, the checker and the editor follow one rule. A name already used in the
+module, by a dependency key, a declaration, a `[names]` choice or another listed namespace,
+is `DZ0318` (new) on the manifest line; a namespace the header lacks is `DZ0301`; and
+`namespaces` on a non-`cpp` dependency is `MANIFEST_BAD_VALUE`. `examples/sdl3/src/ui.dz`
+now writes `ImGui::` on its 38 calls, and the panel draws as before.
+
+Found on the way: a path starting at a namespace named bare, by this or by an opened header
+(`open = true`), resolved but did not type a struct literal or an annotation,
+`shapes::Point{ x: 1, y: 2 }`: the checker's type-path branch only walked paths whose head
+was a dependency key. It now walks one whose head is a namespace too.
+
+The hint the user asked for next, pointing at `imgui::ImGui::x` where `ImGui` is named bare
+with a `dz fix` dropping the key, is [T-0243](T-0243-hint-dz-fix-for-imgui-imgui.md), for 0.3.
 
 **What is missing.** A C++ namespace is a nested scope of its header's module (§15, the
 `namespace A::B` row), so every call into Dear ImGui is written twice over:

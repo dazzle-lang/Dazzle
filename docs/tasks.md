@@ -115,7 +115,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
    variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
    `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
-   day; its spelling is the user's decision).
+   day; done 2026-11-17, r141, D-0109: the dependency lists the namespaces it names bare,
+   `imgui = { cpp = "imgui", namespaces = ["ImGui"] }`, and a name already taken is
+   `DZ0318`; the hint toward the short form is T-0243, for 0.3).
 5. **Benchmarks.** Two whole programs against C++, `json` (T-0173, done 2026-11-14: 1.16×
    on clang++ and 1.31× on g++, with floats written in full, r130, and `loop`, r131, the
    user's decisions on what it found; the rest was T-0225, done 2026-11-17 at 0.92× and
@@ -202,7 +204,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0013](tasks/T-0013-hover-on-imported-name.md)** Hover on an imported name · deferral, editor
 - **[T-0014](tasks/T-0014-import-cache-in-process-only.md)** The import cache is in-process only · deferral, interop
 
-## M7b — Full C and C++ interop (8 open)
+## M7b — Full C and C++ interop (7 open)
 
 - **[T-0008](tasks/T-0008-variadic-c-functions.md)** Variadic C functions · feature, interop
 - **[T-0009](tasks/T-0009-dazzle-struct-implementing-imported-c-abstract.md)** A Dazzle struct implementing an imported C++ abstract class · feature, interop
@@ -211,7 +213,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0018](tasks/T-0018-inheritance-between-imported-c-classes.md)** Inheritance between imported C++ classes · deferral, interop
 - **[T-0019](tasks/T-0019-whole-c-array-member-cannot-be.md)** A whole C array member cannot be copied or passed as a slice · deferral, checker
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
-- **[T-0179](tasks/T-0179-c-namespace-reached-as-module-its.md)** A C++ namespace reached as a module of its own: ImGui::Begin, not imgui::ImGui::Begin · feature, interop
 
 ## M9 — LSP: diagnostics, hover, go-to-definition, completion (11 open)
 
@@ -263,7 +264,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
-- **[T-0077](tasks/T-0077-git-dependencies-pinned-by-lockfile.md)** Git dependencies, pinned by a lockfile · feature, packaging
+- **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
 ## M17 — Freestanding targets: no heap, no operating system (1 open)
 
@@ -274,7 +275,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (27 open)
+## none — not scheduled (28 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -303,3 +304,4 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
+- **[T-0243](tasks/T-0243-hint-dz-fix-for-imgui-imgui.md)** A hint and a dz fix for imgui::ImGui::x where ImGui is named bare · feature, llm-tooling

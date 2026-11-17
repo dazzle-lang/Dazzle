@@ -1,0 +1,7 @@
+# Written by `dz`: the commit each git source is pinned to (spec §3.2). Check it
+# in, so that every machine builds the same code. Delete an entry to resolve its
+# version again.
+
+git = [
+    { url = "https://github.com/ocornut/imgui", version = "1.93.0", commit = "c1aaac65e896a45f81f47a4d68f9959e0f86c859" },
+]

@@ -2790,8 +2790,15 @@ impl<'a> Ctx<'a> {
 
         // `module::Type`, and `header::ns::Type` for a C++ namespace, which the path walks
         // through one segment at a time (spec §15.2).
-        // And `rl::shapes::Rectangle` through a public dependency (spec §3.2).
-        if self.res.module_alias(self.file, name).is_some() {
+        // And `rl::shapes::Rectangle` through a public dependency (spec §3.2). A path may
+        // also start at a namespace named bare, by a dependency's `namespaces` or an
+        // opened header: `ImGui::Style` (spec §15.2).
+        let bare_namespace = || {
+            self.res
+                .lookup_in_file(self.module, self.file, name)
+                .is_some_and(|s| self.res.symbol(s).kind == SymbolKind::Namespace)
+        };
+        if self.res.module_alias(self.file, name).is_some() || bare_namespace() {
             let names: Vec<&str> = p.segments.iter().map(|s| s.name.name.as_str()).collect();
             let Some((sym, used)) = self.res.path_item(self.module, self.file, &names) else {
                 return Ty::Error;

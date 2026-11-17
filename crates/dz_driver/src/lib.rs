@@ -183,7 +183,10 @@ pub fn analyse_selecting(
 
     // Loading includes `prepare`, the CMake builds, and importing every C and C++ header
     // with libclang (spec §15.1); the workspace says how long each of those took.
-    let loaded = dz_project::load_for(entry, &mut map, &mut diags, options.optimize, prepare);
+    // Only a build fetches a git source; the editor reads what is already in the cache.
+    let online = mode == Mode::Build;
+    let loaded =
+        dz_project::load_for(entry, &mut map, &mut diags, options.optimize, online, prepare);
     let loaded_at = Instant::now();
     if let Some(ws) = &loaded {
         let t = ws.load_times;

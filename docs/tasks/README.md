@@ -126,7 +126,9 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    what it needs on the way: overloaded free functions (T-0016), variadics (T-0008), enum
    variants (T-0048). No Jolt. Then a C++ namespace reached as a module of its own,
    `ImGui::Begin` rather than `imgui::ImGui::Begin` (T-0179, added by the user the same
-   day; its spelling is the user's decision).
+   day; done 2026-11-17, r141, D-0109: the dependency lists the namespaces it names bare,
+   `imgui = { cpp = "imgui", namespaces = ["ImGui"] }`, and a name already taken is
+   `DZ0318`; the hint toward the short form is T-0243, for 0.3).
 5. **Benchmarks.** Two whole programs against C++, `json` (T-0173, done 2026-11-14: 1.16×
    on clang++ and 1.31× on g++, with floats written in full, r130, and `loop`, r131, the
    user's decisions on what it found; the rest was T-0225, done 2026-11-17 at 0.92× and

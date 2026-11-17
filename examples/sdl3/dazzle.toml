@@ -6,7 +6,7 @@ sources = ["src/**/*.dz"]
 std = { open = true }
 sdl   = { cpp = "sdl3" }
 gl    = { cpp = "glad" }
-imgui = { cpp = "imgui" }
+imgui = { cpp = "imgui", namespaces = ["ImGui"] }
 
 # SDL3 built by its own CMake, which `dz` runs with the compilers it uses itself and
 # installs into build/cmake/ (spec §15.1). SDL is a git submodule pinned to its 3.4.18 tag;
@@ -39,11 +39,13 @@ import       = ["external/glad.h"]
 keeps        = []
 
 # Dear ImGui, a C++ library, built from its own source: its four core files and the two
-# backends that read SDL3's input and draw with OpenGL 3. ImGui is a git submodule pinned
-# to its v1.93.0 tag. The OpenGL backend loads the GL functions it needs itself, so it does
-# not need glad.
+# backends that read SDL3's input and draw with OpenGL 3. `dz` fetches it with git, the
+# release tagged v1.93.0, and `dazzle.lock` beside this file pins the commit (spec §15.1);
+# the paths below are the fetched repository's. The OpenGL backend loads the GL functions
+# it needs itself, so it does not need glad.
 [cpp.libs.imgui]
-root         = "../vendor/imgui"
+git          = "https://github.com/ocornut/imgui"
+version      = "1.93.0"
 sources      = ["imgui.cpp", "imgui_draw.cpp", "imgui_tables.cpp", "imgui_widgets.cpp",
                 "backends/imgui_impl_sdl3.cpp", "backends/imgui_impl_opengl3.cpp"]
 include_dirs = [".", "backends"]

@@ -3,7 +3,8 @@ name    = "cppinterop"
 sources = ["src/**/*.dz"]
 
 [dependencies]
-shp = { cpp = "shapes" }
+# `shapes::Point` as well as `shp::shapes::Point`, and `geom::manhattan` (spec §15.2).
+shp = { cpp = "shapes", namespaces = ["shapes", "shapes::geom"] }
 std = { open = true }
 
 # M7b's criterion (spec §15.1, §15.2, §19): a C++ library vendored as source, never

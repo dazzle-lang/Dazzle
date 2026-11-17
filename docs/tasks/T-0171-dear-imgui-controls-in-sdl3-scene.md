@@ -21,7 +21,7 @@ display's content scale (and 1.25), and `screenshot.avif` now shows it.
 
 | Piece | Where |
 |---|---|
-| ImGui, pinned to v1.93.0 | `examples/vendor/imgui` (submodule) |
+| ImGui, pinned to v1.93.0 | fetched with git by the `[cpp.libs.imgui]` recipe in `examples/sdl3/dazzle.toml`, its commit in `examples/sdl3/dazzle.lock` (T-0077; a submodule in `examples/vendor/imgui` until 2026-11-17) |
 | Its recipe, with `uses = ["sdl3"]` | `examples/sdl3/dazzle.toml` |
 | The panel | `examples/sdl3/src/ui.dz`; what it changes is `Settings` in `src/scene.dz` |
 | Default arguments | `Param::has_default`, `Walker::parameters` in `dz_cppimport`; read in `collect_foreign` and `foreign_methods`, `dz_check/src/lib.rs` |

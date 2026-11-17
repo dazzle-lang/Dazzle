@@ -2,6 +2,41 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Git sources and `dazzle.lock`; ImGui off its submodule (r142; D-0110; T-0077; 2026-11-17)
+
+`crates/dz_project/src/fetch.rs` holds it all: a `Fetcher` per load reads `dazzle.lock`
+beside the root manifest, gives the loader a checkout for each `(url, version or rev)`, and
+writes the lockfile again only when what the load used differs from what it held, and only
+after a load with no error (a source that failed to fetch is missing from what was used,
+and writing then would drop its pin). The loader asks it in two places: a dependency's
+`git` becomes the checkout's `dazzle.toml`, after which loading is a `path`'s; a recipe's
+`git` becomes the base its `root` and every path are read against, in the pass that already
+read `root`s first. A recipe that could not be fetched is still a recipe, with nothing in
+it, so the one error at its URL is the only one.
+
+**Why the system's `git`, not a library.** Every machine that builds the examples has git
+already, and it brings the user's credentials, proxies and URL rewrites for free; a crate
+would need all of that configured again. It runs with `GIT_TERMINAL_PROMPT=0`, so a private
+repository fails with git's message instead of a build waiting on a password prompt.
+
+**How a commit is fetched.** `git ls-remote` resolves a `version`'s tag, asking for the
+peeled `^{}` line too, since an annotated tag's own id is not its commit (the first test run
+checked out the commit and caught that). Then, in a temporary folder renamed into place only
+when complete: `fetch --depth 1` of the commit itself, which GitHub serves; failing that,
+the tag; failing that, everything. `rev-parse HEAD` must be the commit asked for.
+
+**Why online is a load option.** The language server analyses on every keystroke and must
+not touch the network; `load_for` takes `online`, which the driver sets from `Mode::Build`,
+as it already kept CMake builds to the CLI (D-0090). Offline, a pinned commit already in
+the cache is read, and anything else is `DZ0008`.
+
+`examples/sdl3`'s ImGui is the first fetched recipe: same tag, same commit as the submodule
+(`c1aaac65`), the panel unchanged. `crates/dz_driver/tests/git_sources.rs` makes its
+repositories in a temporary folder, so it needs no network: a module by `version` with its
+lockfile, a tag moved upstream changing nothing, a `rev`, a branch refused, the editor not
+fetching and then reading what a build fetched, a recipe whose include dir lands in the
+cache, and a missing release as one error naming both tags tried.
+
 ## Generic instantiation against C++ templates, and the benchmarks' history (T-0075, T-0225; 2026-11-17)
 
 **`tests/bench_programs/generics`** is the seventh whole-program pair: one generic driver

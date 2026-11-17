@@ -52,6 +52,12 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   module's `[cpp]` ones, at the build's optimisation level, with warnings off: its warnings
   are not the project's to fix.
 - **Every path is relative to the manifest**, or to the library's `root` when it has one.
+- **`git`** fetches the library's source instead of keeping it in the repository:
+  `git = "https://github.com/ocornut/imgui"` with `version = "1.93.0"`, a release tag, or
+  `rev`, a commit in full. It is pinned in `dazzle.lock` and fetched into the per-user cache
+  exactly as a git dependency is (§3.2), and every path, `root` included, is then relative
+  to the fetched repository. A `cmake` library may be fetched too, and its CMake build runs
+  as a vendored one's does: what it runs is the commit the lockfile pins. `[DECIDED — D-0110]`
 - **`[cpp.target.<os>]`** and **`[cpp.libs.<name>.target.<os>]`** add to their base table
   when building for that target — `windows`, `linux`, `macos` or `web`. Every section is
   checked on every platform, so a recipe that is wrong for another platform says so here.
@@ -221,6 +227,32 @@ libclang pass runs once and not on every build.
 | macro `#define X 1` | constant, emitted by its own name: an integer is untyped, a float `f32` when written with `f` and untyped otherwise (§18.38). A macro whose value is another expression clang can type keeps that type — raylib's `RAYWHITE` is a `Color` |
 | function-like macro | not imported |
 | variadic `...` | not imported; use a fixed-arity overload |
+
+**A namespace may be named bare.** A header's namespace is reached through its dependency's
+key, `imgui::ImGui::Begin`. When most of a library sits in one namespace, as `ImGui::`,
+`b2::` and `JPH::` do, the dependency lists it, and every file of the module writes it as
+C++ does:
+
+```toml
+[dependencies]
+imgui = { cpp = "imgui", namespaces = ["ImGui"] }
+```
+
+```dz
+ImGui::Begin("Scene")                          // what `imgui::ImGui::Begin` is, which still works
+ImGui::SetNextWindowPos(&imgui::ImVec2{ x: 16, y: 16 }, imgui::ImGuiCond_FirstUseEver)
+imgui::ImGui_ImplOpenGL3_Init("#version 330 core")   // the header's globals keep the key
+```
+
+A nested namespace is written as C++ writes it and named by its last segment:
+`namespaces = ["b2::detail"]` gives `detail::`. The name is the module's, as a `[names]`
+choice is (§3.2), and not passed on to modules depending on it. **It must be free**: a
+dependency key, a declaration of the module, a `[names]` choice or another namespace named
+so that already has the name is `DZ0318` on the manifest's line, never shadowed, since
+`ImGui::` would then mean one thing to the compiler and maybe another to its reader. A
+name the header does not declare as a namespace is `DZ0301`, and `namespaces` on a
+dependency that is not a header is refused: a Dazzle module's own dependencies are reached
+with `via`. `[DECIDED — D-0109]`
 
 The importer only teaches the compiler what exists. A call into a header is emitted as the
 call it names (`::InitWindow(1280, 720, "Dazzle")`). **Whether it is safe to call depends on
