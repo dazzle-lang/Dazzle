@@ -831,9 +831,10 @@ fn main() {
 ## DZ0557
 
 A method with type parameters of its own is one function per set of arguments. A `virtual`
-method has one slot in a vtable, and a trait's method is called through `^Trait` with no
-types known, so neither can have them (spec §8.1, §7.6). Make the type or trait generic
-instead.
+method has one slot in a vtable, which cannot hold many functions, so it cannot have them
+(spec §8.1, §7.3). Take the varying part as a trait reference, or move the method to a
+trait: a trait's method may be generic, and is then called on a type that is known, not
+through a trait object (D-0108, `DZ0589`).
 
 ```dz
 struct Widget {

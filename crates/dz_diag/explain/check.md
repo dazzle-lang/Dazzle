@@ -1786,3 +1786,62 @@ fn main() {
     }
 }
 ```
+
+## DZ0589
+
+A trait's method may have type parameters of its own, `fn write<T: Format>(&mut self,
+value: T)`, and like any generic function it is one function per type argument, and per
+implementation: `Log`'s `write<i32>` and `Loud`'s `write<&str>` are made where a call names
+them. That needs the receiver's type. A trait object, `^Writer` or `&Writer`, hides it
+behind a vtable of one function per method, built once per type, and a method that is many
+functions has no slot there (D-0108, spec §7.6, §8.1). Rust has the same rule.
+
+The trait's other methods are still called through the object. Call the generic one on a
+value whose type is known, or take a parameter bounded by the trait, which is one function
+per type it is called with.
+
+```dz
+trait Writer {
+    fn write<T: Format>(&mut self, value: T)
+}
+
+struct Log {}
+
+impl Writer for Log {
+    fn write<T: Format>(&mut self, value: T) {
+        println!("{}", value)
+    }
+}
+
+fn emit(w: &mut Writer) {
+    w.write(3)
+}
+
+fn main() {
+    let mut log = Log{}
+    emit(&mut log)
+}
+```
+
+```dz
+trait Writer {
+    fn write<T: Format>(&mut self, value: T)
+}
+
+struct Log {}
+
+impl Writer for Log {
+    fn write<T: Format>(&mut self, value: T) {
+        println!("{}", value)
+    }
+}
+
+fn emit<W: Writer>(w: &mut W) {
+    w.write(3)
+}
+
+fn main() {
+    let mut log = Log{}
+    emit(&mut log)
+}
+```

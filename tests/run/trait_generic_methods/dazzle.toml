@@ -1,0 +1,10 @@
+[module]
+name    = "trait_generic_methods"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std   = { open = true }
+sinks = { path = "sinks" }
+
+[build]
+output = "executable"

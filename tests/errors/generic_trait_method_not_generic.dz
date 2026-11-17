@@ -1,0 +1,20 @@
+// expect: DZ0533
+//
+// A trait's generic method is implemented generic, with as many type parameters (D-0108).
+
+trait Writer {
+    fn write<T: Format>(&mut self, value: T)
+}
+
+struct Log {}
+
+impl Writer for Log {
+    fn write(&mut self, value: i32) {
+        println!("{}", value)
+    }
+}
+
+fn main() {
+    let mut log = Log{}
+    log.write(3)
+}

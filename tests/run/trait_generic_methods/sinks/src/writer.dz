@@ -1,0 +1,19 @@
+/// A trait with a method generic in what it writes (D-0108): each implementation has one
+/// function per type argument, made where a call's receiver is known.
+pub trait Writer {
+    fn write<view T: Format>(&mut self, value: T)
+
+    fn count(&self) -> i32
+
+    /// A default generic method, calling the generic one at two types.
+    fn pair<view A: Format, view B: Format>(&mut self, a: A, b: B) {
+        self.write(a)
+        self.write(b)
+    }
+}
+
+/// Picks one of a list's elements, by value: a generic method whose result is its own
+/// parameter.
+pub trait Picker {
+    fn pick<T: Clone>(&self, xs: &List<T>) -> T
+}

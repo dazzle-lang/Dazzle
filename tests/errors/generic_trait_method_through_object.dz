@@ -1,0 +1,25 @@
+// expect: DZ0589
+//
+// A trait's generic method is a function per implementation and type argument, chosen where
+// the receiver's type is known: a trait object has no slot for it (D-0108).
+
+trait Writer {
+    fn write<T: Format>(&mut self, value: T)
+}
+
+struct Log {}
+
+impl Writer for Log {
+    fn write<T: Format>(&mut self, value: T) {
+        println!("{}", value)
+    }
+}
+
+fn through_an_object(w: &mut Writer) {
+    w.write(3)
+}
+
+fn main() {
+    let mut log = Log{}
+    through_an_object(&mut log)
+}

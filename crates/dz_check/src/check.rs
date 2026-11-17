@@ -119,13 +119,6 @@ pub(crate) fn item(cx: &mut Ctx, it: &Item) {
                 _ => None,
             });
             for (f, key) in fns.zip(keys) {
-                refuse_generic_method(
-                    cx,
-                    f,
-                    "a trait's method is called through implementations the caller may not know, \
-                     and through `^Trait` with no type at all; make the trait generic instead, \
-                     `trait Show<T>` (spec §7.6, §8.1)",
-                );
                 if f.body.is_none() {
                     // Required of every implementer. Its default arguments are still the
                     // trait's, and a trait object's handle declares them (spec §7.6).
@@ -777,6 +770,56 @@ fn clauses_within_trait(cx: &mut Ctx, method: &str, trait_name: &str, want: &FnS
 
 /// Why two signatures differ, phrased for a label. `None` when they match.
 fn signature_differs(cx: &Ctx, want: &FnSig, got: &FnSig) -> Option<String> {
+    // A method's own type parameters match by position, whatever they are called: the
+    // implementation's `U` is the trait's `T` (D-0108). Each is bounded as the trait's is,
+    // so a call checked against the trait's bounds is one the implementation accepts.
+    if want.generics.len() != got.generics.len() {
+        let (w, g) = (want.generics.len(), got.generics.len());
+        return Some(format!(
+            "has {g} type {}, but the trait declares {w}",
+            plural(g, "parameter")
+        ));
+    }
+    let renamed;
+    let got = if got.generics.is_empty() {
+        got
+    } else {
+        let map: HashMap<u32, Ty> = got
+            .generics
+            .iter()
+            .zip(&want.generics)
+            .map(|(g, w)| (g.param.id, Ty::Param(w.param.clone())))
+            .collect();
+        for (i, (w, g)) in want.generics.iter().zip(&got.generics).enumerate() {
+            let bounds: Vec<TraitRef> = g
+                .bounds
+                .iter()
+                .map(|b| TraitRef {
+                    trait_sym: b.trait_sym,
+                    args: b.args.iter().map(|a| ty::substitute(a, &map)).collect(),
+                    span: b.span,
+                })
+                .collect();
+            let same = bounds.len() == w.bounds.len()
+                && bounds.iter().all(|b| {
+                    w.bounds.iter().any(|x| x.trait_sym == b.trait_sym && x.args == b.args)
+                });
+            if !same || g.param.view != w.param.view {
+                return Some(format!(
+                    "type parameter {} is bounded differently from the trait's `{}`",
+                    i + 1,
+                    w.name()
+                ));
+            }
+        }
+        let mut copy = got.clone();
+        for p in &mut copy.params {
+            p.ty = ty::substitute(&p.ty, &map);
+        }
+        copy.ret = ty::substitute(&copy.ret, &map);
+        renamed = copy;
+        &renamed
+    };
     if want.params.len() != got.params.len() {
         let (w, g) = (want.params.len(), got.params.len());
         return Some(format!("takes {g} {}, but the trait declares {w}", plural(g, "parameter")));
@@ -832,7 +875,42 @@ fn signature_of(cx: &Ctx, name: &str, sig: &FnSig) -> String {
         other => format!(" {arrow} {}", type_name(cx.res, other)),
     };
     let unsafe_ = if sig.is_unsafe { "unsafe " } else { "" };
-    format!("{unsafe_}fn {name}({}){ret}", params.join(", "))
+    // A method's own type parameters, with their bounds, as written (D-0108).
+    let generics = if sig.generics.is_empty() {
+        String::new()
+    } else {
+        let each: Vec<String> = sig
+            .generics
+            .iter()
+            .map(|g| {
+                let view = if g.param.view { "view " } else { "" };
+                let bounds: Vec<String> = g
+                    .bounds
+                    .iter()
+                    .map(|b| {
+                        let n = cx.res.symbol(b.trait_sym).name.clone();
+                        match b.args.as_slice() {
+                            [] => n,
+                            // `T: Mul` is `Mul<T>`, and is written without the default.
+                            [only] if *only == Ty::Param(g.param.clone()) => n,
+                            args => {
+                                let a: Vec<String> =
+                                    args.iter().map(|a| type_name(cx.res, a)).collect();
+                                format!("{n}<{}>", a.join(", "))
+                            }
+                        }
+                    })
+                    .collect();
+                if bounds.is_empty() {
+                    format!("{view}{}", g.name())
+                } else {
+                    format!("{view}{}: {}", g.name(), bounds.join(" + "))
+                }
+            })
+            .collect();
+        format!("<{}>", each.join(", "))
+    };
+    format!("{unsafe_}fn {name}{generics}({}){ret}", params.join(", "))
 }
 
 fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
@@ -2362,6 +2440,19 @@ impl<'a, 'c> Body<'a, 'c> {
                 !matches!(self.hir.ty(*base), Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. })
                     && self.owned_place(*base)
             }
+            _ => false,
+        }
+    }
+
+    /// Is the node `self` in a default body of trait `owner`? There `Self` is spelled as the
+    /// trait, so the receiver's type names the trait without being a trait object.
+    fn is_own_self(&self, id: hir::ExprId, owner: SymbolId) -> bool {
+        if self.self_ty != Some(owner) {
+            return false;
+        }
+        match self.hir.kind(id) {
+            hir::ExprKind::Local(l) => self.hir.local_name(*l) == "self",
+            hir::ExprKind::Deref(inner) => self.is_own_self(*inner, owner),
             _ => false,
         }
     }
@@ -5278,6 +5369,7 @@ impl<'a, 'c> Body<'a, 'c> {
         base: &Expr,
         peeled: &Ty,
         name: &Ident,
+        generics: &[Type],
         args: &[Expr],
         e: &Expr,
     ) -> Option<Checked> {
@@ -5333,13 +5425,18 @@ impl<'a, 'c> Body<'a, 'c> {
         if sig.is_unsafe {
             self.require_unsafe_call(span, &sig, &name.name);
         }
+        // A trait's method may have type parameters of its own, solved here as a struct
+        // method's are; the implementation's instance is chosen by monomorphization (D-0108).
+        let written =
+            PathSegment { span: name.span, name: name.clone(), generics: generics.to_vec() };
+        let (sig, method_args) = self.solve_method(sig, Some(&written), args, span, &name.name);
         let args = self.check_args(&sig, args, span, &name.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
         let callee = hir::Callee::Method {
             recv: recv.id,
             owner: trait_sym,
             name: name.name.clone(),
-            method_args: Vec::new(),
+            method_args,
         };
         Some(self.mk(e, ty, hir::ExprKind::Call { callee, args }))
     }
@@ -5582,10 +5679,11 @@ impl<'a, 'c> Body<'a, 'c> {
     fn qualified_trait_call(
         &mut self,
         tsym: SymbolId,
-        method: &Ident,
+        seg: &PathSegment,
         args: &[Expr],
         e: &Expr,
     ) -> Checked {
+        let method = &seg.name;
         let span = e.span;
         let tname = self.cx.res.symbol(tsym).name.clone();
         if Some(tsym) == self.cx.prelude_trait("Drop")
@@ -5649,13 +5747,33 @@ impl<'a, 'c> Body<'a, 'c> {
         if sig.is_unsafe {
             self.require_unsafe_call(span, &sig, &method.name);
         }
+        // Through a trait object, a generic method has no slot to call (D-0108).
+        if sig.is_generic() && peeled.named() == Some(tsym) && !self.is_own_self(recv.id, tsym) {
+            self.cx.error_help(
+                codes::GENERIC_METHOD_THROUGH_OBJECT,
+                method.span,
+                format!(
+                    "`{tname}::{}` has type parameters of its own, and cannot be called through                      a `^{tname}`",
+                    method.name
+                ),
+                "called through a trait object",
+                format!(
+                    "a trait object's vtable has one function per method, and this one is a                      function per type argument: call it on a value whose type is known, or a                      parameter bounded by `{tname}` (D-0108)"
+                ),
+            );
+            for a in rest {
+                self.expr(a, None);
+            }
+            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+        }
+        let (sig, method_args) = self.solve_method(sig, Some(seg), rest, span, &method.name);
         let args = self.check_args(&sig, rest, span, &method.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
         let callee = hir::Callee::Method {
             recv: recv.id,
             owner: tsym,
             name: method.name.clone(),
-            method_args: Vec::new(),
+            method_args,
         };
         self.mk(e, ty, hir::ExprKind::Call { callee, args })
     }
@@ -5845,7 +5963,6 @@ impl<'a, 'c> Body<'a, 'c> {
             // (spec §8.1). Resolution is static: the bound names one trait method, and
             // monomorphization turns the call into a direct one (§7.6).
             if ty::is_abstract(&peeled) {
-                self.no_method_type_args(generics, name);
                 let found = self.param_method(&peeled, &name.name, args, span);
                 let Some((trait_sym, sig)) = found else {
                     self.no_such_member_on_param(&peeled, name, "method");
@@ -5859,13 +5976,18 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
                 // `Self` in the trait's signature is this parameter.
                 let sig = instantiate_self(&sig, &peeled);
+                // The method's own type parameters, if it has any (D-0108).
+                let written =
+                    PathSegment { span: name.span, name: name.clone(), generics: generics.clone() };
+                let (sig, method_args) =
+                    self.solve_method(sig, Some(&written), args, span, &name.name);
                 let args = self.check_args(&sig, args, span, &name.name);
                 let ty = fallible_result(&sig, self.subst(&sig.ret));
                 let callee = hir::Callee::Method {
                     recv: recv.id,
                     owner: trait_sym,
                     name: name.name.clone(),
-                    method_args: Vec::new(),
+                    method_args,
                 };
                 return self.mk(e, ty, hir::ExprKind::Call { callee, args });
             }
@@ -5976,6 +6098,37 @@ impl<'a, 'c> Body<'a, 'c> {
                             self.require_mutable_receiver(base, &base_ty, &name.name);
                         }
                         self.require_unsafe_call(span, &sig, &name.name);
+                        // A trait's generic method is one function per implementation and
+                        // type argument, chosen where the receiver's type is known; a trait
+                        // object's vtable has no slot for it (D-0108). Only `self` in the
+                        // trait's own default body names the trait and is not one.
+                        if sig.is_generic()
+                            && self.cx.res.symbol(owner).kind == SymbolKind::Trait
+                            && !self.is_own_self(recv.id, owner)
+                        {
+                            let tname = self.cx.res.symbol(owner).name.clone();
+                            let r = if sig.is_mut { "&mut " } else { "&" };
+                            self.cx.error_help(
+                                codes::GENERIC_METHOD_THROUGH_OBJECT,
+                                name.span,
+                                format!(
+                                    "`{tname}::{}` has type parameters of its own, and cannot \
+                                     be called through a `^{tname}`",
+                                    name.name
+                                ),
+                                "called through a trait object",
+                                format!(
+                                    "a trait object's vtable has one function per method, and \
+                                     this one is a function per type argument: call it on a \
+                                     value whose type is known, or a parameter bounded by \
+                                     `{tname}`, `fn f<W: {tname}>(w: {r}W)` (D-0108)"
+                                ),
+                            );
+                            for a in args {
+                                self.expr(a, None);
+                            }
+                            return self.mk(e, Ty::Error, hir::ExprKind::Error);
+                        }
                         let written = PathSegment {
                             span: name.span,
                             name: name.clone(),
@@ -5994,8 +6147,9 @@ impl<'a, 'c> Body<'a, 'c> {
                         return self.mk(e, ty, hir::ExprKind::Call { callee, args });
                     }
                     // A trait's method, through an implementation for this type (spec §7.6).
-                    if let Some(c) = self.trait_method_call(&recv, base, &peeled, name, args, e) {
-                        self.no_method_type_args(generics, name);
+                    if let Some(c) =
+                        self.trait_method_call(&recv, base, &peeled, name, generics, args, e)
+                    {
                         return c;
                     }
                     // Not a method: fall through so the field-access path reports.
@@ -6085,10 +6239,11 @@ impl<'a, 'c> Body<'a, 'c> {
                         return self.mk(e, Ty::Error, hir::ExprKind::Error);
                     }
                 }
-            } else if let Some(c) = self.trait_method_call(&recv, base, &peeled, name, args, e) {
+            } else if let Some(c) =
+                self.trait_method_call(&recv, base, &peeled, name, generics, args, e)
+            {
                 // A type with no methods of its own — `f32`, say — has a trait's, through an
                 // implementation for it (spec §7.6).
-                self.no_method_type_args(generics, name);
                 return c;
             } else if let Ty::Array { elem, .. } = &peeled {
                 // An array has its slice's methods: `arr.get(i)` is `arr[..].get(i)`, a
@@ -6108,8 +6263,9 @@ impl<'a, 'c> Body<'a, 'c> {
                         ty.clone(),
                         hir::ExprKind::SliceRange { base: recv.id, start: None, end: None },
                     );
-                    if let Some(c) = self.trait_method_call(&whole, base, &ty, name, args, e) {
-                        self.no_method_type_args(generics, name);
+                    if let Some(c) =
+                        self.trait_method_call(&whole, base, &ty, name, generics, args, e)
+                    {
                         return c;
                     }
                     self.hir.rollback(mark);
@@ -6125,8 +6281,9 @@ impl<'a, 'c> Body<'a, 'c> {
                     read.clone(),
                     hir::ExprKind::SliceRange { base: recv.id, start: None, end: None },
                 );
-                if let Some(c) = self.trait_method_call(&whole, base, &read, name, args, e) {
-                    self.no_method_type_args(generics, name);
+                if let Some(c) =
+                    self.trait_method_call(&whole, base, &read, name, generics, args, e)
+                {
                     return c;
                 }
                 self.hir.rollback(mark);
@@ -6140,7 +6297,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     Path { span: p.span, segments: p.segments[..p.segments.len() - 1].to_vec() };
                 if let Some(tsym) = self.path_symbol(&prefix) {
                     if self.cx.res.symbol(tsym).kind == SymbolKind::Trait {
-                        let method = &p.segments[p.segments.len() - 1].name;
+                        let method = &p.segments[p.segments.len() - 1];
                         return self.qualified_trait_call(tsym, method, args, e);
                     }
                     // `ButtonState::initial()` — a union's function with no receiver

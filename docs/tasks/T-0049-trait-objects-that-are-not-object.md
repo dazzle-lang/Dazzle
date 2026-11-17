@@ -16,8 +16,10 @@ reports `DZ0801`:
 - a **generic trait** — `^Show<T>` would need a vtable per type argument;
 - a trait with **associated types** — the vtable's signatures are not fixed until the
   associated type is;
-- a trait with a **generic method** ([T-0007](T-0007-generic-methods-in-trait.md)), or one
-  **taking no receiver** — neither has a single slot to occupy;
+- a trait with a method **taking no receiver** — it has no single slot to occupy. (A
+  **generic method** was here too; since r139 it is left out of the vtable and refused at a
+  call through the object instead, `DZ0589`, D-0108,
+  [T-0007](T-0007-generic-methods-in-trait.md).)
 - a trait whose methods **mention `Self`** anywhere but the receiver —
   `fn clone(&self) -> Self` has no one return type across implementers;
 - a trait object of a type whose **`impl` is generic** — `impl<T> Format for ^T`, where

@@ -1,0 +1,6 @@
+[module]
+name    = "sinks"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }

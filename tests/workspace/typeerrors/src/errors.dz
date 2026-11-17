@@ -1049,7 +1049,8 @@ fn bad_print_calls(s: Shade, o: i32?, p: ^^i32, xs: &[]i32) {
 }
 
 // §8.1: a generic method's bound, a parameter no argument decides, type arguments on a
-// method with none; DZ0557 a `virtual` or trait method with parameters of its own.
+// method with none; DZ0557 a `virtual` method with parameters of its own; DZ0589 a trait's
+// generic method called through a trait object (D-0108).
 struct Crate2 {
     pub fn both<T: Clone>(&self, v: T) -> (T, T) {
         return (v, v)
@@ -1070,7 +1071,11 @@ struct Crate2 {
 }
 
 trait ShowAny {
-    fn show<T>(&self, v: T)
+    fn show<T: Format>(&self, v: T)
+}
+
+fn shows_through_an_object(s: &ShowAny) {
+    s.show(3)
 }
 
 fn bad_generic_methods(c: &Crate2, owned: Box<i32>) -> i32 {

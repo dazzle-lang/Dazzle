@@ -41,10 +41,34 @@ written after the name — and their bounds are checked there. The type's own pa
 come from the receiver, or from the path for a function without one. Each combination
 is its own instance (§8.4).
 
-A `virtual` or `override` method, and a trait's method, **cannot** have type parameters of
-their own (`DZ0557`): a vtable slot is one function, and a trait's method is called through
-implementations, or a `^Trait`, that do not know the arguments. Make the trait generic
-instead, `trait Show<T>`. `[DECIDED — §18.66]`
+A `virtual` or `override` method **cannot** have type parameters of its own (`DZ0557`): a
+vtable slot is one function. `[DECIDED — §18.66]`
+
+**A trait's method may**, and each implementation then has one function per type argument,
+made where the call's receiver type is known: a value of a concrete type, a parameter
+bounded by the trait, `self` in the trait's own default bodies, or the trait named in the
+call. An implementation declares the same type parameters, matched by position whatever it
+names them, with the same bounds (`DZ0533` otherwise):
+
+```dz
+pub trait Writer {
+    fn write<view T: Format>(&mut self, value: T)
+    fn count(&self) -> i32
+}
+
+impl Writer for Log {
+    fn write<view V: Format>(&mut self, value: V) { ... }
+    fn count(&self) -> i32 { ... }
+}
+
+log.write(3)                    // Log's write<i32>
+fn emit<W: Writer>(w: &mut W) { w.write("text") }   // each W's write<&str>
+Writer::write<f64>(&mut log, 2.5)
+```
+
+**Through a trait object** — `^Writer`, `&Writer` — a generic method cannot be called
+(`DZ0589`): the object's vtable has one function per method, and this one is many. The
+trait's other methods are called through it as before (§7.6). `[DECIDED — D-0108]`
 
 **A generic function may be taken as a value**, instantiated there: `xs.sort_by(greater<i32>)`
 writes its arguments, and `let f: fn(&i32, &i32) -> bool = greater` reads them off the

@@ -1,0 +1,118 @@
+// A trait's methods with type parameters of their own (D-0108, spec §7.6, §8.1): declared
+// in one module and implemented in it and in this one, by a plain and a generic `impl`;
+// called on a known type, inferred and written out, through a bound, from a default body,
+// and named through the trait. A trait object still calls the trait's other methods.
+
+import sinks::{ Writer, Picker, Log }
+
+// An implementation of another module's trait, naming its parameter differently.
+struct Loud {
+    pub n: i32 = 0
+}
+
+impl Writer for Loud {
+    fn write<view U: Format>(&mut self, value: U) {
+        println!("LOUD {}!", value)
+        n += 1
+    }
+
+    fn count(&self) -> i32 {
+        return n
+    }
+
+    // Overrides the trait's default, generic too.
+    fn pair<view A: Format, view B: Format>(&mut self, a: A, b: B) {
+        println!("LOUD {} AND {}!", a, b)
+        n += 2
+    }
+}
+
+// A generic implementation: the `impl`'s parameter and the method's side by side.
+struct Tagged<T: Format> {
+    pub tag: T
+    pub n:   i32 = 0
+}
+
+impl<T: Format> Writer for Tagged<T> {
+    fn write<view U: Format>(&mut self, value: U) {
+        println!("[{}] {}", tag, value)
+        n += 1
+    }
+
+    fn count(&self) -> i32 {
+        return n
+    }
+}
+
+// A trait of this module's, named in the call: `Stamp::stamp(&mut s, v)`.
+trait Stamp {
+    fn stamp<T: Format>(&mut self, value: T)
+}
+
+struct Stamps {
+}
+
+impl Stamp for Stamps {
+    fn stamp<T: Format>(&mut self, value: T) {
+        println!("stamp {}", value)
+    }
+}
+
+struct Last {
+}
+
+impl Picker for Last {
+    fn pick<T: Clone>(&self, xs: &List<T>) -> T {
+        return xs[xs.len() - 1].clone()
+    }
+}
+
+fn through_bound<W: Writer>(w: &mut W) {
+    w.write(7)
+    w.write<f64>(7.5)
+    w.pair("x", 'y')
+}
+
+// A trait object: the generic methods have no slot, the others do.
+fn total(ws: &[]^Writer) -> i32 {
+    let mut sum = 0
+    for &w in ws {
+        sum += unsafe {
+            w.count()
+        }
+    }
+    return sum
+}
+
+fn main() {
+    let mut log = Log{}
+    log.write(1)
+    log.write("two")
+    log.pair(3, 4.5)
+    through_bound(&mut log)
+    let mut stamps = Stamps{}
+    Stamp::stamp(&mut stamps, true)
+    Stamp::stamp<i64>(&mut stamps, 64)
+
+    let mut loud = Loud{}
+    loud.write(String("owned"))
+    through_bound(&mut loud)
+
+    let mut tagged = Tagged<const &str>{ tag: "t" }
+    tagged.write(10)
+    through_bound(&mut tagged)
+
+    // A trait object of a generic `impl` has no vtable yet (T-0049), so `tagged` is
+    // counted apart.
+    let writers: [2]^Writer = [&log, &loud]
+    println!("counts {} {} {} = {}", log.count(), loud.count(), tagged.count(), total(writers[..]))
+
+    let mut names = List<String>()
+    names.push(String("ada"))
+    names.push(String("grace"))
+    let mut nums = List<i32>()
+    nums.push(4)
+    nums.push(2)
+    let last = Last{}
+    println!("picked {} {}", last.pick(&names), last.pick<i32>(&nums))
+}

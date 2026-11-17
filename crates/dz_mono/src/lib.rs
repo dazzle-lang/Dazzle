@@ -77,6 +77,18 @@ pub struct MethodInstance {
     pub body: Body,
 }
 
+/// A trait's method with type parameters of its own, `fn write<T>(&mut self, v: T)`, as one
+/// implementation has it at concrete arguments: the implementation's (`impl_args`, empty
+/// unless the `impl` is generic) and the method's (`args`). The body is the implementation's
+/// own method, or the trait's default for that implementer (D-0108, spec §8.4).
+pub struct ImplMethodInstance {
+    pub imp: usize,
+    pub impl_args: Vec<Ty>,
+    pub name: String,
+    pub args: Vec<Ty>,
+    pub body: Body,
+}
+
 #[derive(Default)]
 pub struct ModuleInstances {
     /// Generic structs, in discovery order. Codegen orders them by layout dependency.
@@ -84,6 +96,7 @@ pub struct ModuleInstances {
     pub fns: Vec<Instance>,
     pub impls: Vec<ImplInstance>,
     pub methods: Vec<MethodInstance>,
+    pub impl_methods: Vec<ImplMethodInstance>,
     /// The trait defaults each of the module's non-generic implementations inherits rather
     /// than writing (spec §7.6), one concrete body each, owned by the implementation.
     pub defaults: Vec<Body>,
@@ -232,6 +245,7 @@ pub fn monomorphize_only(
             requested: Vec::new(),
             requested_impls: Vec::new(),
             requested_methods: Vec::new(),
+            requested_impl_methods: Vec::new(),
             queue: Vec::new(),
             diags: Diagnostics::new(),
             too_deep: false,
@@ -292,6 +306,7 @@ pub fn monomorphize_only(
             || !o.fns.is_empty()
             || !o.impls.is_empty()
             || !o.methods.is_empty()
+            || !o.impl_methods.is_empty()
             || !o.defaults.is_empty()
         {
             by_module.insert(m, w.out);
@@ -446,8 +461,9 @@ pub fn owner_module(res: &Resolution, table: &TypeTable, owner: &BodyOwner) -> M
 /// function's, a generic type's member, a generic implementation's method, or a trait's
 /// default method (generic in `Self`). Only instances of these are ever emitted.
 pub fn is_template(table: &TypeTable, owner: &BodyOwner) -> bool {
-    if let BodyOwner::ImplMethod { imp, .. } = owner {
-        return !table.impls()[*imp as usize].generics.is_empty();
+    if let BodyOwner::ImplMethod { imp, name } = owner {
+        let imp = &table.impls()[*imp as usize];
+        return !imp.generics.is_empty() || imp.methods.get(name).is_some_and(|m| m.is_generic());
     }
     let Some(sym) = owner_sym(owner) else { return false };
     if table.is_generic(sym) {
@@ -468,6 +484,7 @@ enum Pending {
     Fn(SymbolId, Vec<Ty>),
     Impl(usize, Vec<Ty>),
     Method { owner: SymbolId, owner_args: Vec<Ty>, name: String, args: Vec<Ty> },
+    ImplMethod { imp: usize, impl_args: Vec<Ty>, name: String, args: Vec<Ty> },
 }
 
 struct Worklist<'a> {
@@ -484,6 +501,7 @@ struct Worklist<'a> {
     requested: Vec<(bool, SymbolId, Vec<Ty>)>,
     requested_impls: Vec<(usize, Vec<Ty>)>,
     requested_methods: Vec<(SymbolId, Vec<Ty>, String, Vec<Ty>)>,
+    requested_impl_methods: Vec<(usize, Vec<Ty>, String, Vec<Ty>)>,
     queue: Vec<Pending>,
     diags: Diagnostics,
     /// Set after the first DZ0536, so one runaway instantiation is one diagnostic.
@@ -499,6 +517,9 @@ impl Worklist<'_> {
                 Pending::Impl(idx, args) => self.instantiate_impl(idx, args),
                 Pending::Method { owner, owner_args, name, args } => {
                     self.instantiate_method(owner, owner_args, name, args)
+                }
+                Pending::ImplMethod { imp, impl_args, name, args } => {
+                    self.instantiate_impl_method(imp, impl_args, name, args)
                 }
             }
         }
@@ -521,6 +542,71 @@ impl Worklist<'_> {
         let body = table_body(self.table, template, &map, None);
         self.visit_body(&body);
         self.out.methods.push(MethodInstance { owner, owner_args, name, args, body });
+    }
+
+    /// A call of a trait's generic method on a concrete receiver: the implementation it
+    /// reaches, at the call's method arguments (D-0108).
+    fn want_impl_method(
+        &mut self,
+        trait_sym: SymbolId,
+        recv: &Ty,
+        name: &str,
+        args: &[Ty],
+        (arg, ret): (Option<&Ty>, &Ty),
+        at: (FileId, Span),
+    ) {
+        if recv.has_params() || args.iter().any(Ty::has_params) {
+            return; // reached again, concretely, through each instance
+        }
+        let Some((idx, map)) = self.table.resolve_impl(trait_sym, recv, name, arg, Some(ret))
+        else {
+            return;
+        };
+        let imp = &self.table.impls()[idx];
+        let impl_args: Vec<Ty> = imp
+            .generics
+            .iter()
+            .map(|g| map.get(&g.param.id).cloned().unwrap_or(Ty::Error))
+            .collect();
+        let wanted = (idx, impl_args, name.to_owned(), args.to_vec());
+        if self.requested_impl_methods.contains(&wanted) {
+            return;
+        }
+        if wanted.1.iter().chain(args).map(depth).max().unwrap_or(0) >= MAX_DEPTH {
+            self.too_deep(format!("{}::{name}", self.res.symbol(trait_sym).name), at);
+            return;
+        }
+        self.requested_impl_methods.push(wanted.clone());
+        let (imp, impl_args, name, args) = wanted;
+        self.queue.push(Pending::ImplMethod { imp, impl_args, name, args });
+    }
+
+    fn instantiate_impl_method(
+        &mut self,
+        idx: usize,
+        impl_args: Vec<Ty>,
+        name: String,
+        args: Vec<Ty>,
+    ) {
+        let imp = &self.table.impls()[idx];
+        let mut map: HashMap<u32, Ty> =
+            imp.generics.iter().map(|g| g.param.id).zip(impl_args.iter().cloned()).collect();
+        let body = match imp.methods.get(&name) {
+            Some(sig) => {
+                let key = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
+                let Some(template) = self.hir.find(&key) else { return };
+                map.extend(sig.generics.iter().map(|g| g.param.id).zip(args.iter().cloned()));
+                table_body(self.table, template, &map, None)
+            }
+            None => {
+                let Some(b) = impl_default(self.table, self.hir, idx, &map, &name, &args) else {
+                    return;
+                };
+                b
+            }
+        };
+        self.visit_body(&body);
+        self.out.impl_methods.push(ImplMethodInstance { imp: idx, impl_args, name, args, body });
     }
 
     /// A call of a generic method with concrete arguments (spec §8.4).
@@ -637,6 +723,12 @@ impl Worklist<'_> {
             imp.generics.iter().map(|g| g.param.id).zip(args.iter().cloned()).collect();
         let mut bodies = Vec::new();
         for b in self.impl_members.get(&idx).cloned().unwrap_or_default() {
+            // A method with type parameters of its own is instantiated per call (D-0108).
+            if let BodyOwner::ImplMethod { name, .. } = &b.owner {
+                if imp.methods.get(name).is_some_and(|m| m.is_generic()) {
+                    continue;
+                }
+            }
             let concrete = table_body(self.table, b, &map, None);
             self.visit_body(&concrete);
             bodies.push(concrete);
@@ -690,12 +782,26 @@ impl Worklist<'_> {
                 }
                 // A trait's method on a concrete receiver reaches one implementation, which
                 // may be generic (spec §7.6).
-                ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, args }
-                    if self.res.symbol(*owner).kind == SymbolKind::Trait =>
-                {
+                ExprKind::Call {
+                    callee: Callee::Method { recv, owner, name, method_args },
+                    args,
+                } if self.res.symbol(*owner).kind == SymbolKind::Trait => {
                     let recv_ty = b.ty(*recv).peeled().clone();
                     let arg = args.first().map(|a| b.ty(*a).clone());
                     self.want_impl(*owner, &recv_ty, name, arg.as_ref(), Some(&e.ty), here);
+                    if !method_args.is_empty() {
+                        for t in method_args {
+                            self.visit_ty(t, here);
+                        }
+                        self.want_impl_method(
+                            *owner,
+                            &recv_ty,
+                            name,
+                            method_args,
+                            (arg.as_ref(), &e.ty),
+                            here,
+                        );
+                    }
                 }
                 // A type's own generic method: the type's arguments come from the receiver,
                 // unless the method is a base's, which is never generic (DZ0541).
@@ -852,11 +958,36 @@ pub fn impl_defaults(
         if !spec.methods[name].has_body || imp.methods.contains_key(name) {
             continue;
         }
-        let Some(template) =
-            hir.find(&BodyOwner::Method { owner: r.trait_sym, name: name.clone() })
-        else {
+        // A method with type parameters of its own is instantiated per call (D-0108).
+        if spec.methods[name].is_generic() {
             continue;
-        };
+        }
+        out.extend(impl_default(table, hir, idx, map, name, &[]));
+    }
+    out
+}
+
+/// One trait default as implementation `idx` inherits it, at `map` (the implementation's
+/// arguments) and `method_args` (the method's own, for a generic one): see [`impl_defaults`].
+fn impl_default(
+    table: &TypeTable,
+    hir: &Hir,
+    idx: usize,
+    map: &HashMap<u32, Ty>,
+    name: &String,
+    method_args: &[Ty],
+) -> Option<Body> {
+    let imp = &table.impls()[idx];
+    let self_ty = table.subst(&imp.self_ty, map);
+    let r = TraitRef {
+        trait_sym: imp.trait_ref.trait_sym,
+        args: imp.trait_ref.args.iter().map(|a| table.subst_with(a, map, Some(&self_ty))).collect(),
+        span: imp.trait_ref.span,
+    };
+    let spec = table.struct_sig(r.trait_sym)?;
+    let sig = spec.methods.get(name)?;
+    {
+        let template = hir.find(&BodyOwner::Method { owner: r.trait_sym, name: name.clone() })?;
         let mut tmap: HashMap<u32, Ty> = table
             .type_params(r.trait_sym)
             .iter()
@@ -864,6 +995,7 @@ pub fn impl_defaults(
             .zip(r.args.iter().cloned())
             .collect();
         tmap.extend(table.assoc_bindings(&r, &self_ty));
+        tmap.extend(sig.generics.iter().map(|g| g.param.id).zip(method_args.iter().cloned()));
         let body = table_body(table, template, &tmap, Some(&self_ty));
         // Inside its own default body the checker reads `self` through the trait, so
         // `Self` there is spelled as the trait applied to its arguments; the copy says the
@@ -873,9 +1005,8 @@ pub fn impl_defaults(
             table.normalize(&ty::replace(t, &as_trait, &self_ty))
         });
         body.owner = BodyOwner::ImplMethod { imp: idx as u32, name: name.clone() };
-        out.push(body);
+        Some(body)
     }
-    out
 }
 
 /// A concrete copy of `body`: every parameter in `map` substituted, and then every

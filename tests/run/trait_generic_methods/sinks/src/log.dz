@@ -1,0 +1,15 @@
+/// An implementation in the trait's own module, whose instances other modules ask for.
+pub struct Log {
+    pub lines: i32 = 0
+}
+
+impl Writer for Log {
+    fn write<view T: Format>(&mut self, value: T) {
+        println!("log {}", value)
+        lines += 1
+    }
+
+    fn count(&self) -> i32 {
+        return lines
+    }
+}

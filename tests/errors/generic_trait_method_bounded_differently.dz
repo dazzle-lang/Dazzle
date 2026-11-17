@@ -1,0 +1,21 @@
+// expect: DZ0533
+//
+// An implementation's type parameters are the trait's, by position, bounded the same way: a
+// call checked against the trait's bounds must be one the implementation accepts (D-0108).
+
+trait Writer {
+    fn write<T: Format>(&mut self, value: T)
+}
+
+struct Log {}
+
+impl Writer for Log {
+    fn write<T: Format + Clone>(&mut self, value: T) {
+        println!("{}", value.clone())
+    }
+}
+
+fn main() {
+    let mut log = Log{}
+    log.write(3)
+}

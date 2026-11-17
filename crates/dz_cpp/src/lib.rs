@@ -271,6 +271,7 @@ pub fn emit_selected(
             instance: None,
             impl_instance: None,
             method_instance: None,
+            impl_method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
             kept: HashMap::new(),
@@ -464,6 +465,7 @@ pub fn emit_selected(
             instance: None,
             impl_instance: None,
             method_instance: None,
+            impl_method_instance: None,
             chunks: Vec::new(),
             materialized: HashMap::new(),
             kept: HashMap::new(),
@@ -757,6 +759,9 @@ struct Emitter<'a> {
     /// The generic method instance being emitted: its body replaces the template's, and its
     /// receiver is a parameter named `self` rather than `*this` (spec §8.1, §8.4).
     method_instance: Option<&'a dz_mono::MethodInstance>,
+    /// The instance of a trait's generic method being emitted, as one implementation has it
+    /// (D-0108): its body replaces the implementation's template, or the trait's default.
+    impl_method_instance: Option<&'a dz_mono::ImplMethodInstance>,
     /// Finished header text, by the namespace it belongs in.
     chunks: Vec<(ModuleId, String)>,
     /// Expressions already evaluated into a local of their own, by that local's name: the
@@ -1292,7 +1297,13 @@ impl<'a> Emitter<'a> {
                 imp.module == self.module && imp.generics.is_empty() && !self.is_special_impl(imp)
             })
             .map(|(idx, imp)| {
-                let mut names = imp.method_order.clone();
+                // A method with type parameters of its own is an instance per call (D-0108).
+                let mut names: Vec<String> = imp
+                    .method_order
+                    .iter()
+                    .filter(|n| !imp.methods.get(*n).is_some_and(|m| m.is_generic()))
+                    .cloned()
+                    .collect();
                 for b in &defaults {
                     if let BodyOwner::ImplMethod { imp: i, name } = &b.owner {
                         if *i as usize == idx {
@@ -1456,17 +1467,18 @@ impl<'a> Emitter<'a> {
     // --- trait objects (spec §7.6, §18.6) ---------------------------------------
 
     /// Can a `^Trait` of this trait exist? Its methods must be callable knowing nothing
-    /// but the vtable: no parameters of the trait's own or a method's, no associated types,
-    /// every method taking a receiver, and `Self` nowhere but the receiver.
+    /// but the vtable: no parameters of the trait's own, no associated types, every method
+    /// taking a receiver, and `Self` nowhere but the receiver. A method with type parameters
+    /// of its own has no slot and is not called through a handle (D-0108), so it does not
+    /// count.
     fn object_safe(&self, sym: SymbolId) -> bool {
         if !self.table.type_params(sym).is_empty() {
             return false;
         }
         let Some(ItemSig::Trait(t)) = self.table.get(sym) else { return false };
         t.assoc_types.is_empty()
-            && t.methods.values().all(|m| {
+            && t.methods.values().filter(|m| m.generics.is_empty()).all(|m| {
                 m.takes_self.is_some()
-                    && m.generics.is_empty()
                     && !mentions_self(&m.ret)
                     && !m.params.iter().any(|p| mentions_self(&p.ty))
             })
@@ -1490,13 +1502,17 @@ impl<'a> Emitter<'a> {
         format!("{}__dyn", self.qualify(sym))
     }
 
-    /// A trait's methods in declaration order, with the name each is called by.
+    /// A trait's methods in declaration order, with the name each is called by: the slots of
+    /// its vtable, so not a method with type parameters of its own, which has none (D-0108).
     fn trait_methods(&self, sym: SymbolId) -> Vec<(String, dz_check::FnSig)> {
         let Some(ItemSig::Trait(t)) = self.table.get(sym) else { return Vec::new() };
         t.method_keys
             .iter()
             .filter_map(|k| {
                 let sig = t.methods.get(k)?.clone();
+                if sig.is_generic() {
+                    return None;
+                }
                 let name = t
                     .overloads
                     .iter()
@@ -1886,6 +1902,9 @@ impl<'a> Emitter<'a> {
         for inst in &mi.methods {
             self.with_method_instance(inst, |e| e.method_instance_fn(inst, false));
         }
+        for inst in &mi.impl_methods {
+            self.with_impl_method_instance(inst, |e| e.impl_method_instance_fn(inst, false));
+        }
         for inst in &mi.fns {
             self.with_instance(inst, |e| e.instance_fn_body(inst));
         }
@@ -1898,6 +1917,69 @@ impl<'a> Emitter<'a> {
         for inst in &mi.methods {
             self.with_method_instance(inst, |e| e.method_instance_fn(inst, true));
         }
+        for inst in &mi.impl_methods {
+            self.with_impl_method_instance(inst, |e| e.impl_method_instance_fn(inst, true));
+        }
+    }
+
+    fn with_impl_method_instance(
+        &mut self,
+        inst: &'a dz_mono::ImplMethodInstance,
+        f: impl FnOnce(&mut Self),
+    ) {
+        let home = self.table.impls()[inst.imp].module;
+        let saved = (self.module, self.impl_method_instance, self.file);
+        self.switch_ns(home);
+        self.module = home;
+        self.impl_method_instance = Some(inst);
+        self.file = inst.body.file;
+        f(self);
+        (self.module, self.impl_method_instance, self.file) = saved;
+        self.switch_ns(saved.0);
+    }
+
+    /// `Writer__app_Log__write__i32`: the implementation's function, as [`Emitter::impl_fn_name`]
+    /// names it, and the method's own arguments (D-0108).
+    fn impl_method_instance_name(
+        &self,
+        idx: usize,
+        map: &HashMap<u32, Ty>,
+        name: &str,
+        args: &[Ty],
+    ) -> String {
+        let parts: Vec<String> = args.iter().map(|a| self.mangle(a)).collect();
+        format!("{}__{}", self.impl_fn_name(idx, map, name), parts.join("__"))
+    }
+
+    /// One implementation's instance of a trait's generic method, a free function taking
+    /// the receiver first, as the implementation's other methods are: its prototype, or its
+    /// definition, each behind its own include guard (D-0108, spec §8.4).
+    fn impl_method_instance_fn(&mut self, inst: &'a dz_mono::ImplMethodInstance, bodies: bool) {
+        let imp = &self.table.impls()[inst.imp];
+        let map: HashMap<u32, Ty> =
+            imp.generics.iter().map(|g| g.param.id).zip(inst.impl_args.iter().cloned()).collect();
+        let owner = BodyOwner::ImplMethod { imp: inst.imp as u32, name: inst.name.clone() };
+        let fname = self.impl_method_instance_name(inst.imp, &map, &inst.name, &inst.args);
+        let Some(head) = self.impl_fn_head(&owner, &fname) else { return };
+        let stem = file_stem(&self.ws.module(imp.module).name);
+        if !bodies {
+            let guard = format!("DZ_INST_{stem}_{fname}_DECL");
+            let _ = writeln!(
+                self.header,
+                "#ifndef {guard}
+#define {guard}
+{head};
+#endif  // {guard}
+"
+            );
+            return;
+        }
+        let shown_args: Vec<String> =
+            inst.args.iter().map(|a| dz_check::type_name(self.res, a)).collect();
+        let trait_name = &self.res.symbol(imp.trait_ref.trait_sym).name;
+        self.current_fn = format!("{trait_name}::{}<{}>", inst.name, shown_args.join(", "));
+        let guard = format!("DZ_INST_{stem}_{fname}_DEF");
+        self.place_instance_body(guard, |e| e.emit_body(&owner, &format!("{head} {{")));
     }
 
     fn with_method_instance(
@@ -2261,6 +2343,11 @@ impl<'a> Emitter<'a> {
     /// default an implementation of the module's inherits (spec §7.6).
     fn find_body(&self, owner: &BodyOwner) -> Option<&'a hir::Body> {
         if let Some(inst) = self.method_instance {
+            if &inst.body.owner == owner {
+                return Some(&inst.body);
+            }
+        }
+        if let Some(inst) = self.impl_method_instance {
             if &inst.body.owner == owner {
                 return Some(&inst.body);
             }
@@ -4033,7 +4120,8 @@ impl<'a> Emitter<'a> {
     fn is_inline(&self, owner: &BodyOwner) -> bool {
         let instance = self.instance.is_some()
             || self.impl_instance.is_some()
-            || self.method_instance.is_some();
+            || self.method_instance.is_some()
+            || self.impl_method_instance.is_some();
         if instance && !self.inline_instances {
             return false;
         }
@@ -6483,6 +6571,27 @@ impl<'a> Emitter<'a> {
                 };
                 let r = recv_text();
                 format!("::dz::rt::obj({r}).{base}::{}", sanitize(name))
+            }
+            // A trait's generic method reaches one implementation's instance, a free function
+            // taking the receiver first (D-0108).
+            hir::Callee::Method { recv, owner, name, method_args }
+                if !method_args.is_empty()
+                    && self.res.symbol(*owner).kind == dz_resolve::SymbolKind::Trait =>
+            {
+                let recv_ty = self.cur().ty(*recv).peeled().clone();
+                let arg = args.first().map(|a| self.cur().ty(*a).clone());
+                let (idx, map) = self
+                    .table
+                    .resolve_impl(*owner, &recv_ty, name, arg.as_ref(), Some(&node_ty))
+                    .expect("a generic trait method is called on a type that implements it");
+                recv_arg = Some(format!("::dz::rt::obj({})", recv_text()));
+                let fname = self.impl_method_instance_name(idx, &map, name, method_args);
+                let home = self.table.impls()[idx].module;
+                if home == self.module {
+                    fname
+                } else {
+                    format!("{}::{fname}", qualified_namespace(&self.ws.module(home).name))
+                }
             }
             // The receiver becomes the first argument, as for an implementation's function.
             hir::Callee::Method { recv, owner, name, method_args } if !method_args.is_empty() => {

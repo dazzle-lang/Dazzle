@@ -1,0 +1,21 @@
+log 1
+log two
+log 3
+log 4.5
+log 7
+log 7.5
+log x
+log y
+stamp true
+stamp 64
+LOUD owned!
+LOUD 7!
+LOUD 7.5!
+LOUD x AND y!
+[t] 10
+[t] 7
+[t] 7.5
+[t] x
+[t] y
+counts 8 5 5 = 13
+picked grace 2

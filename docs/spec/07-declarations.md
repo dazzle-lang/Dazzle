@@ -511,6 +511,10 @@ implementing type's and the trait's fully qualified names — rather than only b
 That costs nothing now and is what makes dynamic dispatch re-resolvable after a hot-reload
 swap (§17.6).
 
+A method with type parameters of its own has no slot in the vtable: it is one function per
+type argument, so it is called on a value whose type is known, or through a bound, and not
+through a `^Trait` (`DZ0589`, §8.1). The trait's other methods are. `[DECIDED — D-0108]`
+
 The cost is that `^Drawable` is 16 bytes while `^Sprite` is 8. The compiler will not let you
 silently confuse them, and the LSP shows the fat-pointer-ness on hover.
 

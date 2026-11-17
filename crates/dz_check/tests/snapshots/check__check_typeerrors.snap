@@ -1296,911 +1296,911 @@ error[DZ0526]: a format string cannot be checked against a spread
      = help: pass the values one by one, so each `{}` has its own; for however many there are, write a loop — `for x in xs { print!("{} ", x) }` — and a macro that forwards its arguments repeats them in its pattern (spec §12.9)
 
 error[DZ0557]: `shout` cannot have type parameters of its own
-     ┌─ typeerrors/src/errors.dz:1067:22
+     ┌─ typeerrors/src/errors.dz:1068:22
      │
-1067 │     virtual fn shout<T>(&self, v: T) {
+1068 │     virtual fn shout<T>(&self, v: T) {
      │                      ^ a type parameter of the method
      │
      = help: a `virtual` method has one slot in the vtable, and an instance per type argument would need one each; take the varying part as a trait reference instead (spec §7.3, §8.1)
 
-error[DZ0557]: `show` cannot have type parameters of its own
-     ┌─ typeerrors/src/errors.dz:1073:13
+error[DZ0589]: `ShowAny::show` has type parameters of its own, and cannot be called through a `^ShowAny`
+     ┌─ typeerrors/src/errors.dz:1078:7
      │
-1073 │     fn show<T>(&self, v: T)
-     │             ^ a type parameter of the method
+1078 │     s.show(3)
+     │       ^^^^ called through a trait object
      │
-     = help: a trait's method is called through implementations the caller may not know, and through `^Trait` with no type at all; make the trait generic instead, `trait Show<T>` (spec §7.6, §8.1)
+     = help: a trait object's vtable has one function per method, and this one is a function per type argument: call it on a value whose type is known, or a parameter bounded by `ShowAny`, `fn f<W: ShowAny>(w: &W)` (D-0108)
 
 error[DZ0531]: `Box<i32>` does not implement `Clone`
-     ┌─ typeerrors/src/errors.dz:1077:13
+     ┌─ typeerrors/src/errors.dz:1082:13
      │
-1077 │     let _ = c.both(owned)
+1082 │     let _ = c.both(owned)
      │             ^^^^^^^^^^^^^ `T` is bounded by `Clone`
      │
      = help: implement it: `impl Clone for Box<i32> { … }` (spec §7.6)
 
 error[DZ0534]: cannot infer `T` in this call to `Crate2::fresh`
-     ┌─ typeerrors/src/errors.dz:1078:18
+     ┌─ typeerrors/src/errors.dz:1083:18
      │
-1078 │     let _: i32 = Crate2::fresh()
+1083 │     let _: i32 = Crate2::fresh()
      │                  ^^^^^^^^^^^^^^^ `T` is not determined by any argument
      │
      = help: write it out: `Crate2::fresh<T>(…)` (spec §8.1)
 
 error[DZ0534]: `plain` takes no type arguments
-     ┌─ typeerrors/src/errors.dz:1079:14
+     ┌─ typeerrors/src/errors.dz:1084:14
      │
-1079 │     return c.plain<i32>()
+1084 │     return c.plain<i32>()
      │              ^^^^^ not a generic function
      │
      = help: `plain` has no type parameters of its own; remove `<…>` (spec §8.1)
 
 error[DZ0501]: expected `Rc<Framed>`, found `Rc<Panel>`
-     ┌─ typeerrors/src/errors.dz:1085:12
+     ┌─ typeerrors/src/errors.dz:1090:12
      │
-1085 │     return base
+1090 │     return base
      │            ^^^^ this is `Rc<Panel>`
 
 error[DZ0501]: expected `i64`, found `i64?`
-     ┌─ typeerrors/src/errors.dz:1090:12
+     ┌─ typeerrors/src/errors.dz:1095:12
      │
-1090 │     return s.parse_i64()
+1095 │     return s.parse_i64()
      │            ^^^^^^^^^^^^^ this is `i64?`
 
 error[DZ0531]: `List<Plain>` has `sort` only when `Plain` implements `Ord`
-     ┌─ typeerrors/src/errors.dz:1095:8
+     ┌─ typeerrors/src/errors.dz:1100:8
      │
-1095 │     xs.sort()
+1100 │     xs.sort()
      │        ^^^^ `Plain` does not implement `Ord`
      │
      = help: `sort` comes from `Sort`, implemented for `List<Plain>` when its argument is `Ord`: implement `Ord` for `Plain` (spec §7.6)
 
 error[DZ0501]: expected `fn(&i32, &i32) -> bool`, found `fn(i32, i32) -> bool`
-     ┌─ typeerrors/src/errors.dz:1096:16
+     ┌─ typeerrors/src/errors.dz:1101:16
      │
-1096 │     ys.sort_by(by_value)
+1101 │     ys.sort_by(by_value)
      │                ^^^^^^^^ this is `fn(i32, i32) -> bool`
 
 error[DZ0514]: cannot compare `i32` with `&str`
-     ┌─ typeerrors/src/errors.dz:1105:12
+     ┌─ typeerrors/src/errors.dz:1110:12
      │
-1105 │     return x == "three"
+1110 │     return x == "three"
      │            ^^^^^^^^^^^^ operands have different types
      │
      = help: Dazzle has no implicit conversions (spec §5.1) — cast one side
 
 error[DZ0531]: `List<Plain>` has `contains` only when `Plain` implements `Eq`
-     ┌─ typeerrors/src/errors.dz:1111:20
+     ┌─ typeerrors/src/errors.dz:1116:20
      │
-1111 │     let found = xs.contains(&Plain{ n: 1 })
+1116 │     let found = xs.contains(&Plain{ n: 1 })
      │                    ^^^^^^^^ `Plain` does not implement `Eq`
      │
      = help: `contains` comes from `Search`, implemented for `List<Plain>` when its argument is `Eq`: implement `Eq` for `Plain` (spec §7.6)
 
 error[DZ0531]: `List<Box<i32>>` has `fill` only when `Box<i32>` implements `Clone`
-     ┌─ typeerrors/src/errors.dz:1112:8
+     ┌─ typeerrors/src/errors.dz:1117:8
      │
-1112 │     ts.fill(Box<i32>(3))
+1117 │     ts.fill(Box<i32>(3))
      │        ^^^^ `Box<i32>` does not implement `Clone`
      │
      = help: `fill` comes from `Extend`, implemented for `List<Box<i32>>` when its argument is `Clone`: implement `Clone` for `Box<i32>` (spec §7.6)
 
 error[DZ0520]: `HashMap<i32, i32>` has no method `get_str`
-     ┌─ typeerrors/src/errors.dz:1113:19
+     ┌─ typeerrors/src/errors.dz:1118:19
      │
-1113 │     let named = m.get_str("hero") == null
+1118 │     let named = m.get_str("hero") == null
      │                   ^^^^^^^ unknown method
      │
      = help: `get_str` comes from `StrKeys`, which is implemented for `HashMap<String, V>` and not for this type (spec §7.6)
 
 error[DZ0531]: `f32` does not implement `Hash`
-     ┌─ typeerrors/src/errors.dz:1114:18
+     ┌─ typeerrors/src/errors.dz:1119:18
      │
-1114 │     let floats = HashSet<f32>()
+1119 │     let floats = HashSet<f32>()
      │                  ^^^^^^^^^^^^^^ `T` is bounded by `Hash`
      │
      = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0507]: `String` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1120:19
+     ┌─ typeerrors/src/errors.dz:1125:19
      │
-1120 │     for &mut c in s {
+1125 │     for &mut c in s {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0502]: `300` does not fit in `u8`
-     ┌─ typeerrors/src/errors.dz:1127:12
+     ┌─ typeerrors/src/errors.dz:1132:12
      │
-1127 │     return 300u8
+1132 │     return 300u8
      │            ^^^^^ outside the range of `u8`
      │
      = help: valid values are 0 to 255
 
 error[DZ0501]: expected `u16`, found `u8`
-     ┌─ typeerrors/src/errors.dz:1131:12
+     ┌─ typeerrors/src/errors.dz:1136:12
      │
-1131 │     return 5u8
+1136 │     return 5u8
      │            ^^^ this is `u8`
      │
      = help: Dazzle has no implicit numeric conversions, not even widening (spec §5.1) — write `... as u16`
 
 error[DZ0531]: `bool` does not implement `Number`
-     ┌─ typeerrors/src/errors.dz:1136:12
+     ┌─ typeerrors/src/errors.dz:1141:12
      │
-1136 │     return Random::range(false, true)
+1141 │     return Random::range(false, true)
      │            ^^^^^^^^^^^^^^^^^^^^^^^^^^ `T` is bounded by `Number`
      │
      = help: `bool` is built in, and implements only what the language gives it; wrap it in a struct that implements `Number` (spec §7.6)
 
 error[DZ0510]: fallible call not consumed
-     ┌─ typeerrors/src/errors.dz:1142:5
+     ┌─ typeerrors/src/errors.dz:1147:5
      │
-1142 │     File::remove(p)
+1147 │     File::remove(p)
      │     ^^^^^^^^^^^^^^^ this may fail, and the failure is discarded
      │
      = help: add an `or` clause: `or return` to propagate, `or <value>` to fall back, or `or ignore` to drop it deliberately (spec §9.7)
 
 error[DZ0501]: expected `&mut []u8`, found `&[]u8`
-     ┌─ typeerrors/src/errors.dz:1145:20
+     ┌─ typeerrors/src/errors.dz:1150:20
      │
-1145 │     let _ = f.read(buf[..]) or return
+1150 │     let _ = f.read(buf[..]) or return
      │                    ^^^^^^^ this is `&[]u8`
 
 error[DZ0531]: `-` cannot be applied to `Plain`
-     ┌─ typeerrors/src/errors.dz:1150:12
+     ┌─ typeerrors/src/errors.dz:1155:12
      │
-1150 │     return -p
+1155 │     return -p
      │            ^^ `Plain` does not implement `Neg`
      │
      = help: operators are traits (spec §11.2) — implement it: `impl Neg for Plain { … }`
 
 error[DZ0502]: `-129` does not fit in `i8`
-     ┌─ typeerrors/src/errors.dz:1154:12
+     ┌─ typeerrors/src/errors.dz:1159:12
      │
-1154 │     return -129
+1159 │     return -129
      │            ^^^^ outside the range of `i8`
      │
      = help: valid values are -128 to 127
 
 error[DZ0507]: `Readings` can be looped over, but not written through
-     ┌─ typeerrors/src/errors.dz:1172:19
+     ┌─ typeerrors/src/errors.dz:1177:19
      │
-1172 │     for &mut v in r {
+1177 │     for &mut v in r {
      │                   ^ implements `Iterable`, not `IterableMut`
      │
      = help: bind each element with `&e` to read it, or implement `IterableMut` (spec §10.4)
 
 error[DZ0507]: cannot refer to these elements with `&mut`
-     ┌─ typeerrors/src/errors.dz:1178:19
+     ┌─ typeerrors/src/errors.dz:1183:19
      │
-1178 │     for &mut x in xs {
+1183 │     for &mut x in xs {
      │                   ^^ the container is read-only here
      │
      = help: declare it `let mut`, or pass it as `&mut` (spec §10.4)
 
 error[DZ0501]: expected `i32`, found `i32?`
-     ┌─ typeerrors/src/errors.dz:1186:18
+     ┌─ typeerrors/src/errors.dz:1191:18
      │
-1186 │     let n: i32 = o
+1191 │     let n: i32 = o
      │                  ^ this is `i32?`
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1191:24
+     ┌─ typeerrors/src/errors.dz:1196:24
      │
-1191 │     let x = if alive { none } else { none }
+1196 │     let x = if alive { none } else { none }
      │                        ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0521]: `none` needs an optional type here
-     ┌─ typeerrors/src/errors.dz:1191:38
+     ┌─ typeerrors/src/errors.dz:1196:38
      │
-1191 │     let x = if alive { none } else { none }
+1196 │     let x = if alive { none } else { none }
      │                                      ^^^^ nothing here expects a `T?`
      │
      = help: `none` is the empty case of `T?`; give the binding a type, `let x: i32? = …`, or make another arm a value (spec §9.1)
 
 error[DZ0514]: `+` cannot be applied to `Layer`
-     ┌─ typeerrors/src/errors.dz:1196:12
+     ┌─ typeerrors/src/errors.dz:1201:12
      │
-1196 │     return l + l == l
+1201 │     return l + l == l
      │            ^ not a numeric type
 
 error[DZ0531]: `f32` does not implement `Hash`
-     ┌─ typeerrors/src/errors.dz:1201:13
+     ┌─ typeerrors/src/errors.dz:1206:13
      │
-1201 │     let m = HashMap<f32, i32>()
+1206 │     let m = HashMap<f32, i32>()
      │             ^^^^^^^^^^^^^^^^^^^ `K` is bounded by `Hash`
      │
      = help: `f32` is built in, and implements only what the language gives it; wrap it in a struct that implements `Hash` (spec §7.6)
 
 error[DZ0504]: `typeinfo_of` takes one type and no arguments
-     ┌─ typeerrors/src/errors.dz:1208:13
+     ┌─ typeerrors/src/errors.dz:1213:13
      │
-1208 │     let a = typeinfo_of<i32>(1)
+1213 │     let a = typeinfo_of<i32>(1)
      │             ^^^^^^^^^^^^^^^^^^^ not the form this call has
      │
      = help: write `typeinfo_of<T>()` (spec §13.1)
 
 error[DZ0501]: expected `TypeId`, found `{integer}`
-     ┌─ typeerrors/src/errors.dz:1209:22
+     ┌─ typeerrors/src/errors.dz:1214:22
      │
-1209 │     let b = typeinfo(3)
+1214 │     let b = typeinfo(3)
      │                      ^ this is `{integer}`
 
 error[DZ0559]: a union cannot declare a method named `kind`
-     ┌─ typeerrors/src/errors.dz:1218:12
+     ┌─ typeerrors/src/errors.dz:1223:12
      │
-1218 │     pub fn kind(&self) -> i32 {
+1223 │     pub fn kind(&self) -> i32 {
      │            ^^^^ every union already has `kind()`
      │
      = help: `s.kind()` names the active variant (spec §7.5); choose another name
 
 error[DZ0559]: a union's method cannot be `virtual` or `override`
-     ┌─ typeerrors/src/errors.dz:1222:16
+     ┌─ typeerrors/src/errors.dz:1227:16
      │
-1222 │     virtual fn turn(&self) {}
+1227 │     virtual fn turn(&self) {}
      │                ^^^^ nothing inherits from a union
      │
      = help: remove `virtual` / `override` (spec §7.3, §7.5)
 
 error[DZ0507]: cannot assign to `self`
-     ┌─ typeerrors/src/errors.dz:1225:9
+     ┌─ typeerrors/src/errors.dz:1230:9
      │
-1225 │         self = .Low{}
+1230 │         self = .Low{}
      │         ^^^^ not mutable
      │
      = help: declare it as `let mut self` to allow assignment
 
 error[DZ0520]: `Dial` has no method `spin`
-     ┌─ typeerrors/src/errors.dz:1230:7
+     ┌─ typeerrors/src/errors.dz:1235:7
      │
-1230 │     d.spin()
+1235 │     d.spin()
      │       ^^^^ unknown method
 
 error[DZ0538]: more than one constructor of `Interval` accepts ({integer})
-     ┌─ typeerrors/src/errors.dz:1251:12
+     ┌─ typeerrors/src/errors.dz:1256:12
      │
-1251 │     return Interval(3).hi
+1256 │     return Interval(3).hi
      │            ^^^^^^^^^^^ ambiguous constructor call
      │
      = help: give an argument a type — `3 as i64`, say — or pass the argument a default would have supplied, so that exactly one constructor fits (spec §7.2)
 
 error[DZ0534]: `Frame` needs type arguments
-     ┌─ typeerrors/src/errors.dz:1264:18
+     ┌─ typeerrors/src/errors.dz:1269:18
      │
-1264 │ struct Unnamed : Frame {
+1269 │ struct Unnamed : Frame {
      │                  ^^^^^ expected 1, found none
      │
      = help: write `Frame<T>` (spec §8.1)
 
 error[DZ0501]: expected `&Frame<f32>`, found `&Badge`
-     ┌─ typeerrors/src/errors.dz:1272:18
+     ┌─ typeerrors/src/errors.dz:1277:18
      │
-1272 │     return wider(b)
+1277 │     return wider(b)
      │                  ^ this is `&Badge`
 
 error[DZ0501]: expected `Key<Vec3>`, found `Key<Counter>`
-     ┌─ typeerrors/src/errors.dz:1278:28
+     ┌─ typeerrors/src/errors.dz:1283:28
      │
-1278 │     return points.contains(k)
+1283 │     return points.contains(k)
      │                            ^ this is `Key<Counter>`
 
 error[DZ0507]: cannot assign to `v`
-     ┌─ typeerrors/src/errors.dz:1282:18
+     ┌─ typeerrors/src/errors.dz:1287:18
      │
-1282 │     let w = &mut v
+1287 │     let w = &mut v
      │                  ^ not mutable
      │
      = help: declare it as `let mut v` to allow assignment
 
 error[DZ0501]: expected `i32`, found `T::Item`
-     ┌─ typeerrors/src/errors.dz:1289:12
+     ┌─ typeerrors/src/errors.dz:1294:12
      │
-1289 │     return it.get()
+1294 │     return it.get()
      │            ^^^^^^^^ this is `T::Item`
 
 error[DZ0560]: `T` has no associated type `Size`
-     ┌─ typeerrors/src/errors.dz:1292:51
+     ┌─ typeerrors/src/errors.dz:1297:51
      │
-1292 │ fn no_such_associated_type<T: Iterate>(it: &T) -> T::Size {
+1297 │ fn no_such_associated_type<T: Iterate>(it: &T) -> T::Size {
      │                                                   ^^^^^^^ no bound declares it
      │
      = help: an associated type comes from a bound: none of `T`'s declares `type Size` (spec §8.5)
 
 error[DZ0501]: expected `&cstr`, found `&String`
-     ┌─ typeerrors/src/errors.dz:1322:20
+     ┌─ typeerrors/src/errors.dz:1327:20
      │
-1322 │     let c: &cstr = s
+1327 │     let c: &cstr = s
      │                    ^ this is `&String`
      │
      = help: `String` converts to `&cstr` on its own only where it is passed as an argument, so that what the conversion borrows is not kept past the call (spec §7.2); here, convert it yourself
 
 error[DZ0501]: expected `&cstr`, found `Pounds`
-     ┌─ typeerrors/src/errors.dz:1328:16
+     ┌─ typeerrors/src/errors.dz:1333:16
      │
-1328 │     takes_cstr(p)
+1333 │     takes_cstr(p)
      │                ^ this is `Pounds`
      │
      = help: `Pounds` converts to `Ounces` and `Ounces` to `&cstr`, but an argument is converted once at most (spec §7.2); convert it to `Ounces` yourself first
 
 error[DZ0539]: `impl ImplicitAs for i32` belongs with `ImplicitAs` or with `i32`
-     ┌─ typeerrors/src/errors.dz:1332:6
+     ┌─ typeerrors/src/errors.dz:1337:6
      │
-1332 │ impl ImplicitAs<&cstr> for i32 {
+1337 │ impl ImplicitAs<&cstr> for i32 {
      │      ^^^^^^^^^^^^^^^^^ neither it, the type, nor a type it is given is declared in this module
      │
      = help: a trait taking type arguments may also be implemented where one of them is declared, as `impl ImplicitAs<Vec2> for rl::Vector2` is with `Vec2`; otherwise wrap the type in a struct of your own (spec §7.6)
 
 error[DZ0563]: `Ledger::m_notes` is less visible than `leak`, whose callers must see it
-     ┌─ typeerrors/src/errors.dz:1347:39
+     ┌─ typeerrors/src/errors.dz:1352:39
      │
-1347 │     pub fn leak(&mut self) kills self.m_notes {}
+1352 │     pub fn leak(&mut self) kills self.m_notes {}
      │                                       ^^^^^^^ not visible to every caller
      │
      = help: a clause names only what every caller of `leak` can see: make the field as visible as the function, or have `Ledger` declare a tie for it, `tie @notes = m_notes`, and name the tie instead (spec §6.7)
 
 error[DZ0562]: a tie path ends at `@notes`, which ties fields of different types
-     ┌─ typeerrors/src/errors.dz:1348:45
+     ┌─ typeerrors/src/errors.dz:1353:45
      │
-1348 │     pub fn retag(&mut self) kills self@notes[*] {}
+1353 │     pub fn retag(&mut self) kills self@notes[*] {}
      │                                             ^^^ nothing further to name
      │
      = help: end the path where it is; it already names all of that memory (spec §6.7)
 
 error[DZ0562]: `ledgr` is not a parameter of `misspelt`, or a static
-     ┌─ typeerrors/src/errors.dz:1351:40
+     ┌─ typeerrors/src/errors.dz:1356:40
      │
-1351 │ fn misspelt(ledger: &mut Ledger) kills ledgr {}
+1356 │ fn misspelt(ledger: &mut Ledger) kills ledgr {}
      │                                        ^^^^^ no parameter or static of this name
      │
      = help: a tie path starts at one of the function's parameters, at `self` in a method, or at a static (spec §6.7)
 
 error[DZ0564]: `through_a_view` kills through `ledger`, which it cannot change
-     ┌─ typeerrors/src/errors.dz:1353:42
+     ┌─ typeerrors/src/errors.dz:1358:42
      │
-1353 │ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
+1358 │ fn through_a_view(ledger: &Ledger) kills ledger.lines {}
      │                                          ^^^^^^ taken as `&Ledger`
      │
      = help: a function kills only through a `&mut` or `^mut` parameter, or `&mut self`; what it takes by value is its own, and dies with it (spec §6.7)
 
 error[DZ0565]: the result has type `usize`, which points into nothing
-     ┌─ typeerrors/src/errors.dz:1355:45
+     ┌─ typeerrors/src/errors.dz:1360:45
      │
-1355 │ fn count_lines(ledger: &Ledger) -> usize in ledger {
+1360 │ fn count_lines(ledger: &Ledger) -> usize in ledger {
      │                                             ^^^^^^ nothing to say this of
      │
      = help: `in` says where a reference, a pointer, a slice or a `str` points (spec §6.7)
 
 error[DZ0570]: `pick_line` returns `&List<i32>`, which may point into `a` or `b`: the signature must say which
-     ┌─ typeerrors/src/errors.dz:1361:41
+     ┌─ typeerrors/src/errors.dz:1366:41
      │
-1361 │ fn pick_line(a: &Ledger, b: &Ledger) -> &List<i32> {
+1366 │ fn pick_line(a: &Ledger, b: &Ledger) -> &List<i32> {
      │                                         ^^^^^^^^^^ no `in` says where this points
      │
      = help: say what the result points into after its type: `in a`, or `in (a, b)` if it may be in any of them (spec §6.7)
 
 error[DZ0570]: `split_note` returns `(&str, &str)?`, which may point into `s` or `sep`: the signature must say which
-     ┌─ typeerrors/src/errors.dz:1365:38
+     ┌─ typeerrors/src/errors.dz:1370:38
      │
-1365 │ fn split_note(s: &str, sep: &str) -> (&str, &str)? {
+1370 │ fn split_note(s: &str, sep: &str) -> (&str, &str)? {
      │                                      ^^^^^^^^^^^^^ no `in` says where this points
      │
      = help: say what the result points into after its type: `in s`, or `in (s, sep)` if it may be in any of them (spec §6.7)
 
 error[DZ0571]: `title` returns `&str`, which holds a view, but takes nothing it could point into
-     ┌─ typeerrors/src/errors.dz:1369:15
+     ┌─ typeerrors/src/errors.dz:1374:15
      │
-1369 │ fn title() -> &str {
+1374 │ fn title() -> &str {
      │               ^^^^ points into nothing its caller can see
      │
      = help: return text that never dies as `const &str`, return something owned (`String`, `List`), take what the result points into as a parameter, or name the static it points into, `in SCORES.list@items` (spec §6.7)
 
 error[DZ0571]: `titled` returns `(i32, &str)`, which holds a view, but takes nothing it could point into
-     ┌─ typeerrors/src/errors.dz:1373:16
+     ┌─ typeerrors/src/errors.dz:1378:16
      │
-1373 │ fn titled() -> (i32, &str) {
+1378 │ fn titled() -> (i32, &str) {
      │                ^^^^^^^^^^^ points into nothing its caller can see
      │
      = help: return text that never dies as `const &str`, return something owned (`String`, `List`), take what the result points into as a parameter, or name the static it points into, `in SCORES.list@items` (spec §6.7)
 
 error[DZ0567]: `Drawer` declares `@socks` twice
-     ┌─ typeerrors/src/errors.dz:1384:10
+     ┌─ typeerrors/src/errors.dz:1389:10
      │
-1384 │     tie @socks = m_socks@items
+1389 │     tie @socks = m_socks@items
      │          ^^^^^ declared again here
      │
      = help: list everything `@socks` stands for in one declaration, `tie @socks = a, b` (spec §6.7)
 
 error[DZ0562]: `Drawer` has no elements
-     ┌─ typeerrors/src/errors.dz:1385:9
+     ┌─ typeerrors/src/errors.dz:1390:9
      │
-1385 │     tie [*] = m_socks[*]
+1390 │     tie [*] = m_socks[*]
      │         ^^^ nothing for `[*]` to name
      │
      = help: `tie [*]` says where the elements of a type with an `Index` or `Iterable` implementation live (spec §6.7)
 
 error[DZ0562]: a tie stands for memory inside the type, so its path starts at a field
-     ┌─ typeerrors/src/errors.dz:1386:18
+     ┌─ typeerrors/src/errors.dz:1391:18
      │
-1386 │     tie @whole = self
+1391 │     tie @whole = self
      │                  ^^^^ not a field
      │
      = help: name one of the type's fields: `tie @items = m_data` (spec §6.7)
 
 error[DZ0563]: `HashMap::m_keys` is private to `HashMap`
-     ┌─ typeerrors/src/errors.dz:1387:23
+     ┌─ typeerrors/src/errors.dz:1392:23
      │
-1387 │     tie @keys = m_map.m_keys
+1392 │     tie @keys = m_map.m_keys
      │                       ^^^^^^ not visible here
      │
      = help: a tie names another type's memory through that type's ties: have `HashMap` declare a tie for it, `tie @keys = m_keys`, and name the tie instead (spec §6.7)
 
 error[DZ0562]: `Drawer` has no field `m_sock`
-     ┌─ typeerrors/src/errors.dz:1388:17
+     ┌─ typeerrors/src/errors.dz:1393:17
      │
-1388 │     tie @lost = m_sock
+1393 │     tie @lost = m_sock
      │                 ^^^^^^ no such field
      │
      = help: a tie path goes through a struct's fields (spec §6.7)
 
 error[DZ0568]: this function kills `l.lines`, and the function type allows nothing
-     ┌─ typeerrors/src/errors.dz:1402:16
+     ┌─ typeerrors/src/errors.dz:1407:16
      │
-1402 │     run_ledger(spend, l)
+1407 │     run_ledger(spend, l)
      │                ^^^^^ kills more than the type allows
      │
      = help: a function type's `kills` clause is the most a function stored in it may kill, and every call through it relies on that: name the kill in the type, `fn(xs: &mut List<i32>) kills xs@items`, or store a function that kills no more (spec §6.7)
 
 error[DZ0562]: `ledger` is not a parameter of `fn(…)`, or a static
-     ┌─ typeerrors/src/errors.dz:1405:41
+     ┌─ typeerrors/src/errors.dz:1410:41
      │
-1405 │ fn misnamed(f: fn(l: &mut Ledger) kills ledger.lines) {}
+1410 │ fn misnamed(f: fn(l: &mut Ledger) kills ledger.lines) {}
      │                                         ^^^^^^ no parameter or static of this name
      │
      = help: a tie path starts at one of the function's parameters, at `self` in a method, or at a static (spec §6.7)
 
 error[DZ0564]: `fn(…)` kills through `l`, which it cannot change
-     ┌─ typeerrors/src/errors.dz:1407:42
+     ┌─ typeerrors/src/errors.dz:1412:42
      │
-1407 │ fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}
+1412 │ fn through_a_ref(f: fn(l: &Ledger) kills l.lines) {}
      │                                          ^ taken as `&Ledger`
      │
      = help: a function kills only through a `&mut` or `^mut` parameter, or `&mut self`; what it takes by value is its own, and dies with it (spec §6.7)
 
 error[DZ0570]: this function type returns `&Ledger`, which may point into `a` or `b`: the type must say which
-     ┌─ typeerrors/src/errors.dz:1412:19
+     ┌─ typeerrors/src/errors.dz:1417:19
      │
-1412 │ fn pick_either(f: fn(a: &Ledger, b: &Ledger) -> &Ledger) {}
+1417 │ fn pick_either(f: fn(a: &Ledger, b: &Ledger) -> &Ledger) {}
      │                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `in` says where this points
      │
      = help: say what the result points into after its type: `in a`, or `in (a, b)` if it may be in any of them (spec §6.7)
 
 error[DZ0571]: this function type returns `&str`, which holds a view, but takes nothing it could point into
-     ┌─ typeerrors/src/errors.dz:1414:16
+     ┌─ typeerrors/src/errors.dz:1419:16
      │
-1414 │ fn named_by(f: fn() -> &str) {}
+1419 │ fn named_by(f: fn() -> &str) {}
      │                ^^^^^^^^^^^^ points into nothing its caller can see
      │
      = help: a function stored here could only return memory that never dies: make the result `const &str`, something owned (`String`, `List`), or take what it points into as a parameter (spec §6.7)
 
 error[DZ0572]: this function's result may point into any of `a`, `b`, and the function type's into `a`
-     ┌─ typeerrors/src/errors.dz:1425:21
+     ┌─ typeerrors/src/errors.dz:1430:21
      │
-1425 │     return run_pick(either_ledger, a, b)
+1430 │     return run_pick(either_ledger, a, b)
      │                     ^^^^^^^^^^^^^ its result may point where the type does not allow
      │
      = help: a function type's `in` is everything the result of a function stored in it may point into, and every call through it relies on that: widen the type, `fn(a: &T, b: &T) -> &T in (a, b)`, or store a function whose result points into no more (spec §6.7)
 
 error[DZ0517]: a struct field cannot hold `SliceIter<i32>`, which is a view
-     ┌─ typeerrors/src/errors.dz:1434:13
+     ┌─ typeerrors/src/errors.dz:1439:13
      │
-1434 │     pub it: SliceIter<i32>
+1439 │     pub it: SliceIter<i32>
      │             ^^^^^^^^^^^^^^ a view lives only where a reference does
      │
      = help: declare `HoldsIter` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
 
 error[DZ0517]: `SliceIter<i32>` is a view, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1442:17
+     ┌─ typeerrors/src/errors.dz:1447:17
      │
-1442 │     let _kept = keep(xs.iter())
+1447 │     let _kept = keep(xs.iter())
      │                 ^^^^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0517]: `SliceIter<i32>` is a view, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1443:17
+     ┌─ typeerrors/src/errors.dz:1448:17
      │
-1443 │     let _many = List<SliceIter<i32>>()
+1448 │     let _many = List<SliceIter<i32>>()
      │                 ^^^^^^^^^^^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0517]: `&i32` is a reference, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1449:20
+     ┌─ typeerrors/src/errors.dz:1454:20
      │
-1449 │     let mut refs = List<&i32>()
+1454 │     let mut refs = List<&i32>()
      │                    ^^^^^^^^^^^^ a reference given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0517]: `&i32` is a reference, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1455:17
+     ┌─ typeerrors/src/errors.dz:1460:17
      │
-1455 │     let _kept = keep(&a)
+1460 │     let _kept = keep(&a)
      │                 ^^^^^^^^ a reference given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0517]: `I` is a `view` parameter, so `Wrapper` may hold a view
-     ┌─ typeerrors/src/errors.dz:1458:16
+     ┌─ typeerrors/src/errors.dz:1463:16
      │
-1458 │ struct Wrapper<view I: Iterate> {
+1463 │ struct Wrapper<view I: Iterate> {
      │                ^^^^^^^^^^^^^^^ may be given a view
      │
      = help: declare it `view struct Wrapper`, which is placed as a reference is, or drop `view` if `I` is never given one (spec §6.7)
 
 error[DZ0517]: `T` is a `view` parameter, so `Takes` may hold a view
-     ┌─ typeerrors/src/errors.dz:1462:13
+     ┌─ typeerrors/src/errors.dz:1467:13
      │
-1462 │ trait Takes<view T> {
+1467 │ trait Takes<view T> {
      │             ^^^^^^ may be given a view
      │
      = help: only a function, an `impl` or a `view struct` takes a `view` parameter, and a trait is none of them (spec §6.7)
 
 error[DZ0517]: `I` reaches `Around`'s `view` parameter, so it may be a view
-     ┌─ typeerrors/src/errors.dz:1470:6
+     ┌─ typeerrors/src/errors.dz:1475:6
      │
-1470 │ impl<I: Iterate> Iterate for Around<I> {
+1475 │ impl<I: Iterate> Iterate for Around<I> {
      │      ^ not declared `view`
      │
      = help: write `impl<view I: …>`, so the implementation treats a value of `I` as the view it may be (spec §6.7)
 
 error[DZ0517]: `SliceIter<i32>` is a view, and `Source`'s `Out` is not a `view type`
-     ┌─ typeerrors/src/errors.dz:1492:10
+     ┌─ typeerrors/src/errors.dz:1497:10
      │
-1492 │     type Out = SliceIter<i32>
+1497 │     type Out = SliceIter<i32>
      │          ^^^ a view chosen where it could be stored
      │
      = help: generic code may store a value of `Out` anywhere; only a trait that declares `view type Out` takes a view for it (spec §6.7)
 
 error[DZ0573]: `add` kills `self.lines@items`, and `Tally::add` allows nothing
-     ┌─ typeerrors/src/errors.dz:1508:31
+     ┌─ typeerrors/src/errors.dz:1513:31
      │
-1508 │     fn add(&mut self, n: i32) kills self.lines@items {
+1513 │     fn add(&mut self, n: i32) kills self.lines@items {
      │                               ^^^^^^^^^^^^^^^^^^^^^^ kills more than the trait allows
      │
      = help: a call through `Tally` relies on the trait's clause: kill no more, or widen `Tally::add`'s `kills` (spec §6.7)
 
 error[DZ0573]: `pick`'s result may point into `self`, `other`, and `Tally::pick`'s into `other`
-     ┌─ typeerrors/src/errors.dz:1512:8
+     ┌─ typeerrors/src/errors.dz:1517:8
      │
-1512 │     fn pick(&self, other: &Ledger) -> &Ledger in (self, other) {
+1517 │     fn pick(&self, other: &Ledger) -> &Ledger in (self, other) {
      │        ^^^^ its result may point where the trait's may not
      │
      = help: a call through `Tally` relies on the trait's `in`: point into no more, or widen `Tally::pick`'s (spec §6.7)
 
 error[DZ0517]: a union's payload cannot hold `SliceIter<i32>`, which is a view
-     ┌─ typeerrors/src/errors.dz:1518:17
+     ┌─ typeerrors/src/errors.dz:1523:17
      │
-1518 │     Steps { it: SliceIter<i32> }
+1523 │     Steps { it: SliceIter<i32> }
      │                 ^^^^^^^^^^^^^^ a view lives only where a reference does
      │
      = help: a view lives in a local, a parameter or a result; keep it there, or store what it views (spec §6.7)
 
 error[DZ0517]: a static cannot hold `Chars?`, which is a view
-     ┌─ typeerrors/src/errors.dz:1522:17
+     ┌─ typeerrors/src/errors.dz:1527:17
      │
-1522 │ static FOREVER: Chars? = none
+1527 │ static FOREVER: Chars? = none
      │                 ^^^^^^ a view lives only where a reference does
      │
      = help: a view lives in a local, a parameter or a result; keep it there, or store what it views (spec §6.7)
 
 error[DZ0533]: `view` is said by the trait, not by `impl Iterate for Ticks`
-     ┌─ typeerrors/src/errors.dz:1529:15
+     ┌─ typeerrors/src/errors.dz:1534:15
      │
-1529 │     view type Item = i32
+1534 │     view type Item = i32
      │               ^^^^ `view` written on a choice
      │
      = help: write `type Item` here; the trait declares `view type Item` when an implementation may choose a view for it (spec §6.7)
 
 error[DZ0501]: expected `const &str`, found `&str`
-     ┌─ typeerrors/src/errors.dz:1551:14
+     ┌─ typeerrors/src/errors.dz:1556:14
      │
-1551 │     p.text = s.as_str()
+1556 │     p.text = s.as_str()
      │              ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const &str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0501]: expected `const &str`, found `&str`
-     ┌─ typeerrors/src/errors.dz:1555:12
+     ┌─ typeerrors/src/errors.dz:1560:12
      │
-1555 │     return s.as_str()
+1560 │     return s.as_str()
      │            ^^^^^^^^^^ this text may point into memory that dies
      │
      = help: a `const &str` is text in static storage, a literal or a constant's, and nothing ever kills it; a `str` may view a `String`, so it cannot become one. Keep the text as a `String`, or make the field or result a `str` (spec §5.3)
 
 error[DZ0569]: `const i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1558:16
+     ┌─ typeerrors/src/errors.dz:1563:16
      │
-1558 │ fn not_text(x: const i32) {}
+1563 │ fn not_text(x: const i32) {}
      │                ^^^^^^^^^ only `const &str` is
      │
      = help: `const` before a type says its memory is static, and only text has that so far: `const &str`, a literal or a constant's (spec §5.3)
 
 error[DZ0574]: this constructor does not bind `m_crate` first
-     ┌─ typeerrors/src/errors.dz:1571:5
+     ┌─ typeerrors/src/errors.dz:1576:5
      │
-1571 │     LateBound(c: &Crate) {
+1576 │     LateBound(c: &Crate) {
      │     ^^^^^^^^^ a reference field left with nothing to refer to
      │
      = help: a reference has no default, so `LateBound`'s constructor begins by binding each reference field, before any other statement: `m_crate = …` (spec §6.7)
 
 error[DZ0574]: reference field `m_crate` cannot have a default
-     ┌─ typeerrors/src/errors.dz:1578:23
+     ┌─ typeerrors/src/errors.dz:1583:23
      │
-1578 │     m_crate: &Crate = &Crate{}
+1583 │     m_crate: &Crate = &Crate{}
      │                       ^^^^^^^^ a default here
      │
      = help: a reference field is given its referent by each literal, or by the constructor's opening statements (spec §6.7)
 
 error[DZ0574]: `m_first` cannot refer into the struct that holds it
-     ┌─ typeerrors/src/errors.dz:1586:19
+     ┌─ typeerrors/src/errors.dz:1591:19
      │
-1586 │         m_first = &m_crates[0]
+1591 │         m_first = &m_crates[0]
      │                   ^^^^^^^^^^^^ refers into `self`
      │
      = help: a copy or a move of the struct would leave it referring to the old one; bind it to something the struct views (spec §6.7)
 
 error[DZ0507]: cannot assign to `c`
-     ┌─ typeerrors/src/errors.dz:1594:9
+     ┌─ typeerrors/src/errors.dz:1599:9
      │
-1594 │         c = Crate{}
+1599 │         c = Crate{}
      │         ^ not mutable
      │
      = help: declare it as `let mut c` to allow assignment
 
 error[DZ0574]: `ReadOnly` holds a reference, so it has no defaults
-     ┌─ typeerrors/src/errors.dz:1599:9
+     ┌─ typeerrors/src/errors.dz:1604:9
      │
-1599 │     let r: ReadOnly
+1604 │     let r: ReadOnly
      │         ^ declared with no value
      │
      = help: a reference field must refer to something from the start; give the binding a value: `let x = …` (spec §6.2, §6.7)
 
 error[DZ0517]: a struct field cannot hold `&Crate`
-     ┌─ typeerrors/src/errors.dz:1603:14
+     ┌─ typeerrors/src/errors.dz:1608:14
      │
-1603 │     m_crate: &Crate
+1608 │     m_crate: &Crate
      │              ^^^^^^ references live only on the stack
      │
      = help: use `^T` for a stored pointer — a reference in a field could outlive what it points at, and Dazzle has no lifetimes to catch that (spec §5.2)
 
 error[DZ0501]: expected `i32?`, found `^i32`
-     ┌─ typeerrors/src/errors.dz:1617:19
+     ┌─ typeerrors/src/errors.dz:1622:19
      │
-1617 │     let o: i32? = final_item(xs.iter())
+1622 │     let o: i32? = final_item(xs.iter())
      │                   ^^^^^^^^^^^^^^^^^^^^^ this is `^i32`
 
 error[DZ0575]: `str` is not a type
-     ┌─ typeerrors/src/errors.dz:1623:17
+     ┌─ typeerrors/src/errors.dz:1628:17
      │
-1623 │ fn bare_text(s: str) -> usize {
+1628 │ fn bare_text(s: str) -> usize {
      │                 ^^^ write `&str`
      │
      = help: text is borrowed from what owns it, so it is written as a reference (spec §5.3)
 
 error[DZ0575]: `const str` is not a type
-     ┌─ typeerrors/src/errors.dz:1627:19
+     ┌─ typeerrors/src/errors.dz:1632:19
      │
-1627 │ const OLD_STATIC: const str = "old"
+1632 │ const OLD_STATIC: const str = "old"
      │                   ^^^^^^^^^ write `const &str`
      │
      = help: static text is borrowed too, from memory that never dies (spec §5.3)
 
 error[DZ0575]: `str?` is not a type
-     ┌─ typeerrors/src/errors.dz:1629:27
+     ┌─ typeerrors/src/errors.dz:1634:27
      │
-1629 │ fn maybe_text(s: &str) -> str? in s {
+1634 │ fn maybe_text(s: &str) -> str? in s {
      │                           ^^^^ write `^str`
      │
      = help: text that may be absent is a text pointer, which may be null (spec §5.3)
 
 error[DZ0575]: `&mut str` is not a type
-     ┌─ typeerrors/src/errors.dz:1633:20
+     ┌─ typeerrors/src/errors.dz:1638:20
      │
-1633 │ fn written_text(s: &mut str) {}
+1638 │ fn written_text(s: &mut str) {}
      │                    ^^^^^^^^ write `&str`
      │
      = help: text is only read through a reference; to change it, change the `String` that owns it (spec §5.3)
 
 error[DZ0575]: a text or slice pointer is empty as `null`
-     ┌─ typeerrors/src/errors.dz:1636:12
+     ┌─ typeerrors/src/errors.dz:1641:12
      │
-1636 │     return none
+1641 │     return none
      │            ^^^^ write `null`
      │
      = help: text that may be absent is a text pointer, and a pointer's empty case is `null` (spec §5.6)
 
 error[DZ0576]: an optional of a reference is not a type
-     ┌─ typeerrors/src/errors.dz:1639:36
+     ┌─ typeerrors/src/errors.dz:1644:36
      │
-1639 │ fn optional_ref(xs: &List<i32>) -> (&i32)? in xs {
+1644 │ fn optional_ref(xs: &List<i32>) -> (&i32)? in xs {
      │                                    ^^^^^^^ write `^i32`
      │
      = help: a pointer already says a reference may be absent, and `or` turns it back into one (spec §5.6)
 
 error[DZ0517]: a struct field cannot hold `&str`, which is a view
-     ┌─ typeerrors/src/errors.dz:1644:15
+     ┌─ typeerrors/src/errors.dz:1649:15
      │
-1644 │     pub text: &str
+1649 │     pub text: &str
      │               ^^^^ a view lives only where a reference does
      │
      = help: declare `Note` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
 
 error[DZ0517]: `&str` is a view, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1648:19
+     ┌─ typeerrors/src/errors.dz:1653:19
      │
-1648 │     let mut all = List<&str>()
+1653 │     let mut all = List<&str>()
      │                   ^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0577]: `[]i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1654:19
+     ┌─ typeerrors/src/errors.dz:1659:19
      │
-1654 │ fn bare_slice(xs: []i32) -> usize {
+1659 │ fn bare_slice(xs: []i32) -> usize {
      │                   ^^^^^ write `&[]i32`
      │
      = help: a slice is borrowed from what owns its elements, so it is written as a reference (spec §5.3)
 
 error[DZ0577]: `[]mut i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1658:23
+     ┌─ typeerrors/src/errors.dz:1663:23
      │
-1658 │ fn bare_mut_slice(xs: []mut i32) {}
+1663 │ fn bare_mut_slice(xs: []mut i32) {}
      │                       ^^^^^^^^^ write `&mut []i32`
      │
      = help: a slice is borrowed from what owns its elements, so it is written as a reference, and the reference says it may write them (spec §5.3)
 
 error[DZ0577]: `&[]mut i32` is not a type
-     ┌─ typeerrors/src/errors.dz:1660:22
+     ┌─ typeerrors/src/errors.dz:1665:22
      │
-1660 │ fn misplaced_mut(xs: &[]mut i32) {}
+1665 │ fn misplaced_mut(xs: &[]mut i32) {}
      │                      ^^^^^^^^^^ write `&mut []i32`
      │
      = help: a slice is borrowed from what owns its elements, so it is written as a reference, and the reference says it may write them (spec §5.3)
 
 error[DZ0517]: a struct field cannot hold `&[]i32`, which is a view
-     ┌─ typeerrors/src/errors.dz:1663:16
+     ┌─ typeerrors/src/errors.dz:1668:16
      │
-1663 │     pub items: &[]i32
+1668 │     pub items: &[]i32
      │                ^^^^^^ a view lives only where a reference does
      │
      = help: declare `Window` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
 
 error[DZ0517]: `&[]i32` is a view, and `T` is not a `view` parameter
-     ┌─ typeerrors/src/errors.dz:1667:19
+     ┌─ typeerrors/src/errors.dz:1672:19
      │
-1667 │     let mut all = List<&[]i32>()
+1672 │     let mut all = List<&[]i32>()
      │                   ^^^^^^^^^^^^^^ a view given where it could be stored
      │
      = help: a view lives only where a reference does, and a value of `T` may be stored in a container or a field; keep the view in a local, or declare the parameter `view T` where it is only passed on (spec §6.7)
 
 error[DZ0578]: `cstr` is not a type
-     ┌─ typeerrors/src/errors.dz:1673:14
+     ┌─ typeerrors/src/errors.dz:1678:14
      │
-1673 │ fn bare_c(c: cstr) {}
+1678 │ fn bare_c(c: cstr) {}
      │              ^^^^ write `&cstr`
      │
      = help: a C string is borrowed from what owns it, so it is written as a reference: `&cstr`; a literal's is `const &cstr`, and C's own pointer `^cstr` (spec §5.3, §15.2)
 
 error[DZ0578]: `&mut cstr` is not a type
-     ┌─ typeerrors/src/errors.dz:1675:17
+     ┌─ typeerrors/src/errors.dz:1680:17
      │
-1675 │ fn written_c(c: &mut cstr) {}
+1680 │ fn written_c(c: &mut cstr) {}
      │                 ^^^^^^^^^ write `&cstr`
      │
      = help: a C string is borrowed from what owns it, so it is written as a reference: `&cstr`; a literal's is `const &cstr`, and C's own pointer `^cstr` (spec §5.3, §15.2)
 
 error[DZ0517]: a struct field cannot hold `&cstr`, which is a view
-     ┌─ typeerrors/src/errors.dz:1678:15
+     ┌─ typeerrors/src/errors.dz:1683:15
      │
-1678 │     pub text: &cstr
+1683 │     pub text: &cstr
      │               ^^^^^ a view lives only where a reference does
      │
      = help: declare `CHolder` a `view struct`, which is itself placed as a reference is, or keep the view in a local (spec §6.7)
 
 error[DZ0528]: reading C's `^cstr` as text is unsafe
-     ┌─ typeerrors/src/errors.dz:1682:12
+     ┌─ typeerrors/src/errors.dz:1687:12
      │
-1682 │     return (c as &str).byte_len
+1687 │     return (c as &str).byte_len
      │            ^^^^^^^^^^^ outside an `unsafe` block
      │
      = help: wrap it in `unsafe { … }` — nothing checks that the memory is still there. To use a pointer safely, turn it into a reference once with `p or …` (spec §5.2)
 
 error[DZ0580]: `%` by a constant zero
-     ┌─ typeerrors/src/errors.dz:1689:19
+     ┌─ typeerrors/src/errors.dz:1694:19
      │
-1689 │     return hash % NO_SLOTS
+1694 │     return hash % NO_SLOTS
      │                   ^^^^^^^^ this divisor is always zero
      │
      = help: an integer division by zero panics when it runs (spec §5.1); divide by something else, or write `panic!` if failing here is the point
 
 error[DZ0581]: `Cottage` declares `@home`, which every value that owns memory has
-     ┌─ typeerrors/src/errors.dz:1696:10
+     ┌─ typeerrors/src/errors.dz:1701:10
      │
-1696 │     tie @home = m_rooms@items
+1701 │     tie @home = m_rooms@items
      │          ^^^^ reserved
      │
      = help: `@home` is the region or heap a value was placed in, which no struct declares; give this tie another name (D-0097)
 
 error[DZ0582]: `@home` cannot be named here: a home is never killed, since it is the region or heap the value was placed in
-     ┌─ typeerrors/src/errors.dz:1699:55
+     ┌─ typeerrors/src/errors.dz:1704:55
      │
-1699 │ fn cleared_home(rooms: &mut List<String>) kills rooms@home {
+1704 │ fn cleared_home(rooms: &mut List<String>) kills rooms@home {
      │                                                       ^^^^ `@home` here
      │
      = help: `@home` ends a path after a result's `in`, for an owned result taken out of an input: `-> T in xs@home` (D-0097)
 
 error[DZ0583]: `kept_in_view` sends to `rooms`, which it cannot change
-     ┌─ typeerrors/src/errors.dz:1703:71
+     ┌─ typeerrors/src/errors.dz:1708:71
      │
-1703 │ fn kept_in_view(letter: String, rooms: &List<String>) sends letter to rooms {
+1708 │ fn kept_in_view(letter: String, rooms: &List<String>) sends letter to rooms {
      │                                                                       ^^^^^ taken as `&List<String>`
      │
      = help: a function sends what it was given by value, or takes through a `&mut` parameter or `&mut self`, into a `&mut` parameter, `&mut self` or a static (D-0097)
 
 error[DZ0585]: method `shape` has the name of a field of the same type
-     ┌─ typeerrors/src/errors.dz:1712:12
+     ┌─ typeerrors/src/errors.dz:1717:12
      │
-1712 │     pub fn shape(&self) -> i32 {
+1717 │     pub fn shape(&self) -> i32 {
      │            ^^^^^ a second `shape` in one type
      │
      = help: a field and a method may not share a name: inside a method a bare `shape` would name either; rename one, a getter `shape()` say to `get_shape()` or the field to `m_shape` (spec §7.3)
 
 error[DZ0515]: `Shelf` cannot be sliced
-     ┌─ typeerrors/src/errors.dz:1724:16
+     ┌─ typeerrors/src/errors.dz:1729:16
      │
-1724 │     let some = shelf[0..1]
+1729 │     let some = shelf[0..1]
      │                ^^^^^ not a sequence
      │
      = help: `[a..b]` works on arrays, slices, `List`, and a type that implements `Slice` (and `SliceMut` to write through it): implement it for `Shelf` (spec §5.3)
 
 error[DZ0515]: text is not indexed with brackets
-     ┌─ typeerrors/src/errors.dz:1731:17
+     ┌─ typeerrors/src/errors.dz:1736:17
      │
-1731 │     let first = name[0]
+1736 │     let first = name[0]
      │                 ^^^^ bytes or characters?
      │
      = help: say the unit: `s.byte(i)` counts bytes, as `find` and `byte_len` do, and `s.char(i)` characters; each panics where its `get_` or `slice_` twin gives `none` (spec §5.3)
 
 error[DZ0586]: text's length says its unit: `byte_len` or `len()`
-     ┌─ typeerrors/src/errors.dz:1732:17
+     ┌─ typeerrors/src/errors.dz:1737:17
      │
-1732 │     return name.len
+1737 │     return name.len
      │                 ^^^ bytes or characters?
      │
      = help: `s.byte_len` is the length in bytes, what `s.len` was; `s.len()` counts the characters (spec §5.3)
 
 error[DZ0587]: `Allocator` can only be implemented for a plain struct, and `Pool<T>` is generic
-     ┌─ typeerrors/src/errors.dz:1742:9
+     ┌─ typeerrors/src/errors.dz:1747:9
      │
-1742 │ impl<T> Allocator for Pool<T> {
+1747 │ impl<T> Allocator for Pool<T> {
      │         ^^^^^^^^^ implemented here
      │
      = help: a `^mut Allocator` is one word, the allocator's address, and the table of its functions is the struct's hidden first field: implement it for a struct of this module with no type parameters, no base and no `virtual` method, and keep anything else in a field of it (spec §14, D-0103)
 
 error[DZ0588]: a `Box<Meter>` cannot be used as a `Box<Gauge>`: `Gauge` has no `virtual` method
-     ┌─ typeerrors/src/errors.dz:1773:12
+     ┌─ typeerrors/src/errors.dz:1778:12
      │
-1773 │     return d
+1778 │     return d
      │            ^ dropping this through a `Box<Gauge>` would drop and free only a `Gauge`
      │
      = help: a `Box` reaches what it holds through the vtable, so give `Gauge` a `virtual` method, or keep the `Box<Meter>`; an `Rc<Gauge>` converts without one (spec §14.5)
 
 error[DZ0501]: expected `i32`, found `&str`
-     ┌─ typeerrors/src/errors.dz:1779:25
+     ┌─ typeerrors/src/errors.dz:1784:25
      │
-1779 │     Text { width: i32 = "wide" }
+1784 │     Text { width: i32 = "wide" }
      │                         ^^^^^^ this is `&str`

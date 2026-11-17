@@ -2656,6 +2656,7 @@ const WARNING_CLEAN: &[&str] = &[
     "collections",
     "projection",
     "indexed",
+    "trait_generic_methods",
     "implicit_as",
     "ref_fields",
     "region_arena",

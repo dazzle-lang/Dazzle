@@ -2,9 +2,10 @@
 id: T-0007
 title: Generic methods in a trait
 milestone: M12
-status: open
+status: done
 kind: feature
 area: generics
+where: `dz_check/src/check.rs`: `trait_method_call`, the bound and qualified call paths (each solves the method's own type arguments), `is_own_self` and `DZ0589`, `signature_differs` (type parameters by position); `dz_mono/src/lib.rs`: `ImplMethodInstance`, `want_impl_method`, `instantiate_impl_method`, `impl_default`; `dz_cpp/src/lib.rs`: `impl_method_instance_fn`, `object_safe`, `trait_methods`; `tests/run/trait_generic_methods/`
 ---
 
 **What is refused.** A method of a *trait* may not have type parameters of its own. The
@@ -72,3 +73,37 @@ object calling the method, which must still be refused under option 1.
 
 Related: [T-0049](T-0049-trait-objects-that-are-not-object.md) (trait objects that are not
 object-safe), [T-0050](T-0050-associated-type-projection.md) (associated-type projection).
+
+**Done** (2026-11-17, r139): option 1, the user's choice ("a vtable would be bad for
+performance"), recorded as D-0108, amending D-0066. A trait's method may have type
+parameters of its own; each implementation has one function per type argument, made where
+the receiver's type is known, and a call through a trait object is `DZ0589`, new. A
+`virtual` method is still `DZ0557`.
+
+- **Checker.** The trait's refusal is gone. Every path to a trait method solves the
+  method's own type arguments, inferred or written: a concrete receiver
+  (`trait_method_call`), a bounded parameter, `self` in a default body, and the trait named
+  in the call. An implementation's type parameters match the trait's by position, renamed
+  before the parameter types are compared, with the same bounds and `view` (`DZ0533`), and the
+  help now prints the trait's signature with its type parameters. `is_own_self` tells `self`
+  in a default body, whose type is spelled as the trait, from a trait object.
+- **Monomorphization.** `ImplMethodInstance`: one implementation's body at its own
+  arguments and the method's, taken from the `impl`'s method or from the trait's default
+  for that implementer (`impl_default`, factored out of `impl_defaults`). A call on a concrete
+  receiver asks for one; an `impl`'s generic method and a generic default are left out of
+  the per-`impl` bodies, as templates.
+- **Codegen.** Each instance is a free function, `<impl function>__<arguments>`, declared
+  and defined behind include guards in the module that needs it. `object_safe` and the vtable
+  leave generic methods out, so such a trait can still be a `^Trait`.
+
+Tests: `tests/run/trait_generic_methods`, two modules: the trait and one `impl` in a
+library, a plain and a generic `impl` in the program, a default generic method overridden
+and inherited, inferred and written type arguments, a bound, a qualified call, a result of
+the method's own type, and a trait object calling the other method. It is in the
+warning-clean list, on clang++ and g++. `tests/errors/generic_trait_method_*` (`DZ0589`, two
+`DZ0533`), `typed/`'s `Recorder`, `typeerrors/`'s `ShowAny` (now `DZ0589`), and
+`dz explain DZ0589`.
+
+Not covered: a trait object of a generic `impl` is still T-0049's, and a qualified call to
+another module's trait method, `sinks::Writer::write(&mut log, 1)`, trips a visibility
+check that `log.write(1)` does not, which predates this.

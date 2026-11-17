@@ -2519,3 +2519,49 @@ fn pane_width() -> i32 {
         case Blank { return 0 }
     }
 }
+
+// A trait's method with type parameters of its own (D-0108): implemented with its
+// parameter named differently, called on a known type, through a bound with the argument
+// written out, from a default body, named through the trait; a trait object calls the
+// trait's other methods.
+pub trait Recorder {
+    fn record<view T: Format>(&mut self, value: T)
+    fn total(&self) -> i32
+
+    fn record_twice<T: Format + Clone>(&mut self, value: T) {
+        self.record(value.clone())
+        self.record(value)
+    }
+}
+
+pub struct Tape {
+    pub n: i32 = 0
+}
+
+impl Recorder for Tape {
+    fn record<view V: Format>(&mut self, value: V) {
+        n += 1
+    }
+
+    fn total(&self) -> i32 {
+        return n
+    }
+}
+
+fn records<R: Recorder>(r: &mut R) {
+    r.record<i64>(1)
+    r.record_twice(2.5)
+}
+
+fn recording(objects: &[]^Recorder) -> i32 {
+    let mut tape = Tape{}
+    tape.record(1)
+    tape.record("one")
+    records(&mut tape)
+    Recorder::record(&mut tape, true)
+    let mut sum = tape.total()
+    for &o in objects {
+        sum += unsafe { o.total() }
+    }
+    return sum
+}

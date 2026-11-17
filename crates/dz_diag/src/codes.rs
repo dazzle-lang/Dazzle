@@ -364,9 +364,9 @@ pub const REFLECTION_DISABLED: &str = "DZ0555";
 /// has a body, or is generic or fallible (spec §7.2).
 pub const MISSING_BODY: &str = "DZ0556";
 /// A method with type parameters of its own where one cannot be instantiated per call: a
-/// `virtual` or `override` method, whose one slot in the vtable cannot be many functions, or
-/// a trait's method, which a trait object would have to call without knowing them
-/// (spec §8.1, §7.6).
+/// `virtual` or `override` method, whose one slot in the vtable cannot be many functions
+/// (spec §8.1, §7.3). A trait's method may have them since D-0108; calling one through a
+/// trait object is `DZ0589`.
 pub const GENERIC_METHOD_NOT_ALLOWED: &str = "DZ0557";
 /// An argument passed by name — `scale = 2` — that does not fit: the call's function
 /// has no parameter of that name after a variadic one, the name is given twice, a
@@ -470,6 +470,11 @@ pub const ALLOCATOR_NOT_STRUCT: &str = "DZ0587";
 /// and size through the vtable, which only a type with a `virtual` method has (spec §14.5,
 /// D-0104).
 pub const BOX_UPCAST_NOT_VIRTUAL: &str = "DZ0588";
+/// A trait's method with type parameters of its own, called through a trait object
+/// (`^Trait`, `&Trait`). The method is one function per type argument and per
+/// implementation, chosen where the receiver's type is known; a trait object's vtable has no
+/// slot for it (D-0108, spec §7.6, §8.1).
+pub const GENERIC_METHOD_THROUGH_OBJECT: &str = "DZ0589";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 
