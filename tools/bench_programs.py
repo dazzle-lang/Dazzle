@@ -7,6 +7,10 @@ level, runs them alternately, and reports run time, peak memory and build time. 
 halves print a `checksum` line, and the run fails if any two disagree: two programs
 computing different things measure nothing.
 
+A program with a `rust/` crate (`ecs`, T-0172) has a Rust half too, one version per binary
+the crate declares, built with cargo, timed the same way and held to the same checksum. It
+needs `cargo` on the path; `--quick` leaves it out where there is none.
+
 Build time is measured in debug and in the mode asked for, two ways: from clean, and after
 a one-line change to the program (EDIT), as someone working on it waits for. The programs
 are copied to target/bench_programs/ to be built, so the edit never reaches the suite.
@@ -76,6 +80,14 @@ def program_flags(program):
     `crates/dz/tests/run.rs` reads from the same file."""
     path = SUITE / program / "cxx_flags.txt"
     return path.read_text(encoding="utf-8").split() if path.exists() else []
+
+
+def module_name(project):
+    """The name `dz build` gives the binary: the module's, from `dazzle.toml`. `ecs`'s game
+    is `battle`, beside the library it uses, `libs/ecs`."""
+    text = (project / "dazzle.toml").read_text(encoding="utf-8")
+    m = re.search(r'^name\s*=\s*"([^"]+)"', text, re.M)
+    return m.group(1) if m else project.name
 
 
 def first_line(cmd):
@@ -230,7 +242,9 @@ def build_dazzle(dz, program, cxx, mode, work, builds):
     the binary of the last clean build and [(wall, phases)] for each of the two kinds."""
     project = BUILDS / program
     shutil.rmtree(project, ignore_errors=True)
-    shutil.copytree(SUITE / program, project, ignore=shutil.ignore_patterns("build", "main.cpp"))
+    shutil.copytree(
+        SUITE / program, project, ignore=shutil.ignore_patterns("build", "main.cpp", "*.hpp", "rust")
+    )
     # One build not counted, so that what is timed from clean finds the runtime and `std`
     # already compiled with this compiler, mode and flags, as the report says it does; a
     # program's own flags (`program_flags`) would otherwise compile them in its first build.
@@ -240,7 +254,7 @@ def build_dazzle(dz, program, cxx, mode, work, builds):
         shutil.rmtree(project / "build", ignore_errors=True)
         clean.append(dz_build(dz, project, cxx, mode))
     binary = work / exe(f"{program}-dazzle-{cxx}-{mode}")
-    shutil.copy2(project / "build" / "bin" / exe(program), binary)
+    shutil.copy2(project / "build" / "bin" / exe(module_name(project)), binary)
 
     # The first edit adds the line and is not counted: what is timed is someone changing
     # a line in a project they have already built since its last edit.
@@ -262,7 +276,10 @@ def build_cpp(program, cxx, mode, work, builds):
     times of each kind."""
 
     def compile_(source, binary):
-        cmd = [cxx, *CXX_FLAGS, *FLAGS[mode], *program_flags(program), str(source), "-o", str(binary)]
+        # `-I`: the edited copy is compiled elsewhere, and finds a header beside `main.cpp`
+        # (`ecs`'s library) there.
+        cmd = [cxx, *CXX_FLAGS, *FLAGS[mode], *program_flags(program), "-I", str(SUITE / program),
+               str(source), "-o", str(binary)]
         seconds, out = timed(cmd)
         if out.returncode != 0:
             sys.exit(f"{cxx} failed on {program}/main.cpp:\n{out.stderr}")
@@ -342,6 +359,69 @@ def bench(dz, program, cxx, mode, runs, args, work, measure, builds):
     }
 
 
+def rust_crate(program):
+    """The program's Rust half, a Cargo crate in `rust/`, if it has one (`ecs`, T-0172)."""
+    crate = SUITE / program / "rust"
+    return crate if (crate / "Cargo.toml").exists() else None
+
+
+def rust_versions(crate):
+    """The crate's binaries, in the order it declares them: each a version of the program,
+    written another way."""
+    text = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    return re.findall(r'^\[\[bin\]\]\s*\r?\nname\s*=\s*"([^"]+)"', text, re.M)
+
+
+def build_rust(program, crate, mode, work, builds):
+    """Build the Rust half `builds` times from clean, outside the suite. Return each
+    version's binary and the median build time. Rust has no compiler to choose, so it is
+    built once whatever `--cxx` says; `--release` is its profile in `Cargo.toml`, written to
+    match the C++ half's flags."""
+    target = BUILDS / f"{program}-rust"
+    cmd = ["cargo", "build", "--locked", "--manifest-path", str(crate / "Cargo.toml"),
+           "--target-dir", str(target)]
+    if mode == "release":
+        cmd.append("--release")
+    walls = []
+    for _ in range(builds):
+        shutil.rmtree(target, ignore_errors=True)
+        wall, out = timed(cmd)
+        if out.returncode != 0:
+            sys.exit(f"cargo build failed for {program}/rust:\n{out.stderr}")
+        walls.append(wall)
+    profile = "release" if mode == "release" else "debug"
+    binaries = {}
+    for version in rust_versions(crate):
+        binary = work / exe(f"{program}-rust-{version}-{mode}")
+        shutil.copy2(target / profile / exe(version), binary)
+        binaries[version] = binary
+    return binaries, statistics.median(walls)
+
+
+def bench_rust(program, crate, mode, runs, args, work, measure, builds):
+    """Every version of the Rust half, run alternately, `runs` times each; they must agree."""
+    binaries, build = build_rust(program, crate, mode, work, builds)
+    versions = list(binaries)
+    walls = {v: [] for v in versions}
+    rss = {v: 0 for v in versions}
+    sums = {}
+    for r in range(runs):
+        # Rotate which version goes first, as `bench` alternates the other two halves.
+        for v in versions[r % len(versions):] + versions[: r % len(versions)]:
+            wall, peak, text = run_measured([str(binaries[v]), *args], measure)
+            walls[v].append(wall)
+            rss[v] = max(rss[v], peak or 0)
+            sums.setdefault(checksum_of(text, f"{program} (rust {v})"), set()).add(v)
+    if len(sums) != 1:
+        sys.exit(f"{program}: the Rust versions disagree: {sums}")
+    return {
+        "program": program,
+        "checksum": next(iter(sums)),
+        "versions": {v: {**summarise(walls[v]), "peak_kib": rss[v] or None} for v in versions},
+        "build": build,
+    }
+
+
 def ms(seconds):
     return f"{seconds * 1000:.0f} ms"
 
@@ -360,7 +440,34 @@ def build_kinds(mode):
     ]
 
 
-def report(info, results, mode, runs):
+def rust_report(rust_results, results):
+    """The Rust halves' table: each version's run time, and Dazzle's against it on each
+    compiler."""
+    if not rust_results:
+        return []
+    compilers = list(dict.fromkeys(r["cxx"] for r in results))
+    lines = [
+        "",
+        "Rust halves, each version of a program a binary of its crate in `rust/`, built with "
+        "`cargo build --release`:",
+        "",
+        "| Program | Rust version | Run time | Peak memory | Build from clean | "
+        + " | ".join(f"Dazzle / Rust, {c}" for c in compilers)
+        + " |",
+        "|---|---|---:|---:|---:|" + "---:|" * len(compilers),
+    ]
+    for rr in rust_results:
+        dazzle = {r["cxx"]: r["dazzle"]["median"] for r in results if r["program"] == rr["program"]}
+        for v, t in rr["versions"].items():
+            ratios = [f"{dazzle[c] / t['median']:.2f}×" if c in dazzle else "—" for c in compilers]
+            lines.append(
+                f"| {rr['program']} | {v} | {ms(t['median'])} | {mib(t['peak_kib'])} "
+                f"| {rr['build']:.2f} s | " + " | ".join(ratios) + " |"
+            )
+    return lines
+
+
+def report(info, results, mode, runs, rust_results=()):
     flags = " ".join(CXX_FLAGS + MODES[mode])
     lines = [
         "| Program | Compiler | Dazzle | C++ | Dazzle / C++ | Peak memory (Dazzle / C++) "
@@ -404,6 +511,7 @@ def report(info, results, mode, runs):
                 f"| {r['program']} | {r['cxx']} | {label} | {ms(b['dazzle_frontend'])} "
                 f"| {ms(headers)} | {ms(compiler)} | {ms(other)} |"
             )
+    lines += rust_report(rust_results, results)
     builds = results[0]["build"]["builds"] if results else 0
     lines += [
         "",
@@ -426,12 +534,14 @@ def report(info, results, mode, runs):
     ]
     for cxx, version in info["compilers"].items():
         lines.append(f"- `{cxx}`: {version}")
+    if rust_results:
+        lines.append(f"- `rustc`: {info.get('rustc')}")
     lines += [
         f"- Mode: `--{mode}`. C++ flags: `{flags}`; Dazzle's generated code gets the same "
         "and `-fwrapv -fno-finite-loops -fno-strict-aliasing`, and with g++ in an optimised "
         "build `--param max-inline-insns-auto=70` (T-0190) and `--param inline-unit-growth=100` "
         "(T-0234). A program's `cxx_flags.txt` adds "
-        "flags to both of its halves: `raytrace` has `-ffp-contract=off` (T-0174).",
+        "flags to both of its halves: `raytrace` and `ecs` have `-ffp-contract=off` (T-0174).",
         f"- Dazzle: commit {info['commit']}",
         f"- Load average before / after: {info['load_before']} / {info['load_after']}",
     ]
@@ -472,26 +582,45 @@ def main():
     if info["load_before"] is not None and info["load_before"] > max(1.0, (info["cores"] or 8) / 8):
         print("warning: the machine is busy; these numbers will be noisy", file=sys.stderr)
 
+    cargo = shutil.which("cargo")
+    if any(rust_crate(p) for p in programs):
+        if cargo:
+            info["rustc"] = first_line(["rustc", "--version"])
+        elif not a.quick:
+            sys.exit("cargo is not on the path, and a program has a Rust half (`rust/`)")
+
     results = []
+    rust_results = []
     with tempfile.TemporaryDirectory(prefix="dz-bench-") as tmp:
         measure = build_measure(compilers[0], Path(tmp))
         for prog in programs:
             # `quick_args.txt` is the small input the test suite runs each program on
             # (crates/dz/tests/run.rs); without --quick, a program's defaults are the full size.
             args = (SUITE / prog / "quick_args.txt").read_text().split() if a.quick else []
+            builds = 1 if a.quick else a.builds
             for cxx in compilers:
                 print(f"{prog} with {cxx}...", file=sys.stderr)
-                builds = 1 if a.quick else a.builds
                 results.append(bench(dz, prog, cxx, a.mode, runs, args, Path(tmp), measure, builds))
+            crate = rust_crate(prog)
+            if crate and cargo:
+                print(f"{prog} in Rust...", file=sys.stderr)
+                rr = bench_rust(prog, crate, a.mode, runs, args, Path(tmp), measure, builds)
+                theirs = {r["checksum"] for r in results if r["program"] == prog}
+                if theirs != {rr["checksum"]}:
+                    sys.exit(f"{prog}: the Rust half's checksum {rr['checksum']} is not {theirs}")
+                rust_results.append(rr)
     info["load_after"] = load()
 
-    text = report(info, results, a.mode, runs)
+    text = report(info, results, a.mode, runs, rust_results)
     print(text)
     if a.markdown:
         Path(a.markdown).write_text(text, encoding="utf-8")
     if a.json:
         Path(a.json).write_text(
-            json.dumps({"machine": info, "mode": a.mode, "results": results}, indent=2) + "\n",
+            json.dumps(
+                {"machine": info, "mode": a.mode, "results": results, "rust": rust_results}, indent=2
+            )
+            + "\n",
             encoding="utf-8",
         )
 

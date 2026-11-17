@@ -2,7 +2,7 @@
 id: T-0172
 title: An ECS benchmark against Rust and C++: a query inside a query
 milestone: M15
-status: open
+status: done
 kind: feature
 area: bench
 ---
@@ -94,3 +94,61 @@ single-threaded, where Rust refuses both. C++ allows both, including the unsafe 
 
 Compiler work and a benchmark; no language change. If the Dazzle half needs something the
 language refuses, that is a finding to bring to the user, not something to work around.
+
+**Decided by the user, 2026-11-17.**
+
+- **A real ECS library, and a game that uses it.** No components written onto the world by
+  hand (`positions: SparseSet<Position>`, as `examples/ecs` does): the world holds any
+  component type, the game creates a world and registers systems.
+- **No ECS libraries as reference points** (`bevy_ecs`, `hecs`, EnTT): the comparison is
+  between languages, and a library's own design would decide its numbers. Step 3 above is
+  dropped.
+
+**Done 2026-11-17.** `tests/bench_programs/ecs`: the library in each language
+(`libs/ecs`, `ecs.hpp`, `rust/src/ecs.rs`) and the battle on it (`src/main.dz`,
+`main.cpp`, `rust/src/bin/*.rs`), with the design above in all three. A component's
+storage is found by its type id (`typeid_of`, a counter in C++ since it builds without
+RTTI, `TypeId`) and kept behind the language's handle to a base; the Rust half is written
+three ways, `collect`, `disjoint` and `cell`, each a binary of its crate. All five
+programs print the same checksum; `tools/bench_programs.py` builds and times the Rust half
+and holds it to the checksum, and `whole_program_benchmarks_agree_with_their_cpp_halves`
+checks it where `cargo` is. `tests/bench_programs/README.md` has the section.
+
+**What the Dazzle half needed:**
+
+- **A `Box` of an abstract base** (fixed). The world keeps `List<Box<AnyStorage>>`, and
+  `AnyStorage` is abstract, since its one method is body-less (T-0238 says why). The checker
+  refused `Box<AnyStorage>` as an abstract type by value (`DZ0545`), though §7.3 says an
+  abstract type behind a pointer is what it is for and §14.5 builds on `Box<UiElement>`.
+  Now an abstract type may be a `Box`'s argument, and an instance leaves out a constructor
+  taking an abstract value, which C++ refuses to declare and nothing can call. The check
+  also no longer looks inside type arguments, which are checked where they are written:
+  `Box<List<Shape>>` was reported three times. A compiler fix, the spec unchanged;
+  `a_box_of_an_abstract_base_holds_a_derived_value`, and a case in each of `typed/` and
+  `typeerrors/`.
+- **One `unsafe` line**: turning the `AnyStorage` a type id found back into a
+  `Storage<T>`, a pointer cast, as C++'s `static_cast`; Rust's `downcast_mut` checks it.
+  A checked downcast is still D-0096's prerequisite.
+- **Found, not fixed:** a `virtual` method with a body cannot promise what its overrides
+  kill (T-0238, a question for the user), and a `kills` clause the checker suggests names
+  `Box`'s private `m_ptr` (T-0239).
+
+**The first run** (`RESULTS.md`, load 1.2): Dazzle 281 ms on clang++ and 161 on g++, 1.35×
+and 1.41× its C++ half (208 and 115); Rust 243 ms collecting, 243 with `Cell`s and 113 in
+index loops with `get_disjoint_mut`. Dazzle on g++ is faster than the two Rust versions
+that keep the nested queries' shape, and 1.43× the one that gives it up for index loops,
+which is as fast as C++ on g++. Peak memory 3.6 MiB against C++'s 3.8 and Rust's 2.0. The
+gap to C++ is T-0240.
+
+What the language does with it is the point of the benchmark: `separate` and `fight` are
+written directly, and a `despawn` inside a query's loop is refused (`DZ0413`: the loop
+goes on over memory its body killed).
+
+| What | Where |
+|---|---|
+| The library, in Dazzle | `tests/bench_programs/ecs/libs/ecs/src/` (`storage.dz`, `world.dz`, `query.dz`) |
+| The game, in Dazzle | `tests/bench_programs/ecs/src/main.dz` |
+| The C++ half | `tests/bench_programs/ecs/ecs.hpp`, `main.cpp` |
+| The Rust half | `tests/bench_programs/ecs/rust/` |
+| The Rust half in the benchmark script | `rust_crate`, `build_rust`, `bench_rust`, `rust_report` in `tools/bench_programs.py` |
+| A `Box` of an abstract base | `lower_checked_type`, `abstract_by_value` in `crates/dz_check/src/lib.rs`; `ctor_takes_abstract` in `crates/dz_cpp/src/lib.rs` |

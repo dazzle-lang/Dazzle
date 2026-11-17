@@ -1589,6 +1589,33 @@ fn a_moved_union_is_left_plain_and_a_variant_is_built_in_place() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A `Box` of an abstract base, made from a `Box` of a type that overrides it (spec §7.3,
+/// §14.5): what `ecs`'s world keeps its storages in (T-0172). The instance has no
+/// constructor taking the abstract value, which C++ refuses to declare and nothing could
+/// call, and dropping the box drops and frees the derived value, its `drop` included.
+#[test]
+fn a_box_of_an_abstract_base_holds_a_derived_value() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_abstract_box",
+        "[module]\nname = \"shapes\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "struct Shape {\n    pub virtual fn area(&self) -> i32\n}\n\nstruct Square : Shape {\n    pub side: i32 = 0\n    pub name: String = String(\"a name long enough to be on the heap\")\n\n    pub override fn area(&self) -> i32 {\n        return side * side\n    }\n}\n\nimpl Drop for Square {\n    fn drop(&mut self) {\n        println!(\"drop {}\", side)\n    }\n}\n\nfn main() {\n    let mut shapes = List<Box<Shape>>()\n    shapes.push(Box<Square>(Square{ side: 3 }))\n    shapes.push(Box<Square>(Square{ side: 4 }))\n    for &s in shapes {\n        if let &x = s {\n            println!(\"{}\", x.area())\n        }\n    }\n}\n",
+    );
+    let out =
+        Command::new(dz()).args(["run", "--track-memory", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(!stderr.contains("leak"), "{stderr}");
+    // Before them, the moved-from `Square`s `Box`'s constructor left behind, at their
+    // defaults (spec §6.4), which this test is not about.
+    let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+    assert!(stdout.ends_with("9\n16\ndrop 3\ndrop 4"), "{stdout}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// What a move leaves behind is not destroyed where nothing could see it (T-0231): the
 /// result `let r = f() or return` names `r` in, when `r` is moved out before anything can
 /// leave its block; a literal returned from a `!->` function, built in the result rather
@@ -1835,10 +1862,19 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
         }
         let built = build.output().unwrap();
         assert!(built.status.success(), "{name}: {}", String::from_utf8_lossy(&built.stderr));
+        // The binary is named after the module, which for `ecs` is its game, `battle`, beside
+        // the library it uses.
+        let manifest = std::fs::read_to_string(dir.join("dazzle.toml")).unwrap();
+        let module = manifest
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("name"))
+            .and_then(|rest| rest.split('"').nth(1))
+            .unwrap_or(&name)
+            .to_owned();
         let exe = dir.join("build/bin").join(if cfg!(windows) {
-            format!("{name}.exe")
+            format!("{module}.exe")
         } else {
-            name.clone()
+            module.clone()
         });
         let dazzle = checksum(&Command::new(&exe).args(&args).output().unwrap(), &name);
 
@@ -1865,6 +1901,45 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
             &format!("{name}/main.cpp"),
         );
         assert_eq!(dazzle, cpp, "{name}: the Dazzle and C++ halves compute different things");
+
+        // A Rust half (`ecs`, T-0172): every version the crate builds, built where cargo
+        // is, as this suite's own build needs it to be.
+        let crate_dir = dir.join("rust");
+        if crate_dir.join("Cargo.toml").exists() {
+            let target = scratch.join(format!("{name}-rust"));
+            let built = Command::new("cargo")
+                .args(["build", "--release", "--locked", "--manifest-path"])
+                .arg(crate_dir.join("Cargo.toml"))
+                .arg("--target-dir")
+                .arg(&target)
+                .output()
+                .unwrap();
+            assert!(
+                built.status.success(),
+                "{name}/rust: {}",
+                String::from_utf8_lossy(&built.stderr)
+            );
+            let toml = std::fs::read_to_string(crate_dir.join("Cargo.toml")).unwrap();
+            let versions: Vec<&str> = toml
+                .split("[[bin]]")
+                .skip(1)
+                .filter_map(|b| b.lines().find_map(|l| l.trim().strip_prefix("name")))
+                .filter_map(|rest| rest.split('"').nth(1))
+                .collect();
+            assert!(!versions.is_empty(), "{name}/rust declares no binaries");
+            for v in versions {
+                let bin = target.join("release").join(if cfg!(windows) {
+                    format!("{v}.exe")
+                } else {
+                    v.to_owned()
+                });
+                let rust = checksum(
+                    &Command::new(&bin).args(&args).output().unwrap(),
+                    &format!("{name}/rust {v}"),
+                );
+                assert_eq!(dazzle, rust, "{name}: the Rust version `{v}` computes something else");
+            }
+        }
     }
 }
 

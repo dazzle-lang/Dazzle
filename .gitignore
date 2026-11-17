@@ -16,3 +16,5 @@
 /examples/**/build/
 # What `examples/stb` renders when it runs; its README shows a copy, `screenshot.png`.
 /examples/stb/render.png
+# The Rust half of a benchmark, when cargo is run in it rather than by tools/bench_programs.py.
+/tests/bench_programs/*/rust/target/

@@ -53,8 +53,9 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
 6. T-0165 is done (2026-11-17): `words` in regions runs fewer instructions on both
    compilers and is 2% faster on clang++; g++'s 3% the other way stays with every
    allocation put back on the heap and goes without LTO, so it is g++'s layout of `main`,
-   not the regions. Left: T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
-   could still cost something.
+   not the regions. T-0172 is done (2026-11-17): `ecs`, an ECS library and a battle on
+   it in Dazzle, C++ and Rust (three ways), the user's design: a real library, no outside
+   ones. It needed a `Box` of an abstract base (fixed) and found T-0238 and T-0239.
 
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
 `List<String>` filled with `format!` text in its region now skips its drop, so the user's

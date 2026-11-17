@@ -800,6 +800,12 @@ fn holds_an_abstract_by_value(a: Abstract) -> i32 {
     return a.area()
 }
 
+// A `Box` of one may hold it, but not of a list of them, which holds them by value.
+fn boxes_abstracts_by_value(b: Box<List<Abstract>>) -> usize {
+    let list = b or return 0
+    return list.len()
+}
+
 fn builds_an_abstract() -> i32 {
     let a = StillAbstract{}
     return a.n

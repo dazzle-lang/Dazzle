@@ -2314,12 +2314,25 @@ impl<'a> Ctx<'a> {
     /// to exist: its header never defines it, so nothing here knows its size (spec §15.2,
     /// §18.40). Behind a pointer — which is how a C library hands one out — it is fine.
     pub(crate) fn lower_type(&mut self, t: &Type) -> Ty {
+        self.lower_checked_type(t, false)
+    }
+
+    /// [`Self::lower_type`], where `behind_box` says `t` is a `Box`'s argument, which may
+    /// itself be abstract ([`Self::abstract_by_value`]).
+    fn lower_checked_type(&mut self, t: &Type, behind_box: bool) -> Ty {
         let ty = self.lower_type_inner(t);
         // An abstract type has a method with no body, so a value of it would have nothing
         // to call. Behind a reference or a pointer it is exactly what `virtual` is for
         // (spec §7.3, 18.32). Checked here, as a handle's by-value use is, so C++ never
         // has to report it — a C++ error in generated code is a compiler bug (invariant 7).
-        if let Some(sym) = self.abstract_by_value(&ty) {
+        // A `Box` holds its value behind a pointer and drops it through the vtable, as the
+        // type it was made as, so a `Box` of an abstract base is what a `Box` of a derived
+        // one converts to (spec §7.3, §14.5, D-0104).
+        let by_value = match &ty {
+            Ty::Named { .. } if behind_box => None,
+            _ => self.abstract_by_value(&ty),
+        };
+        if let Some(sym) = by_value {
             if let Some((owner, method)) = self.table.abstract_method(sym) {
                 let name = self.res.symbol(sym).name.clone();
                 let owner = self.res.symbol(owner).name.clone();
@@ -2354,7 +2367,10 @@ impl<'a> Ctx<'a> {
 
     /// The first abstract struct inside `t` that is not behind a pointer or a reference.
     /// Same shape as [`Ctx::opaque_by_value`], and for the same reason: both are types
-    /// that exist only to be pointed at (spec §7.3, §15.2).
+    /// that exist only to be pointed at (spec §7.3, §15.2). Not inside a type argument:
+    /// each is lowered, and checked, where it is written ([`Ctx::type_args`]), and looking
+    /// again from every type around it reported one mistake once for each,
+    /// `Box<List<Shape>>` three times.
     fn abstract_by_value(&self, t: &Ty) -> Option<SymbolId> {
         match t {
             Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::Ref { .. } => None,
@@ -2362,12 +2378,17 @@ impl<'a> Ctx<'a> {
             Ty::Array { elem, .. } | Ty::Slice { elem, .. } => self.abstract_by_value(elem),
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => self.abstract_by_value(i),
             Ty::Tuple(parts) => parts.iter().find_map(|p| self.abstract_by_value(p)),
-            Ty::Named { args, .. } => args.iter().find_map(|a| self.abstract_by_value(a)),
             Ty::Fn { params, ret, .. } => {
                 params.iter().chain(std::iter::once(&**ret)).find_map(|p| self.abstract_by_value(p))
             }
             _ => None,
         }
+    }
+
+    /// Whether `sym` is `std`'s `Box`.
+    fn is_prelude_box(&self, sym: SymbolId) -> bool {
+        let symbol = self.res.symbol(sym);
+        symbol.module == self.res.prelude && symbol.name == "Box"
     }
 
     /// The first imported handle inside `t` that is not behind a pointer, if there is one.
@@ -2843,7 +2864,9 @@ impl<'a> Ctx<'a> {
     /// instantiation and the one mistake produces one diagnostic.
     fn type_args(&mut self, sym: SymbolId, seg: &PathSegment) -> Vec<Ty> {
         let wanted = self.table.type_params(sym).len();
-        let args: Vec<Ty> = seg.generics.iter().map(|t| self.lower_type(t)).collect();
+        let boxed = self.is_prelude_box(sym);
+        let args: Vec<Ty> =
+            seg.generics.iter().map(|t| self.lower_checked_type(t, boxed)).collect();
         if args.len() == wanted {
             let params: Vec<ParamDef> = self.table.type_params(sym).to_vec();
             for ((def, arg), written) in params.iter().zip(&args).zip(&seg.generics) {

@@ -1,0 +1,10 @@
+[module]
+name = "battle"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+ecs = { path = "libs/ecs", open = true }
+
+[build]
+output = "executable"

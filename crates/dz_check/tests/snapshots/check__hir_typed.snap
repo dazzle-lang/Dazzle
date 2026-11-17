@@ -21275,6 +21275,25 @@ body fn abstract_through_a_pointer -> ^Drawable
   block
     return: !
       local _0 d: ^Drawable
+body fn boxes_an_abstract -> i32
+  param _0 owned: Box<Circle>
+  block
+    let _1 boxed: Box<Drawable>
+      move: Box<Circle>
+        local _0 owned: Box<Circle>
+    let _3 d: &Drawable
+      or: &Drawable
+        guarded: ^Drawable
+          guard _2 _guard
+          call-method Nullable::guard: Unguarded<Drawable>
+            local _1 boxed: Box<Drawable>
+          call-method Nullable::ptr: ^mut Drawable
+            local _2 _guard: Unguarded<Drawable>
+        return: !
+          int 0: i32
+    return: !
+      call-method Drawable::area: i32
+        local _3 d: &Drawable
 body impl#169 method measure -> i32
   param _0 self: Drawable
   block

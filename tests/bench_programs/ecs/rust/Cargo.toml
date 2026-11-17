@@ -1,0 +1,32 @@
+[package]
+name = "ecs-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# No dependencies: the comparison is between languages, not ECS libraries (T-0172).
+[dependencies]
+
+[[bin]]
+name = "collect"
+path = "src/bin/collect.rs"
+
+[[bin]]
+name = "disjoint"
+path = "src/bin/disjoint.rs"
+
+[[bin]]
+name = "cell"
+path = "src/bin/cell.rs"
+
+# As the C++ half is built: optimised at -O2's level, the whole program at once, and no
+# unwinding (C++ has -fno-exceptions). Integer arithmetic wraps in release, as Dazzle's
+# and C++'s unsigned arithmetic do; the code says so where it relies on it.
+[profile.release]
+opt-level = 2
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Its own workspace: not a member of the compiler's, and built only by the benchmarks.
+[workspace]

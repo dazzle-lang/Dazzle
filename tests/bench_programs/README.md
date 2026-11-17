@@ -1,4 +1,4 @@
-# Whole-program benchmarks: Dazzle against C++
+# Whole-program benchmarks: Dazzle against C++ (and Rust)
 
 `tests/bench` compares Dazzle and C++ one construct at a time: an indexed load, a
 destructor, a virtual call. That shows the constructs compile to the same thing. It does not
@@ -7,6 +7,7 @@ real work, each written twice, idiomatically, and timed end to end (T-0090).
 
 | Program | What it does | What it leans on |
 |---|---|---|
+| `ecs` | a battle of 600 units in two teams for 100 steps, on an entity-component-system library of its own: each step moves every unit, pushes apart those that overlap, lets each strike the nearest enemy in reach or close in on it, and replaces the dead. In Rust too, three ways (below) | a generic `World` holding any component type, found by `typeid_of`, in a `Box` of an abstract base; sparse sets; systems as function values; a query inside a query over the same storages, writing both entities; a write to another unit's component while walking positions; despawning and spawning after the loops |
 | `astar` | 200 A* searches across a 400×400 grid with 30% walls | a generic binary heap bounded by `Ord`; `HashMap` keyed by a struct with its own `Hash`; two maps, a heap and a path allocated and dropped per search; bounds-checked grid reads; optionals |
 | `expr` | generates 100,000 `let` statements (8 MB of text), tokenizes them, parses each into a tree and evaluates it; about one in eight fails on purpose | `String` building, `str` views as tokens and map keys, a tagged union of `Box`es (a tree that frees itself), recursion, `!->` errors propagated with `or return` |
 | `json` | generates 100,000 records as a JSON document (17 MB), parses it into a tree, turns the tree into a `List<Record>`, and writes the records back out compactly (13 MB) | a parser over bytes reporting through `!->`, a recursive tagged union of `String`s and `List`s built and freed, `parse_f64` and float formatting, copying text out of the tree, and a writer written once against reflection's type table (the C++ half writes `to_json` by hand) |
@@ -66,7 +67,7 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   `-fno-finite-loops -fno-strict-aliasing`, which define two more things C++ leaves
   undefined (§16.5); those are Dazzle's cost to carry, so the C++ does not get them. A
   program's `cxx_flags.txt` holds flags both of its halves get, the Dazzle half through
-  `DZ_CXXFLAGS`: `raytrace`'s `-ffp-contract=off`. Without exceptions, C++ reports a failure as a value,
+  `DZ_CXXFLAGS`: `raytrace`'s and `ecs`'s `-ffp-contract=off`. Without exceptions, C++ reports a failure as a value,
   as Dazzle does; `expr` has the small `Result` type a codebase built that way writes in place
   of C++23's `std::expected`.
 - **Timed from outside, as a user would.** Each run is a whole process, generation and
@@ -74,6 +75,46 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   resident memory. The two halves run alternately, ten times each, and the report gives the
   median. Build time is the median of three builds from a clean `build/` folder, and
   `dz build --timings` says where Dazzle's went, phase by phase.
+
+## `ecs`: a library and a game, in three languages
+
+`ecs` is two things in each language: a small entity-component-system library, and a game
+that uses it by making a `World`, registering systems and stepping it. The library is the
+same design in all three (T-0172): entities are a slot and a generation; each component
+type has a sparse set, a dense array of values beside an index from entity to row, made the
+first time an entity is given one and found again by the type's id in a map; a query walks
+the smaller of two storages and probes the other; a resource is a component of the world's
+own entity. Dazzle's is `libs/ecs`, a module of its own; C++'s is `ecs.hpp`; Rust's is
+`rust/src/ecs.rs`. Each keeps its storages behind its language's handle to a base: a
+`Box` of an abstract `AnyStorage` in Dazzle, a `unique_ptr<AnyStorage>` in C++, a
+`Box<dyn AnyStorage>` in Rust, and turns one back into the component's storage the
+language's way: an unchecked cast inside `unsafe` in Dazzle, `static_cast` in C++,
+`downcast_mut` in Rust. No ECS library from outside is used: the comparison is between
+languages, and a library's own design (archetypes, say) would decide the numbers.
+
+Two of the game's systems are why it exists:
+
+- **`separate`** nests a query inside a query over the same two storages and writes both
+  units' velocities.
+- **`fight`** walks positions and teams, and writes another unit's health.
+
+In Dazzle both are written directly. Writing through a view moves nothing, so two views of
+one storage may be live at once (spec §6.7), while a `spawn` or `despawn` inside either loop
+would move a storage, and is refused (`DZ0413`). C++ allows both, the unsafe one included.
+Rust allows neither, so its half is written three ways, each a binary of the crate, and the
+report times all three:
+
+| Version | `separate` and `fight` |
+|---|---|
+| `collect` | the nested queries borrow the world shared; what they decide is gathered into a list and written after the loops. The usual answer in Rust |
+| `disjoint` | the storages a system needs are taken at once (`get_disjoint_mut` on the world's list of them), and the loops walk rows by index, taking two velocities at once with `get_disjoint_mut` where one unit writes another's |
+| `cell` | velocity and health are stored as `Cell`s, so every query borrows the world shared and nests as in Dazzle; a write is a `get` and a `set` |
+
+All five programs print the same checksum. The Rust half needs `cargo`; it has no
+dependencies, its `Cargo.lock` is checked in, and its release profile matches the C++
+flags: `opt-level = 2`, whole-program LTO, `panic = "abort"`. Both Dazzle and Rust check
+every index; C++ checks none. `ecs` and `raytrace` both get `-ffp-contract=off`, so that the
+floating-point sums agree to the bit.
 
 ## Running it
 
@@ -137,6 +178,12 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   (2026-11-15) it is 0.97× on g++ and 1.06× on clang++, where what is left is the layout
   of the types
   ([T-0222](../../docs/tasks/T-0222-empty-optional-builds-its-whole-payload.md)).
+- **`ecs`** (added 2026-11-17, T-0172) is 1.35× its C++ half on clang++ and 1.41× on g++,
+  the furthest of any program: it is the first to index arrays in tight loops, every index
+  checked, where C++ checks none ([T-0240](../../docs/tasks/T-0240-ecs-dazzle-1-35-1-41x.md)).
+  Against Rust, Dazzle on g++ (161 ms) is faster than the two versions that keep the nested
+  queries' shape, collecting (243 ms) and `Cell`s (243), and 1.43× the one written as index
+  loops with `get_disjoint_mut` (113), which is as fast as C++ on g++ (115).
 - **`json`** (added 2026-11-14, T-0173) is 0.96× its C++ half on clang++ and 1.06× on g++,
   since a float's text is `std::to_chars`' own where that is already D-0101's (T-0225), a
   check's location a constant (T-0220) and a union built in place (T-0231), all

@@ -1,0 +1,139 @@
+/// Entities, a storage for each component type anything has been given, and the systems
+/// that run on them. A component type needs no registering: its storage is made the first
+/// time an entity is given one, and found again by its type id.
+pub struct World {
+    m_generations: List<u32> = List<u32>()
+    m_alive:       List<bool> = List<bool>()
+    m_free:        List<u32> = List<u32>()
+    m_storages:    List<Box<AnyStorage>> = List<Box<AnyStorage>>()
+    m_ids:         HashMap<TypeId, usize> = HashMap<TypeId, usize>()
+    m_systems:     List<fn(w: &mut World) kills w> = List<fn(w: &mut World) kills w>()
+    m_resource:    Entity = Entity{ index: 0, generation: 0 }
+
+    tie @entities = m_generations@items, m_alive@items, m_free@items
+    tie @components = m_storages@items, m_storages[*], m_ids@items, m_ids[*]
+    tie @systems = m_systems@items
+    tie @stored = m_storages[*]@value
+
+    World() {
+        // Entity 0 holds the world's resources, singleton components of its own.
+        m_resource = self.spawn()
+    }
+
+    pub fn spawn(&mut self) -> Entity kills self@entities {
+        if let index = m_free.pop() {
+            m_alive[index as usize] = true
+            return Entity{ index: index, generation: m_generations[index as usize] }
+        }
+        let index = m_generations.len() as u32
+        m_generations.push(0)
+        m_alive.push(true)
+        return Entity{ index: index, generation: 0 }
+    }
+
+    pub fn is_alive(&self, entity: Entity) -> bool {
+        let i = entity.index as usize
+        return i < m_alive.len() && m_alive[i] && m_generations[i] == entity.generation
+    }
+
+    /// Take `entity` out of every storage and free its slot for the next spawn.
+    pub fn despawn(&mut self, entity: Entity) kills self@entities, self@stored {
+        if !self.is_alive(entity) {
+            return
+        }
+        for &mut s in m_storages {
+            if let &mut storage = s {
+                storage.remove(entity)
+            }
+        }
+        let i = entity.index as usize
+        m_alive[i] = false
+        m_generations[i] += 1
+        m_free.push(entity.index)
+    }
+
+    /// The storage of component type `T`, which some entity must have been given. Finding it
+    /// moves nothing, so a query may hold one storage while another is found.
+    pub fn storage<T>(&mut self) -> &mut Storage<T> in self@components {
+        let at: usize = m_ids.get(&typeid_of<T>()) or panic!("no entity has this component")
+        return self.storage_at<T>(at)
+    }
+
+    fn storage_at<T>(&mut self, i: usize) -> &mut Storage<T> in self@components {
+        let any = m_storages[i] or unreachable
+        // The id the index was found by says what the box was made as.
+        let p: ^mut AnyStorage = any
+        return unsafe {
+            p as ^mut Storage<T> or unreachable
+        }
+    }
+
+    /// The storage of `T`, made empty the first time `T` is given to an entity.
+    fn storage_or_new<T>(&mut self) -> &mut Storage<T> in self@components kills self@components {
+        let id = typeid_of<T>()
+        if let &at = m_ids.get(&id) {
+            let i: usize = at
+            return self.storage_at<T>(i)
+        }
+        m_storages.push(Box<Storage<T>>(Storage<T>{}))
+        m_ids.insert(id, m_storages.len() - 1)
+        return self.storage_at<T>(m_storages.len() - 1)
+    }
+
+    pub fn insert<T>(&mut self, entity: Entity, value: T) kills self@components {
+        self.storage_or_new<T>().insert(entity, value)
+    }
+
+    /// A resource: a component of the world's own entity, one of each type.
+    pub fn set_resource<T>(&mut self, value: T) kills self@components sends value to self {
+        let r = m_resource
+        let s = self.storage_or_new<T>()
+        if let &mut v = s.get_mut(r) {
+            v = value
+        } else {
+            s.insert(r, value)
+        }
+    }
+
+    pub fn resource<T>(&mut self) -> &mut T in self@components {
+        let r = m_resource
+        return self.storage<T>().get_mut(r) or panic!("no such resource")
+    }
+
+    pub fn add_system(&mut self, system: fn(w: &mut World) kills w) kills self@systems {
+        m_systems.push(system)
+    }
+
+    pub fn query2<A, B>(&mut self) -> Query2<A, B> in self@components {
+        let a = self.storage<A>()
+        let b = self.storage<B>()
+        let mut q = Query2<A, B>{ first: a, second: b, scan_first: a.len() <= b.len() }
+        q.seek()
+        return q
+    }
+
+    /// One step: every system, in the order they were added.
+    pub fn step(&mut self) kills self {
+        for i in 0..m_systems.len() {
+            let system: fn(w: &mut World) kills w = m_systems[i]
+            system(&mut self)
+        }
+    }
+
+    /// How many entity slots there are, live or free: an entity's index is below it.
+    pub fn slots(&self) -> usize {
+        return m_generations.len()
+    }
+
+    /// The live entity in slot `index`, if there is one.
+    pub fn entity_in(&self, index: usize) -> Entity? {
+        if index >= m_alive.len() || !m_alive[index] {
+            return none
+        }
+        return Entity{ index: index as u32, generation: m_generations[index] }
+    }
+
+    pub fn query<A>(&mut self) -> Query<A> in self@components {
+        return Query<A>{ storage: self.storage<A>() }
+    }
+}

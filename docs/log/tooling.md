@@ -2165,3 +2165,42 @@ code alignments; the loop's `HashMap` and `String` code is the same text in both
 Built without LTO, the two are level. So it is how g++'s whole-program pass lays out `main`
 when `main` holds a region; `perf` is locked on this machine, so what it does differently
 is not known. T-0165 has the numbers.
+
+## `ecs`: an ECS library and a battle on it, in Dazzle, C++ and Rust (T-0172; 2026-11-17)
+
+A benchmark, a compiler fix it needed, and no language change. The user chose the design
+the same day: a real ECS library, with a world that holds any component type and runs the
+systems a game registers, rather than components written onto the world by hand as
+`examples/ecs` does; and no ECS libraries from outside as reference points, since the
+comparison is between languages, not libraries.
+
+`tests/bench_programs/ecs` is the library in each language (`libs/ecs`, a module of its
+own; `ecs.hpp`; `rust/src/ecs.rs`) and a battle of 600 units on it: sparse sets found by
+the type's id, kept behind the language's handle to a base, queries that walk the smaller
+storage and probe the other. Two systems are why it exists: `separate`, a query inside a
+query over the same storages writing both units' velocities, and `fight`, which writes
+another unit's health. Dazzle writes both directly and refuses a `despawn` inside either
+loop (`DZ0413`); C++ allows both; Rust is written three ways, collecting the changes, index
+loops with `get_disjoint_mut`, and `Cell` components. All five print the same checksum.
+`tools/bench_programs.py` learned a third half: it builds a program's `rust/` crate with
+cargo, times each binary, and holds it to the checksum; the Dazzle binary is now found by
+its module's name, since `ecs`'s game is `battle` beside its library `ecs`.
+`whole_program_benchmarks_agree_with_their_cpp_halves` checks the Rust half too.
+
+**A `Box` of an abstract base.** The world keeps `List<Box<AnyStorage>>` with an abstract
+`AnyStorage`, and `DZ0545` refused it as an abstract type by value, though §7.3 and §14.5
+already say a `Box<UiElement>` of an abstract `UiElement` is the point. Now a `Box`'s
+argument may be abstract (`lower_checked_type`), and an instance leaves out a constructor
+taking an abstract value (`ctor_takes_abstract`), which C++ refuses to declare and nothing
+can call. The check no longer looks inside type arguments either, which are checked where
+they are written: `Box<List<Shape>>` was one mistake reported three times. Found on the
+way: T-0238 (a `virtual` method with a body cannot promise what its overrides kill, for the
+user) and T-0239 (a suggested `kills` clause names `Box`'s private `m_ptr`).
+
+First run (`RESULTS.md`, load 1.2): Dazzle 281 ms on clang++ and 161 on g++, 1.35× and
+1.41× C++ (208, 115); Rust 243 ms collecting, 243 with `Cell`s, 113 in index loops. Dazzle
+on g++ is faster than the Rust versions that keep the nested queries, and 1.43× the index
+loops; the gap to C++ is T-0240. The other programs are as they were.
+
+New tests: `a_box_of_an_abstract_base_holds_a_derived_value` in `dz/tests/run.rs`, a case
+in each of `typed/` and `typeerrors/`, and `ecs` in the benchmarks' agreement test.

@@ -2238,6 +2238,18 @@ impl<'a> Emitter<'a> {
         order
     }
 
+    /// Whether a constructor of this instance takes an abstract type by value:
+    /// `Box<Shape>`'s `Box(value: Shape)`, which nothing can call, since no `Shape` can be
+    /// built (spec §7.3), and which C++ refuses to declare. A `Box<Shape>` is only ever
+    /// made from a `Box` of a derived type (§14.5), so the instance leaves it out.
+    fn ctor_takes_abstract(&self, owner: &BodyOwner) -> bool {
+        let Some(body) = self.find_body(owner) else { return false };
+        body.params.iter().any(|p| {
+            matches!(&body.local(*p).ty, Ty::Named { sym, .. }
+                if self.table.abstract_method(*sym).is_some())
+        })
+    }
+
     /// A body by owner, preferring the concrete copy of the instance being emitted, then a
     /// default an implementation of the module's inherits (spec §7.6).
     fn find_body(&self, owner: &BodyOwner) -> Option<&'a hir::Body> {
@@ -2689,6 +2701,9 @@ impl<'a> Emitter<'a> {
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
+                    if self.ctor_takes_abstract(&owner) {
+                        continue;
+                    }
                     let params = self.decl_params(&owner);
                     match self.heap_ctor(&owner, &name) {
                         Some((list, _)) => {
@@ -2950,6 +2965,9 @@ impl<'a> Emitter<'a> {
                 MemberKind::Ctor(_) => {
                     let owner = BodyOwner::Ctor { owner: sym, index: ctors };
                     ctors += 1;
+                    if self.ctor_takes_abstract(&owner) {
+                        continue;
+                    }
                     let params = self.decl_params(&owner);
                     self.current_fn = format!("{name}::{name}");
                     // `: UiElement(w)` is a C++ member-initialiser list, which is the only

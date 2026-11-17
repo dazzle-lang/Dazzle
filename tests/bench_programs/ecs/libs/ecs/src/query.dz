@@ -1,0 +1,82 @@
+/// Every entity that has an `A`, in the storage's order.
+pub view struct Query<A> {
+    pub(module) storage: &mut Storage<A>
+    row:                 usize = 0
+
+    tie @items = storage
+}
+
+impl<A> Iterate for Query<A> {
+    type Item = (Entity, &mut A)
+
+    fn valid(&self) -> bool {
+        return row < storage.len()
+    }
+
+    fn get(&self) -> (Entity, &mut A) in self@items {
+        return (storage.entity_at(row), storage.value_at(row))
+    }
+
+    fn advance(&mut self) {
+        row += 1
+    }
+}
+
+/// Every entity that has both an `A` and a `B`: the smaller storage walked in order, the
+/// other probed by entity. Holds views of both storages, so nothing that could move them may
+/// run while it is in use; reading and writing through it moves nothing, so two queries over
+/// the same storages may be nested (spec §6.7).
+pub view struct Query2<A, B> {
+    pub(module) first:      &mut Storage<A>
+    pub(module) second:     &mut Storage<B>
+    pub(module) scan_first: bool
+    /// The row in the storage walked, and the matching row in the other.
+    row:   usize = 0
+    other: usize = 0
+
+    tie @items = first, second
+
+    /// Move to the first row at or after `row` whose entity the other storage has too.
+    pub(module) fn seek(&mut self) {
+        if scan_first {
+            while row < first.len() {
+                if let found = second.row_of(first.entity_at(row)) {
+                    other = found
+                    return
+                }
+                row += 1
+            }
+        } else {
+            while row < second.len() {
+                if let found = first.row_of(second.entity_at(row)) {
+                    other = found
+                    return
+                }
+                row += 1
+            }
+        }
+    }
+}
+
+impl<A, B> Iterate for Query2<A, B> {
+    type Item = (Entity, &mut A, &mut B)
+
+    fn valid(&self) -> bool {
+        if scan_first {
+            return row < first.len()
+        }
+        return row < second.len()
+    }
+
+    fn get(&self) -> (Entity, &mut A, &mut B) in self@items {
+        if scan_first {
+            return (first.entity_at(row), first.value_at(row), second.value_at(other))
+        }
+        return (second.entity_at(row), first.value_at(other), second.value_at(row))
+    }
+
+    fn advance(&mut self) {
+        row += 1
+        self.seek()
+    }
+}

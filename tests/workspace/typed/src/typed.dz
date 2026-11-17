@@ -1143,6 +1143,14 @@ fn abstract_through_a_pointer(d: ^Drawable) -> ^Drawable {
     return d
 }
 
+// And in a `Box`, which holds its value behind a pointer: a box of anything that
+// overrides it converts to one (spec §7.3, §14.5).
+fn boxes_an_abstract(owned: Box<Circle>) -> i32 {
+    let boxed: Box<Drawable> = owned
+    let d = boxed or return 0
+    return d.area()
+}
+
 // A trait implemented for a base is implemented for everything that inherits it, and a
 // more specific implementation replaces the inherited one.
 trait Measured {
