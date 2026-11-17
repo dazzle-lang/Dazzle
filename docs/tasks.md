@@ -31,14 +31,18 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    first variant. `expr` 1.04× → 0.96× on clang++, `json` 0.99× → 0.96× on clang++ and
    1.06× on g++, `words` 0.86× on both; instructions down up to 14%. Found on the way:
    T-0236 (fixed) and T-0237, a payload field's default, the user's call.
-3. What is left of T-0231: `json`'s convert loop drops five moved-from `List<String>`s a
-   record through its struct's drop, and builds a `Res<Record>` for every return.
+3. T-0231 is done (2026-11-17): of the five moved-from values `json`'s convert loop
+   destroyed a record, the `or` holder, the returned literal's temporary and the field's
+   default go; `json` -1.6% / -3.0% instructions on clang++ / g++, 0.92× and 1.05× its C++
+   half. The last two, one call each a record, are not worth a task.
 5. `json`'s reflection, the user's choice of 2026-11-16: the writer stays reflective and
    works out each type's plan once (T-0225); `json` is 0.93× on clang++ and 1.06× on g++.
    `main`'s region (T-0233) is kept: measured again on 2026-11-16, without it `json` is no
    smaller and 1% slower, the cost T-0233 found gone with r134 and r135.
-6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and
-   T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
+6. T-0165 is done (2026-11-17): `words` in regions runs fewer instructions on both
+   compilers and is 2% faster on clang++; g++'s 3% the other way stays with every
+   allocation put back on the heap and goes without LTO, so it is g++'s layout of `main`,
+   not the regions. Left: T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
    could still cost something.
 
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A
@@ -251,11 +255,10 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
 - **[T-0232](tasks/T-0232-box-abstract-type-refused.md)** A Box of an abstract type is refused · feature, stdlib
 
-## M15 — `dz bench`, and the C++ comparison (7 open)
+## M15 — `dz bench`, and the C++ comparison (6 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
-- **[T-0165](tasks/T-0165-words-scope-regions-make-it-5.md)** "words: scope regions make it 5% slower with g++, where clang++ is 30% faster" · feature, ownership
 - **[T-0172](tasks/T-0172-ecs-benchmark-against-rust-c-query.md)** An ECS benchmark against Rust and C++: a query inside a query · feature, bench
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling

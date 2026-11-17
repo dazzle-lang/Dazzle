@@ -42,14 +42,18 @@ shape of the generated code, and fixed two causes. The rest, largest measured ga
    first variant. `expr` 1.04× → 0.96× on clang++, `json` 0.99× → 0.96× on clang++ and
    1.06× on g++, `words` 0.86× on both; instructions down up to 14%. Found on the way:
    T-0236 (fixed) and T-0237, a payload field's default, the user's call.
-3. What is left of T-0231: `json`'s convert loop drops five moved-from `List<String>`s a
-   record through its struct's drop, and builds a `Res<Record>` for every return.
+3. T-0231 is done (2026-11-17): of the five moved-from values `json`'s convert loop
+   destroyed a record, the `or` holder, the returned literal's temporary and the field's
+   default go; `json` -1.6% / -3.0% instructions on clang++ / g++, 0.92× and 1.05× its C++
+   half. The last two, one call each a record, are not worth a task.
 5. `json`'s reflection, the user's choice of 2026-11-16: the writer stays reflective and
    works out each type's plan once (T-0225); `json` is 0.93× on clang++ and 1.06× on g++.
    `main`'s region (T-0233) is kept: measured again on 2026-11-16, without it `json` is no
    smaller and 1% slower, the cost T-0233 found gone with r134 and r135.
-6. T-0165, measured again (`words` slower in regions on g++, as of 2026-11-04), and
-   T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
+6. T-0165 is done (2026-11-17): `words` in regions runs fewer instructions on both
+   compilers and is 2% faster on clang++; g++'s 3% the other way stays with every
+   allocation put back on the heap and goes without LTO, so it is g++'s layout of `main`,
+   not the regions. Left: T-0172, the ECS benchmark, the first to index arrays in tight loops, where a bounds check
    could still cost something.
 
 **Done 2026-11-14: T-0147's `format!` row**, the user's first choice of 2026-11-13. A

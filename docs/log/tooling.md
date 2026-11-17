@@ -2151,3 +2151,17 @@ return` can leave before its move and `push`'s by-value parameter, is one call e
 
 New test: `a_moved_out_value_leaves_no_husk_to_destroy` in `dz/tests/run.rs`, which also
 holds a printing `drop` to the order it had and the failing branch to no leak.
+
+## `words` in regions on g++: not the regions (T-0165; 2026-11-17)
+
+Measurement only, no change. On 2026-11-04 `words` was 5% slower in regions on g++, and
+its heap build on clang++ the slowest of the four. Now clang++'s heap build is 137 ms (from
+251) and regions are 2% faster there; on g++ they are about 3% slower, 138 against 142 ms.
+Regions run fewer instructions on both compilers, with the same page faults and simulated
+cache misses. The time is in the counting loop, and stays there with every allocation of
+the regions build put back on the heap (the generated C++ edited before g++ compiled it, by
+a wrapper standing in for the compiler), with `generate` inlined or not, and under three
+code alignments; the loop's `HashMap` and `String` code is the same text in both builds.
+Built without LTO, the two are level. So it is how g++'s whole-program pass lays out `main`
+when `main` holds a region; `perf` is locked on this machine, so what it does differently
+is not known. T-0165 has the numbers.
