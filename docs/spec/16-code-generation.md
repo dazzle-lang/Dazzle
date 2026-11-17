@@ -131,7 +131,7 @@ An optimised build (`--release`, `--shipping`) adds `-flto=auto` to Dazzle's own
 a call from one module into another can be inlined at link time; a vendored library keeps
 its recipe's flags. A toolchain whose linker cannot do it (LLVM's clang targeting MSVC
 without `lld`, for one) gets the build without it and a note saying so. `#[inline]` (§12.8)
-is what inlines across modules there.
+inlines every call there too: its body is in the header, and written always-inline.
 
 **Which compiler builds it is the project's choice, and the command's.** `dz` drives an
 ordinary C++ compiler, and any of them that takes those flags will do — a console SDK's

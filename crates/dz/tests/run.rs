@@ -684,11 +684,14 @@ fn another_modules_inline_reaches_its_instances() {
 
     let (header, instances) = emit("--release");
     let source = std::fs::read_to_string(dir.join("build/cpp/inst.cpp")).unwrap();
+    // Written `#[inline]`, so every call is inlined (D-0107): `DZ_INLINE`, always-inline.
+    // A constructor that only stores its parameters is in the header without the attribute,
+    // and left to the C++ compiler.
     for body in [
-        "inline const int32_t& Index_usize__std_List_L_i32_R__index(",
-        "inline size_t List__i32::len() const {",
+        "DZ_INLINE const int32_t& Index_usize__std_List_L_i32_R__index(",
+        "DZ_INLINE size_t List__i32::len() const {",
         "inline SliceIter__i32::SliceIter__i32(",
-        "inline bool Iterate__std_SliceIter_L_i32_R__valid(",
+        "DZ_INLINE bool Iterate__std_SliceIter_L_i32_R__valid(",
         "inline Stored::Stored(int32_t a) {",
     ] {
         assert!(header.contains(body), "not in the header: {body}\n{header}");
@@ -1586,6 +1589,51 @@ fn a_moved_union_is_left_plain_and_a_variant_is_built_in_place() {
     assert!(!held.contains("o.kind = Kind::"), "Noisy's drop could see it skipped:\n{held}");
     assert!(cpp.contains("Tree::Node_t{"), "the payload is built in place:\n{cpp}");
     assert!(!cpp.contains(".become(Tree::Kind::Node)"), "{cpp}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `#[inline]` inlines every call in an optimised build (spec §12.8, D-0107, r137): the body
+/// is written `DZ_INLINE`, always-inline. Not in a debug build, which inlines nothing; and
+/// not a function that can reach itself through calls to `#[inline]` ones, directly or
+/// through another, which C++ cannot inline into itself and g++ refuses to force. Each
+/// builds with both compilers, and runs.
+#[test]
+fn inline_forces_every_call_in_an_optimised_build() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_inline_always",
+        "[module]\nname = \"inlined\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n",
+        "#[inline]\npub fn twice(x: i64) -> i64 {\n    return x * 2\n}\n\n#[inline]\npub fn fact(n: i64) -> i64 {\n    if n <= 1 {\n        return 1\n    }\n    return n * fact(n - 1)\n}\n\n#[inline]\npub fn even(n: i64) -> bool {\n    if n == 0 {\n        return true\n    }\n    return odd(n - 1)\n}\n\n#[inline]\npub fn odd(n: i64) -> bool {\n    if n == 0 {\n        return false\n    }\n    return even(n - 1)\n}\n\nfn main() {\n    println!(\"{} {} {}\", twice(21), fact(5), even(10))\n}\n",
+    );
+    let compilers: Vec<&str> = ["clang++", "g++"]
+        .into_iter()
+        .filter(
+            |c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()),
+        )
+        .collect();
+    for cxx in compilers {
+        for mode in ["--release", "--debug"] {
+            let out = Command::new(dz())
+                .args(["run", mode, "--cxx", cxx, dir.to_str().unwrap()])
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(out.status.success(), "{cxx} {mode}: {stderr}");
+            assert_eq!(normalise(&String::from_utf8_lossy(&out.stdout)), "42 120 true");
+            let header = std::fs::read_to_string(dir.join("build/cpp/inlined.h")).unwrap();
+            let forced = |f: &str| {
+                header.contains(&format!("DZ_INLINE int64_t {f}("))
+                    || header.contains(&format!("DZ_INLINE bool {f}("))
+            };
+            assert_eq!(forced("twice"), mode == "--release", "{cxx} {mode}:\n{header}");
+            for f in ["fact", "even", "odd"] {
+                assert!(!forced(f), "{f} reaches itself ({cxx} {mode}):\n{header}");
+            }
+        }
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

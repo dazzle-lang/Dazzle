@@ -54,11 +54,13 @@ pub struct World {
 
     /// The storage of component type `T`, which some entity must have been given. Finding it
     /// moves nothing, so a query may hold one storage while another is found.
+    #[inline]
     pub fn storage<T>(&mut self) -> &mut Storage<T> in self@components {
         let at: usize = m_ids.get(&typeid_of<T>()) or panic!("no entity has this component")
         return self.storage_at<T>(at)
     }
 
+    #[inline]
     fn storage_at<T>(&mut self, i: usize) -> &mut Storage<T> in self@components {
         let any = m_storages[i] or unreachable
         // The id the index was found by says what the box was made as.
@@ -104,6 +106,7 @@ pub struct World {
         m_systems.push(system)
     }
 
+    #[inline]
     pub fn query2<A, B>(&mut self) -> Query2<A, B> in self@components {
         let a = self.storage<A>()
         let b = self.storage<B>()
@@ -139,6 +142,7 @@ pub struct World {
         return Entity{ index: index as u32, generation: m_generations[index] }
     }
 
+    #[inline]
     pub fn query<A>(&mut self) -> Query<A> in self@components {
         return Query<A>{ storage: self.storage<A>() }
     }

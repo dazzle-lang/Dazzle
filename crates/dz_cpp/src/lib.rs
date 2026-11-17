@@ -214,6 +214,7 @@ pub fn emit_selected(
     }
 
     let inline_fns = inline_fns(files.values().flatten());
+    let forced_inline = forced_inline(hir, &inline_fns);
 
     // The root module's setting governs the whole build, since one C++ invocation
     // compiles every translation unit.
@@ -279,6 +280,7 @@ pub fn emit_selected(
             header_ns: module.id,
             def_prefix: "",
             inline_fns: &inline_fns,
+            forced_inline: &forced_inline,
             loop_views: Default::default(),
             views: Vec::new(),
             inline_defs: String::new(),
@@ -471,6 +473,7 @@ pub fn emit_selected(
             header_ns: res.prelude,
             def_prefix: "",
             inline_fns: &inline_fns,
+            forced_inline: &forced_inline,
             loop_views: Default::default(),
             views: Vec::new(),
             inline_defs: String::new(),
@@ -779,6 +782,10 @@ struct Emitter<'a> {
     /// one's: an instance of another module's generic is emitted here, and `std`'s
     /// `List::index` was compiled out of line in every program until it was.
     inline_fns: &'a HashSet<(FileId, Span)>,
+    /// Those of them every call inlines in an optimised build (spec §12.8, r137): all but
+    /// any that can reach itself through calls to others, which g++ refuses to force
+    /// ([`forced_inline`]).
+    forced_inline: &'a HashSet<(FileId, Span)>,
     /// The current body's loops that index a `List` through a view taken before them
     /// (T-0215), and the views of the loops being emitted: each list's local, and the C++
     /// name of its slice.
@@ -3429,7 +3436,7 @@ impl<'a> Emitter<'a> {
         let ret = self.body_ret_ty(&owner);
         let decl = self.decl_params(&owner);
         let cpp = sanitize(name);
-        let inline = if self.is_inline(&owner) { "inline " } else { "" };
+        let inline = if self.is_inline(&owner) { self.inline_keyword(&owner) } else { "" };
         let noreturn = self.noreturn_attr(&owner);
         Some(format!("{noreturn}{inline}{ret} {cpp}({decl});"))
     }
@@ -3979,9 +3986,15 @@ impl<'a> Emitter<'a> {
 
     fn emit_body(&mut self, owner: &BodyOwner, head: &str) {
         // A `#[inline]` body goes in the header, so other modules' calls can be inlined
-        // (spec §12.8), an instance's too.
+        // (spec §12.8), an instance's too; in an optimised build every call inlines it.
+        let keyword = self.inline_keyword(owner);
         if self.is_inline(owner) && !head.starts_with("inline ") {
-            let head = format!("inline {}", head.strip_prefix(self.def_prefix).unwrap_or(head));
+            let rest = head.strip_prefix(self.def_prefix).unwrap_or(head);
+            // An attribute goes before `inline`, as before `static`.
+            let head = match rest.strip_prefix("[[noreturn]] ") {
+                Some(rest) => format!("[[noreturn]] {keyword}{rest}"),
+                None => format!("{keyword}{rest}"),
+            };
             let (text, ()) = self.capture(|e| e.emit_body_here(owner, &head));
             self.inline_defs.push_str(&text);
             return;
@@ -3989,7 +4002,28 @@ impl<'a> Emitter<'a> {
         if self.inline_only {
             return;
         }
-        self.emit_body_here(owner, head);
+        match head.strip_prefix("inline ") {
+            Some(rest) if keyword != "inline " => {
+                self.emit_body_here(owner, &format!("{keyword}{rest}"))
+            }
+            _ => self.emit_body_here(owner, head),
+        }
+    }
+
+    /// `DZ_INLINE ` for a body written `#[inline]` in an optimised build, which every call
+    /// inlines (spec §12.8, r137), unless it can reach itself ([`forced_inline`]); `inline `
+    /// otherwise, the C++ compiler's choice. A debug build forces nothing: it inlines
+    /// nothing either way, and keeps an instance's body out of the header (T-0214).
+    fn inline_keyword(&self, owner: &BodyOwner) -> &'static str {
+        let forced = self.inline_instances
+            && self
+                .find_body(owner)
+                .is_some_and(|b| self.forced_inline.contains(&(b.file, b.span)));
+        if forced {
+            "DZ_INLINE "
+        } else {
+            "inline "
+        }
     }
 
     /// Whether `owner`'s body goes in the header: its declaration is written `#[inline]`, or
@@ -7573,16 +7607,16 @@ impl<'a> Emitter<'a> {
             "str_from_utf8" => format!("::dz::rt::str_from_utf8({})", rendered[0]),
             // `typeinfo(id)` reads the table codegen writes (spec §13.1).
             "typeinfo" => self.typeinfo_by_id(&rendered[0]),
-            // Through `void*`: a relocation copies a type C++ does not call trivially
-            // copyable (D-0105), which g++'s `-Wclass-memaccess` warns of otherwise.
+            // Through `void*` (`bytes_of`): a relocation copies a type C++ does not call
+            // trivially copyable (D-0105), which g++'s `-Wclass-memaccess` warns of otherwise.
             "memcpy" => format!(
-                "::memcpy((void*)({}), (const void*)({}), {})",
+                "::memcpy(::dz::rt::bytes_of({}), ::dz::rt::bytes_of({}), {})",
                 rendered[0], rendered[1], rendered[2]
             ),
             // The ranges may overlap: what shifts a list's tail by one slot (spec §14.3).
             "memmove" => {
                 format!(
-                    "::memmove((void*)({}), (const void*)({}), {})",
+                    "::memmove(::dz::rt::bytes_of({}), ::dz::rt::bytes_of({}), {})",
                     rendered[0], rendered[1], rendered[2]
                 )
             }
@@ -8100,6 +8134,84 @@ fn inline_fns<'f>(files: impl IntoIterator<Item = &'f ParsedFile>) -> HashSet<(F
         }
     }
     found
+}
+
+/// The `#[inline]` bodies every call inlines in an optimised build (spec §12.8, r137): all of
+/// them but those that can reach themselves through calls to `#[inline]` bodies. C++ cannot
+/// inline a function into itself, and g++ makes forcing one an error, where clang++ quietly
+/// does not; such a body stays `inline`, the C++ compiler's choice, as every `#[inline]`
+/// body was before r137.
+///
+/// The calls are followed by what they name, the way it is known before instantiation: a
+/// function by its symbol, a constructor by its position, a method by its type and name,
+/// and a method of an implementation by its name alone, since which implementation a call
+/// reaches can depend on a type argument. That can see a cycle where there is none, which
+/// only leaves a body to the C++ compiler; it never misses one.
+fn forced_inline(hir: &Hir, inline: &HashSet<(FileId, Span)>) -> HashSet<(FileId, Span)> {
+    let key = |b: &hir::Body| (b.file, b.span);
+    let marked: Vec<&hir::Body> =
+        hir.bodies().map(|(_, b)| b).filter(|b| inline.contains(&key(b))).collect();
+    let index: HashMap<(FileId, Span), usize> =
+        marked.iter().enumerate().map(|(i, b)| (key(b), i)).collect();
+    // Each marked body's calls to marked bodies.
+    let edges: Vec<Vec<usize>> = marked
+        .iter()
+        .map(|b| {
+            let mut to = Vec::new();
+            for e in &b.exprs {
+                let hir::ExprKind::Call { callee, .. } = &e.kind else { continue };
+                let reached: Vec<usize> = match callee {
+                    hir::Callee::Fn { sym, .. } => hir
+                        .find(&BodyOwner::Fn(*sym))
+                        .and_then(|t| index.get(&key(t)))
+                        .into_iter()
+                        .copied()
+                        .collect(),
+                    hir::Callee::Ctor { owner, index: i } => hir
+                        .find(&BodyOwner::Ctor { owner: *owner, index: *i })
+                        .and_then(|t| index.get(&key(t)))
+                        .into_iter()
+                        .copied()
+                        .collect(),
+                    hir::Callee::Method { owner, name, .. }
+                    | hir::Callee::BaseMethod { owner, name, .. }
+                    | hir::Callee::Assoc { owner, name, .. } => marked
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, t)| match &t.owner {
+                            BodyOwner::Method { owner: o, name: n }
+                            | BodyOwner::TraitDefaults { owner: o, name: n } => {
+                                o == owner && n == name
+                            }
+                            BodyOwner::ImplMethod { name: n, .. } => n == name,
+                            _ => false,
+                        })
+                        .map(|(i, _)| i)
+                        .collect(),
+                    hir::Callee::Value(_) => Vec::new(),
+                };
+                to.extend(reached);
+            }
+            to.sort_unstable();
+            to.dedup();
+            to
+        })
+        .collect();
+    // A body is in a cycle when it can reach itself.
+    let reaches_itself = |start: usize| {
+        let mut seen = vec![false; marked.len()];
+        let mut stack = edges[start].clone();
+        while let Some(n) = stack.pop() {
+            if n == start {
+                return true;
+            }
+            if !std::mem::replace(&mut seen[n], true) {
+                stack.extend(&edges[n]);
+            }
+        }
+        false
+    };
+    (0..marked.len()).filter(|&i| !reaches_itself(i)).map(|i| key(marked[i])).collect()
 }
 
 fn local_names(body: &hir::Body) -> Vec<String> {

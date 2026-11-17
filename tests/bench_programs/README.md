@@ -184,10 +184,12 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   it, neither the checks: on g++, the function a failing check calls was not
   `[[noreturn]]`, so after every check g++ assumed it had returned having changed memory;
   on clang++, the query's `get` branched on which storage it walks and was priced too
-  high to inline. Both are fixed, the second in all three halves alike, and `ecs` is
-  1.14× and 1.09×; what is left is the checks. Against Rust, Dazzle on g++ (135 ms) is
-  faster than the versions that keep the nested queries' shape, collecting and `Cell`s
-  (240 each), and 1.21× the one written as index loops with `get_disjoint_mut` (112).
+  high to inline. Both are fixed, the second in all three halves alike, and `ecs` was
+  1.14× and 1.09×. Since r137 `#[inline]` inlines every call, and with the library's query
+  and storage methods written `#[inline]` it is 0.70× on clang++ and 1.02× on g++ (130 and
+  127 ms, against 187 and 125). Against Rust, Dazzle is about half the time of the versions
+  that keep the nested queries' shape, collecting and `Cell`s (241 ms each), and 1.13–1.16×
+  the one written as index loops with `get_disjoint_mut` (113).
 - **`json`** (added 2026-11-14, T-0173) is 0.96× its C++ half on clang++ and 1.06× on g++,
   since a float's text is `std::to_chars`' own where that is already D-0101's (T-0225), a
   check's location a constant (T-0220) and a union built in place (T-0231), all

@@ -78,8 +78,15 @@ change, the user's call. So would emitting an iterator's `valid`, `get` and `adv
 `always_inline` as a rule of codegen, and g++ refuses `always_inline` where it cannot
 inline (recursion), so it is not free.
 
+**Then, the user's choice: `#[inline]` inlines every call (r137, D-0107).** With the query's
+and the storage's small methods and `World`'s lookups written `#[inline]`, `ecs` is 130 ms on
+clang++ and 127 on g++ (`RESULTS.md`, load 1.1), 0.70× and 1.02× its C++ half, and 0.54× and
+1.16× Rust's collecting and index-loop versions. Written `#[inline]` while the C++ compiler
+still decided, the same methods changed nothing (212 and 134 ms).
+
 | Piece | Where |
 |---|---|
+| `#[inline]` forced | `forced_inline`, `inline_keyword`, `emit_body` in `crates/dz_cpp/src/lib.rs` |
 | `[[noreturn]]` | `never_returns`, `noreturn_attr`, `free_fn` in `crates/dz_cpp/src/lib.rs` |
 | The query that keeps both rows | `Query2` in `tests/bench_programs/ecs/libs/ecs/src/query.dz`, `query2` in `world.dz`; the iterator in `ecs.hpp` |
 | The test | `a_function_that_never_returns_is_noreturn` in `crates/dz/tests/run.rs` |

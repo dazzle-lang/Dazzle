@@ -9,14 +9,17 @@ pub view struct Query<A> {
 impl<A> Iterate for Query<A> {
     type Item = (Entity, &mut A)
 
+    #[inline]
     fn valid(&self) -> bool {
         return row < storage.len()
     }
 
+    #[inline]
     fn get(&self) -> (Entity, &mut A) in self@items {
         return (storage.entity_at(row), storage.value_at(row))
     }
 
+    #[inline]
     fn advance(&mut self) {
         row += 1
     }
@@ -42,6 +45,7 @@ pub view struct Query2<A, B> {
     tie @items = first, second
 
     /// Move to the first row at or after `row` whose entity the other storage has too.
+    #[inline]
     pub(module) fn seek(&mut self) {
         while row < end {
             if scan_first {
@@ -67,14 +71,17 @@ pub view struct Query2<A, B> {
 impl<A, B> Iterate for Query2<A, B> {
     type Item = (Entity, &mut A, &mut B)
 
+    #[inline]
     fn valid(&self) -> bool {
         return row < end
     }
 
+    #[inline]
     fn get(&self) -> (Entity, &mut A, &mut B) in self@items {
         return (entity, first.value_at(in_a), second.value_at(in_b))
     }
 
+    #[inline]
     fn advance(&mut self) {
         row += 1
         self.seek()

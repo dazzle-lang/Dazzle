@@ -2235,3 +2235,35 @@ Tried and not kept: `cold` on the failure path, `List::get` `#[inline]` with `ro
 with it, `#[inline]` on the query's methods (clang++ still declined).
 
 New test: `a_function_that_never_returns_is_noreturn` in `dz/tests/run.rs`.
+
+## `#[inline]` inlines every call (r137, D-0107), and `memmove` of a function pointer on Windows (2026-11-17)
+
+**A language change, r137, the user's choice** ("#[inline] should behave like
+#[inline(always)]"). In an optimised build a body written `#[inline]` is `DZ_INLINE`, the
+runtime's always-inline (`inline __attribute__((always_inline))`, `__forceinline` on MSVC),
+where it was `inline` and the C++ compiler's choice (`inline_keyword`). A debug build forces
+nothing. A body that can reach itself through calls to `#[inline]` bodies stays `inline`
+(`forced_inline`): C++ cannot inline a function into itself, and g++ makes forcing one an
+error. Calls are followed by what they name, a method of an implementation by its name alone,
+so a cycle can be seen where there is none, never missed. An `#[inline]` function that never
+returns is `[[noreturn]] DZ_INLINE`, the attribute first.
+
+With `std`'s own `#[inline]` functions forced, g++ ran `json` 5.9% fewer instructions and
+`raytrace` 1.1%, `words` 3.4% more (`String`'s methods, inlined, made `generate` small
+enough for g++ to inline into `main`) and `expr` 0.4% more; clang++, which already inlined
+them, did not move. In time (`RESULTS.md`, load 1.1) `json` on g++ 215 → 211 ms and
+`words` 143 → 145, the rest level. `ecs`'s library then marks its query and storage
+methods `#[inline]`: 130 ms on clang++ and 127 on g++, 0.70× and 1.02× its C++ half, from
+214 and 135. Every benchmark's release C++ compiles warning-free at `-O2` on both compilers.
+
+**Windows.** The commit before this one failed CI on Windows only: `ecs`'s `List<fn(w: &mut
+World) kills w>` shifts its elements with `memmove`, and `(void*)(::dz::rt::addr(x))` of a
+function pointer is ambiguous for clang++ targeting MSVC, where a function pointer may also
+become a `void*`, so `Addr<T>`'s `operator T&` was a second way there. `memcpy` and
+`memmove` now take their arguments through `::dz::rt::bytes_of`, which reads an `Addr<T>` as
+the `T*` it holds; reproduced with `clang++ --target=x86_64-pc-windows-msvc` on a file of its
+own, three errors before and none after.
+
+New test: `inline_forces_every_call_in_an_optimised_build` (a recursive and a mutually
+recursive `#[inline]` pair, both compilers, both modes); `another_modules_inline_reaches_its_instances`
+now expects `DZ_INLINE` for what is written `#[inline]`.

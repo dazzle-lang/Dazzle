@@ -347,17 +347,22 @@ declaration it does not apply to, with arguments it does not take, or written tw
 | `#[test]` | a function at module level | a test `dz test` runs (§19 M14) |
 | `#[bench]` | a function at module level | a benchmark `dz bench` times (§19 M15) |
 | `#[thread_local]` | a `static` | one variable per thread (§7.7) |
-| `#[inline]` | a function or a method with a body | its body is visible to every module that calls it, so an optimised build can inline the call there (§16.5) |
+| `#[inline]` | a function or a method with a body | its body is visible to every module that calls it, and an optimised build inlines every call to it (§16.5) |
 
-**`#[inline]` changes where a body is compiled, never what it does.** A module is
-compiled on its own, so without the attribute a call from another module is a call even
-in an optimised build; with it, the body is written where every caller sees it, and the
-C++ compiler decides whether to inline. A debug build inlines nothing either way. It suits
-a small function called often from other modules: `String::len`, `hash_combine`. On a
-function with no body to show — a trait method without a default, a body-less `virtual
-fn`, an `extern fn` — it is `DZ0315`. An optimised build also links with link-time
-optimisation where the toolchain supports it, which inlines across modules without the
-attribute; `#[inline]` is what still works where it does not.
+**`#[inline]` changes where a body is compiled and how it is called, never what it does.** A
+module is compiled on its own, so without the attribute a call from another module is a call
+even in an optimised build. With it, the body is written where every caller sees it, and an
+optimised build inlines every call to it, as Rust's `#[inline(always)]` does: the C++
+compiler is not asked whether the function is worth it. A function that can reach itself
+through calls to `#[inline]` functions cannot be inlined into itself, so its calls are left to
+the C++ compiler, as every `#[inline]` call was before r137. A debug build inlines nothing
+either way. It suits a small function called often, from other modules or from a loop:
+`String::len`, `hash_combine`, an iterator's steps. A large one is copied into every caller,
+which makes the program bigger, and can make it slower. On a function with no body to show
+— a trait method without a default, a body-less `virtual fn`, an `extern fn` — it is
+`DZ0315`. An optimised build also links with link-time optimisation where the toolchain
+supports it, which inlines across modules without the attribute, where the C++ compiler
+judges a call worth it; `#[inline]` is how to say every call is. `[DECIDED — D-0107]`
 
 Attributes this specification describes but the compiler does not implement yet —
 `#[align(n)]`, `#[packed]`, `#[deprecated(…)]`, `#[export]` (§15.5),

@@ -27,19 +27,23 @@ pub struct Storage<T> : AnyStorage {
     tie @items = m_sparse@items, m_entities@items, m_values@items
     tie @values = m_values[*]
 
+    #[inline]
     pub fn len(&self) -> usize {
         return m_entities.len()
     }
 
+    #[inline]
     pub fn entity_at(&self, row: usize) -> Entity {
         return m_entities[row]
     }
 
+    #[inline]
     pub fn value_at(&mut self, row: usize) -> &mut T in self@items {
         return m_values[row]
     }
 
     /// The row `entity`'s value is in, if it has one.
+    #[inline]
     pub fn row_of(&self, entity: Entity) -> usize? {
         let index = entity.index as usize
         if index >= m_sparse.len() || m_sparse[index] == 0 {
@@ -53,11 +57,13 @@ pub struct Storage<T> : AnyStorage {
         return row
     }
 
+    #[inline]
     pub fn get(&self, entity: Entity) -> ^T in self@items {
         let row = self.row_of(entity) or return null
         return &m_values[row]
     }
 
+    #[inline]
     pub fn get_mut(&mut self, entity: Entity) -> ^mut T in self@items {
         let row = self.row_of(entity) or return null
         return &mut m_values[row]

@@ -386,6 +386,14 @@ struct Addr {
 
 template <class T> DZ_INLINE Addr<T> addr(T& x) { return Addr<T>{&x}; }
 
+// What `memcpy` and `memmove` reach, as bytes (spec §14.3): an `Addr<T>` read as the `T*` it
+// holds, never through `T&`. A cast of the `Addr` itself to `void*` could go either way when
+// `T` is a function pointer, since MSVC lets one become a `void*`, and clang++ targeting
+// MSVC refused `List<fn(&mut World)>`'s `memmove` as ambiguous (T-0172).
+template <class T> DZ_INLINE void* bytes_of(Addr<T> a) { return (void*)a.p; }
+template <class T> DZ_INLINE void* bytes_of(T* p) { return (void*)p; }
+DZ_INLINE void* bytes_of(decltype(nullptr)) { return nullptr; }
+
 /// An optional whose payload is a reference: `T::Item?` in a generic body, instantiated for
 /// an iterator whose `Item` is `&T`. It is the pointer `^T` the checker calls it at the call
 /// (spec §5.6, D-0093), with an optional's face for the generic body, which is emitted one
