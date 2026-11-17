@@ -36,8 +36,10 @@ jobs:
             os: ubuntu-22.04
           - target: aarch64-linux
             os: ubuntu-22.04-arm
+          # The runner CI tests on. `macos-14` was retired after 0.1: v0.2.0's release run
+          # found its job refused, "the configuration is not supported".
           - target: aarch64-macos
-            os: macos-14
+            os: macos-latest
           - target: x86_64-windows
             os: windows-latest
     steps:
