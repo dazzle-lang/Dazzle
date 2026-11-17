@@ -1971,6 +1971,39 @@ fn a_parameter_moved_on_is_used_in_place() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The program `tools/release.py smoke` builds with every packaged `dz` before a release is
+/// published, held to the language as it is now. The smoke test runs only when a release
+/// is cut, so a language change that breaks its program would otherwise be found by the
+/// release itself, as v0.2.0's first run was: the program bound each `String` by value, a
+/// copy since r135 (DZ0403).
+#[test]
+fn the_release_smoke_program_compiles() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let script = std::fs::read_to_string(repo_root().join("tools/release.py")).unwrap();
+    // A Python triple-quoted string assigned to `name`, as the script writes it.
+    let constant = |name: &str| -> String {
+        let start = script.find(&format!("{name} = \"\"\"")).unwrap_or_else(|| panic!("no {name}"));
+        let body = &script[start + name.len() + 6..];
+        body[..body.find("\"\"\"").unwrap()].to_owned()
+    };
+    let dir = std::env::temp_dir().join(format!("dz_release_smoke_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("dazzle.toml"), constant("HELLO_TOML")).unwrap();
+    std::fs::write(dir.join("src/main.dz"), constant("HELLO_DZ")).unwrap();
+    let out = Command::new(dz()).args(["run", dir.to_str().unwrap()]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("hello from Dazzle"),
+        "the release smoke program failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The whole-program benchmarks (`tests/bench_programs`, T-0090): each program's Dazzle half
 /// and its C++ half must print the same checksum, on the small input in `quick_args.txt`.
 /// The timings belong to `tools/bench_programs.py`; this keeps the pairs honest, since a

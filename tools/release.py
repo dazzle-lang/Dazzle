@@ -173,10 +173,14 @@ output = "executable"
 
 # `println!` reaches the standard library, which imports `stdlib.h` through libclang, so
 # this one program proves the bundled libclang loads and finds its headers.
+#
+# It is held to the language as it is by `the_release_smoke_program_compiles` in
+# crates/dz/tests/run.rs, since this runs only when a release is cut: until r135 it bound
+# each `String` by value, which v0.2.0's first release run found to be a copy (DZ0403).
 HELLO_DZ = """fn main() {
     let mut names = List<String>()
     names.push(String::from("Dazzle"))
-    for name in names.iter() {
+    for &name in names {
         println!("hello from {}", name)
     }
 }
