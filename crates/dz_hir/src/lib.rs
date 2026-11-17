@@ -195,12 +195,21 @@ pub struct Body {
     /// it. Listed so that nothing turns one into a move: every other by-value read of a
     /// value that is not plain data is a `Move`.
     pub clones: Vec<ExprId>,
+    /// The overload a method call of several of one name reached, by its method key
+    /// (`count#1`), where the call node carries only the name: an imported C++ method's
+    /// casts at the boundary are its own (spec §15.2, T-0017).
+    pub method_keys: Vec<(ExprId, String)>,
 }
 
 impl Body {
     /// Is `e` a read written `a.clone()`?
     pub fn is_clone(&self, e: ExprId) -> bool {
         self.clones.contains(&e)
+    }
+
+    /// The method key of the overload call `e` reached, when the name has several.
+    pub fn method_key(&self, e: ExprId) -> Option<&str> {
+        self.method_keys.iter().find(|(x, _)| *x == e).map(|(_, k)| k.as_str())
     }
 
     pub fn expr(&self, id: ExprId) -> &Expr {

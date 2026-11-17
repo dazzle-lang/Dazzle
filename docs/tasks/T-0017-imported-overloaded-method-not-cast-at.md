@@ -2,10 +2,10 @@
 id: T-0017
 title: An imported overloaded method is not cast at the boundary
 milestone: M7b
-status: open
-kind: deferral
+status: done
+kind: bug
 area: codegen
-where: `dz_cpp`, `c_cast` / `ret_cast` on `hir::Callee::Method`
+where: `dz_check/src/check.rs`: `method_by_args`, which returns the key it picked, and the two calls that record it (`mark_method_key`); `dz_hir`: `Body::method_keys`, `method_key`; `dz_cpp/src/lib.rs`: `call`, the imported method's casts; `tests/run/cppinterop`: `Summer`
 ---
 
 **What the casts are for.** At the C boundary Dazzle's types and the header's are not always
@@ -43,3 +43,14 @@ fix is known to fix something.
 
 Related: [T-0016](T-0016-overloaded-free-function-imports-only-its.md), which is the free
 function's version of the same area — there, the overloads are not even imported.
+
+**Done** (2026-11-17), filed as a bug, which it was: the generated C++ did not compile, or
+could take a wrong value. The fixture came first, as this task advised: `Summer::total` in
+`tests/run/cppinterop`, an overload set whose one member takes `const int xs[4]`, which
+Dazzle passes cast to a pointer. Without the cast, clang++ found no overload to call.
+
+The checker now records the key of the overload a call reached, where a name has several, in
+a per-body side table next to `clones` (`Body::method_keys`, pruned by `rollback` like
+`clones`). Codegen looks the declaration up by that key. A side table rather than a field on
+`Callee::Method`, which every construction site would have had to fill for the rare call
+that needs it.

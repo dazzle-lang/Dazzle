@@ -2,10 +2,10 @@
 id: T-0241
 title: A trait's default body copies self into a Self value, though Self may not be plain
 milestone: M12
-status: open
+status: done
 kind: bug
 area: checker
-where: `dz_check/src/check.rs`, `subst` (`Self` in a trait body is the trait's own type, `self_type_of`); `dz_check/src/impls.rs`, `implements` ("a trait satisfies itself"); the plain-data test `TypeTable::plain`
+where: `dz_flow/src/lib.rs`: `return` of a whole local, which asks `denotes` whether the local is owned, and `type_name`; `dz_check/src/lib.rs`: `clones_itself` (a trait's own type is never plain); `crates/dz_project/src/std/memory/rc.dz`: `guard`
 ---
 
 Found with T-0037 (2026-11-17). A default method may read `&self` into a value of type
@@ -42,3 +42,12 @@ plain, so a by-value read of `self` is `DZ0402`, with the same help. Check std's
 methods still compile (`Iterate`, `Iterable`, `Hash`, `Ord`'s and the formatting traits').
 T-0037 avoided this: `Iterate` has no `indexed()`, because its body would have been exactly
 this copy; an iterator is numbered with `Indexed(it)` instead.
+
+**Done** (2026-11-17, r140). Wider than found: `return self` of a value that is not plain
+copied it in any method, not only a default body. The ownership pass treated `return x` of a
+whole local as a move without asking whether the local was owned, and `self` is a borrowed
+receiver. It now asks (`Denotes::Owned`), so `return self` is `DZ0402` with the `.clone()` fix.
+A trait's own type, which is `Self` in its default bodies, is never plain (`clones_itself`),
+and messages say `Self` for it. One `std` site relied on the copy: `Rc`'s `Nullable::guard`,
+now `self.clone()`. Test: `tests/flow/return_self_is_borrowed.dz`, and `self.clone()` in a
+default body runs in `tests/run/default_bodies`.

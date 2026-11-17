@@ -1,0 +1,17 @@
+// Spec §6.4, T-0227: a move before a `break` reaches what follows the loop, though the
+// `break` leaves its branch: a use after the loop is a use after the move.
+// expect: DZ0401
+
+fn take(s: String) {}
+
+fn after_break(c: bool) -> usize {
+    let s = String("a")
+    while true {
+        if c {
+            take(s)
+            break
+        }
+        break
+    }
+    return s.byte_len()
+}

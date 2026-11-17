@@ -3980,7 +3980,8 @@ pub(super) fn body_signature(
             return Some(Signature {
                 sig,
                 module: res.symbol(*owner).module,
-                name: "constructor".into(),
+                // Spelled as the type it builds, `Registry(…)`, in a message.
+                name: res.symbol(*owner).name.clone(),
                 self_ty: body.params.first().map(|l| body.local(*l).ty.clone()),
                 owner: Some(*owner),
             });
@@ -4133,7 +4134,7 @@ fn call_signature(
             },
             *owner,
             None,
-            "constructor".into(),
+            res.symbol(*owner).name.clone(),
             Vec::new(),
             Vec::new(),
         ),

@@ -751,6 +751,10 @@ impl Worklist<'_> {
         for e in &b.exprs {
             let here = (b.file, e.span);
             self.visit_ty(&e.ty, here);
+            if let ExprKind::Call { callee: Callee::Method { recv, owner, name, .. }, .. } = &e.kind
+            {
+                self.refuse_no_default(b.ty(*recv), *owner, name, here);
+            }
             match &e.kind {
                 ExprKind::TypeQuery { ty, .. } | ExprKind::Reflect { ty, .. } => {
                     self.visit_ty(ty, here)
@@ -911,6 +915,45 @@ impl Worklist<'_> {
         self.queue.push(if is_type { Pending::Type(sym, args) } else { Pending::Fn(sym, args) });
     }
 
+    /// A call of `owner`'s method `name` on a `recv` whose type arguments include an
+    /// imported class with no default, where the method builds an element of that parameter at
+    /// its default: `DZ0590` at the call (T-0230). The C++ compiles either way, since the
+    /// runtime builds a default only for a type that has one; this is where a program learns
+    /// it asked for one that does not.
+    fn refuse_no_default(&mut self, recv: &Ty, owner: SymbolId, name: &str, at: (FileId, Span)) {
+        let Ty::Named { sym, args } = recv.peeled() else { return };
+        if *sym != owner || args.is_empty() {
+            return;
+        }
+        let Some(template) = self.hir.find(&BodyOwner::Method { owner, name: name.to_owned() })
+        else {
+            return;
+        };
+        let params = self.table.type_params(owner);
+        for id in defaults_built(template) {
+            let Some(i) = params.iter().position(|p| p.param.id == id) else { continue };
+            let Some(Ty::Named { sym: elem, .. }) = args.get(i) else { continue };
+            if !self.table.struct_sig(*elem).is_some_and(|s| s.no_default) {
+                continue;
+            }
+            let shown = dz_check::type_name(self.res, &args[i]);
+            let tname = self.res.symbol(owner).name.clone();
+            self.diags.push(
+                Diagnostic::error(
+                    codes::NO_DEFAULT_TO_BUILD,
+                    format!("`{tname}::{name}` builds a `{shown}` at its default, and it has none"),
+                )
+                .at(at.0, at.1, format!("`{shown}` has no constructor taking no arguments"))
+                .with_help(format!(
+                    "`{shown}` is an imported C++ class whose constructors all take arguments; \
+                     build each element with one and add it (`push`, `insert`), or give the \
+                     class a default constructor (spec §15.2)"
+                )),
+            );
+            return;
+        }
+    }
+
     fn too_deep(&mut self, name: String, at: (FileId, Span)) {
         if self.too_deep {
             return;
@@ -1019,6 +1062,21 @@ fn table_body(
     self_ty: Option<&Ty>,
 ) -> Body {
     dz_hir::map_body_types(body, |t| table.subst_with(t, map, self_ty))
+}
+
+/// The type parameters a body builds at their default, `construct(x)` with no value.
+fn defaults_built(body: &Body) -> Vec<u32> {
+    let mut out = Vec::new();
+    for e in &body.exprs {
+        if let ExprKind::Builtin { name, args } = &e.kind {
+            if name == "construct" && args.len() == 1 {
+                if let Ty::Param(p) = body.ty(args[0]) {
+                    out.push(p.id);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// How deeply type arguments nest: `f32` is 0, `Buffer<f32>` 1, `Buffer<Buffer<f32>>` 2.

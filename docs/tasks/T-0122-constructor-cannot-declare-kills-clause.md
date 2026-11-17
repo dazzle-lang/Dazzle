@@ -2,7 +2,7 @@
 id: T-0122
 title: A constructor cannot declare a kills clause
 milestone: none
-status: open
+status: done
 kind: bug
 area: ownership
 ---
@@ -35,3 +35,11 @@ may not kill and `DZ0415` there says so and points at a factory function instead
 |---|---|
 | A constructor member's parse, which reads no clause: `parse_ctor` | `dz_parse/src/item.rs` |
 | `DZ0415` raised for it, with the clause it would need | `dz_flow/src/ties/report.rs`; the constructor's signature in `body_signature`, `dz_flow/src/ties/body.rs` |
+
+**Done** (2026-11-17, r140): the first option, the user's choice. A constructor takes a
+`kills` clause after its parameters and any `: Base(…)`, where a function's return type would
+be: `Registry(all: &mut List<i32>) kills all@items { … }`. `parse_ctor` reads it; the checker
+and the ownership pass already read a constructor's clause off its declaration as they do a
+function's, and the formatter writes it. A constructor is now named by its type in `DZ0415`,
+"`Registry` kills …", where it said "`constructor`". Spec §6.7 and §20 (whose `ctor` also
+lacked the base initialiser). Test: `tests/flow/constructor_kills.dz`.

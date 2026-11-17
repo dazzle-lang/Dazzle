@@ -989,7 +989,8 @@ fn verify_whole(
             ),
         )
         .with_help(
-            "this is a bug in the Dazzle compiler's incremental build (T-0197);              `DZ_INCREMENTAL=0` builds without it",
+            "this is a bug in the Dazzle compiler's incremental build (T-0197); \
+             `DZ_INCREMENTAL=0` builds without it",
         ),
     );
     Err(d)

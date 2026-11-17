@@ -4691,6 +4691,8 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// A method by name, read through `sym`'s instantiation — and when `sym` has several of
     /// that name, the one whose first parameter the first argument fits (spec §18.27).
+    /// The method `name` of `sym` that a call with `args` reaches, and its method key when
+    /// the name has several, which a call records (`mark_method_key`, T-0017).
     fn method_by_args(
         &mut self,
         sym: SymbolId,
@@ -4698,20 +4700,21 @@ impl<'a, 'c> Body<'a, 'c> {
         name: &str,
         args: &[Expr],
         span: Span,
-    ) -> Option<FnSig> {
+    ) -> Option<(FnSig, Option<String>)> {
         let keys = self.cx.table.methods_sig(sym)?.overloads.get(name)?.clone();
         // A method of `Buffer<f32>` has `f32` wherever it wrote `T`.
-        let sigs: Vec<FnSig> = keys
+        let found: Vec<(String, FnSig)> = keys
             .iter()
-            .filter_map(|k| self.cx.table.methods_sig(sym)?.methods.get(k).cloned())
-            .map(|s| self.cx.instantiate_sig(sym, type_args, &s))
+            .filter_map(|k| Some((k.clone(), self.cx.table.methods_sig(sym)?.methods.get(k)?)))
+            .map(|(k, s)| (k, self.cx.instantiate_sig(sym, type_args, s)))
             .collect();
-        if sigs.len() <= 1 {
-            return sigs.into_iter().next();
+        if found.len() <= 1 {
+            return found.into_iter().next().map(|(_, s)| (s, None));
         }
+        let sigs: Vec<FnSig> = found.iter().map(|(_, s)| s.clone()).collect();
         let arg = args.first().map(|a| self.expr_quiet(a));
         let i = self.pick_overload(&sigs, arg.as_ref(), span, name);
-        sigs.into_iter().nth(i)
+        found.into_iter().nth(i).map(|(k, s)| (s, Some(k)))
     }
 
     /// Which of several same-named methods a first argument picks (spec §18.27): the one
@@ -5576,7 +5579,8 @@ impl<'a, 'c> Body<'a, 'c> {
             Some(seg) if generic => self.cx.type_args(owner, seg),
             _ => Vec::new(),
         };
-        let Some(sig) = self.method_by_args(owner, &type_args, &name.name, args, span) else {
+        let Some((sig, key)) = self.method_by_args(owner, &type_args, &name.name, args, span)
+        else {
             for a in args {
                 self.expr(a, None);
             }
@@ -5592,7 +5596,11 @@ impl<'a, 'c> Body<'a, 'c> {
         let checked_args = self.check_args(&sig, args, span, &name.name);
         let ty = fallible_result(&sig, self.subst(&sig.ret));
         let callee = hir::Callee::Assoc { owner, type_args, name: name.name.clone(), method_args };
-        self.mk(e, ty, hir::ExprKind::Call { callee, args: checked_args })
+        let call = self.mk(e, ty, hir::ExprKind::Call { callee, args: checked_args });
+        if let Some(key) = key {
+            self.hir.mark_method_key(call.id, key);
+        }
+        call
     }
 
     /// `UiElement::draw(self, …)` — a base's version of a method (spec §7.3, 18.32).
@@ -5647,7 +5655,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return self.mk(e, Ty::Error, hir::ExprKind::Error);
         }
 
-        let Some(sig) = self.method_by_args(base, &[], &method.name, rest, span) else {
+        let Some((sig, _)) = self.method_by_args(base, &[], &method.name, rest, span) else {
             self.cx.error(
                 codes::NO_SUCH_METHOD,
                 method.span,
@@ -5753,12 +5761,15 @@ impl<'a, 'c> Body<'a, 'c> {
                 codes::GENERIC_METHOD_THROUGH_OBJECT,
                 method.span,
                 format!(
-                    "`{tname}::{}` has type parameters of its own, and cannot be called through                      a `^{tname}`",
+                    "`{tname}::{}` has type parameters of its own, and cannot be called through \
+                     a `^{tname}`",
                     method.name
                 ),
                 "called through a trait object",
                 format!(
-                    "a trait object's vtable has one function per method, and this one is a                      function per type argument: call it on a value whose type is known, or a                      parameter bounded by `{tname}` (D-0108)"
+                    "a trait object's vtable has one function per method, and this one is a \
+                     function per type argument: call it on a value whose type is known, or a \
+                     parameter bounded by `{tname}` (D-0108)"
                 ),
             );
             for a in rest {
@@ -5846,7 +5857,12 @@ impl<'a, 'c> Body<'a, 'c> {
         args: &[Expr],
         span: Span,
     ) -> Option<(SymbolId, FnSig)> {
-        let bounds = self.cx.table.abstract_bounds(self_ty);
+        // A parameter's bounds, or, for `Self` in a trait's default body, the trait.
+        let bounds = self
+            .cx
+            .table
+            .self_trait_bounds(self_ty)
+            .unwrap_or_else(|| self.cx.table.abstract_bounds(self_ty));
         let mut found: Vec<(TraitRef, FnSig)> = Vec::new();
         for r in self.cx.table.trait_closure(&bounds, self_ty) {
             if found.iter().any(|(x, _)| x.trait_sym == r.trait_sym && x.args == r.args) {
@@ -5962,7 +5978,30 @@ impl<'a, 'c> Body<'a, 'c> {
             // A method on a generic parameter comes from its bounds, and from nothing else
             // (spec §8.1). Resolution is static: the bound names one trait method, and
             // monomorphization turns the call into a direct one (§7.6).
-            if ty::is_abstract(&peeled) {
+            // `self` in a trait's default body reaches a method the trait requires through
+            // a supertrait as a bound does (spec §7.6, T-0242). A trait object does not: its
+            // vtable has the trait's own methods.
+            let via_supertrait = match &peeled {
+                Ty::Named { sym, .. } => {
+                    self.cx.res.symbol(*sym).kind == SymbolKind::Trait
+                        && self.is_own_self(recv.id, *sym)
+                        && !self
+                            .cx
+                            .table
+                            .struct_sig(*sym)
+                            .is_some_and(|s| s.overloads.contains_key(&name.name))
+                        && self.cx.table.self_trait_bounds(&peeled).is_some_and(|own| {
+                            self.cx.table.trait_closure(&own, &peeled).iter().any(|r| {
+                                self.cx
+                                    .table
+                                    .struct_sig(r.trait_sym)
+                                    .is_some_and(|s| s.overloads.contains_key(&name.name))
+                            })
+                        })
+                }
+                _ => false,
+            };
+            if ty::is_abstract(&peeled) || via_supertrait {
                 let found = self.param_method(&peeled, &name.name, args, span);
                 let Some((trait_sym, sig)) = found else {
                     self.no_such_member_on_param(&peeled, name, "method");
@@ -6070,7 +6109,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     let owner = self.cx.table.method_owner(sym, &name.name).unwrap_or(sym);
                     // A generic base's method reads its `T` as the base's argument (T-0035).
                     let type_args = self.cx.table.args_as(sym, &type_args, owner);
-                    if let Some(sig) =
+                    if let Some((sig, key)) =
                         self.method_by_args(owner, &type_args, &name.name, args, span)
                     {
                         self.check_member_visible(
@@ -6144,7 +6183,11 @@ impl<'a, 'c> Body<'a, 'c> {
                             name: name.name.clone(),
                             method_args,
                         };
-                        return self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                        let call = self.mk(e, ty, hir::ExprKind::Call { callee, args });
+                        if let Some(key) = key {
+                            self.hir.mark_method_key(call.id, key);
+                        }
+                        return call;
                     }
                     // A trait's method, through an implementation for this type (spec §7.6).
                     if let Some(c) =
@@ -7915,6 +7958,32 @@ impl<'a, 'c> Body<'a, 'c> {
                 _ => (Ty::Error, hir::ExprKind::Error),
             },
             SymbolKind::Const => match self.cx.table.get(sym) {
+                // An imported integer constant is untyped as a literal is, and its range is
+                // checked against a narrow context as a literal's (spec §5.1, T-0021).
+                Some(ItemSig::Const(Ty::IntLit))
+                    if self.cx.table.foreign_ints.contains_key(&sym) =>
+                {
+                    let v = self.cx.table.foreign_ints[&sym];
+                    match expected.map(|t| self.subst(t)) {
+                        Some(Ty::Int(i)) if v < i.range().0 || v > i.range().1 => {
+                            let (lo, hi) = i.range();
+                            let n = i.name();
+                            let name = self.cx.res.symbol(sym).name.clone();
+                            self.cx.error_help(
+                                codes::LITERAL_OUT_OF_RANGE,
+                                e.span,
+                                format!("`{name}` is `{v}`, which does not fit in `{n}`"),
+                                format!("outside the range of `{n}`"),
+                                format!(
+                                    "valid values are {lo} to {hi}; an imported constant converts \
+                                     only where its value fits, as a literal does (spec §5.1)"
+                                ),
+                            );
+                            (Ty::Error, hir::ExprKind::Const(sym))
+                        }
+                        _ => (Ty::IntLit, hir::ExprKind::Const(sym)),
+                    }
+                }
                 Some(ItemSig::Const(t)) => (t.clone(), hir::ExprKind::Const(sym)),
                 _ => (Ty::Error, hir::ExprKind::Error),
             },

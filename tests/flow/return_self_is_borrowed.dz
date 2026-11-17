@@ -1,0 +1,33 @@
+// Spec §6.4, §7.3, D-0106 (T-0241): a method's `self` is a receiver it borrows, so
+// `return self` of a value that is not plain would copy it, and is refused as any move out
+// of a reference is: in a struct's method, and in a trait's default body, where `Self` may
+// be any implementer. A plain `self` is returned as a copy, and `self.clone()` is written
+// where a copy of anything else is wanted.
+// expect: DZ0402
+// expect: DZ0402
+
+pub struct Named {
+    pub name: String
+
+    pub fn me(&self) -> Named {
+        return self
+    }
+
+    pub fn copy(&self) -> Named {
+        return self.clone()
+    }
+}
+
+pub struct Point {
+    pub x: i32 = 0
+
+    pub fn me(&self) -> Point {
+        return self
+    }
+}
+
+pub trait Twice {
+    fn me(&self) -> Self {
+        return self
+    }
+}

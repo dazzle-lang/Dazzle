@@ -87,12 +87,22 @@ private:
     int count;
 };
 
+// An overload set whose members differ in a parameter Dazzle passes with a cast: an
+// array, which reaches C++ as the pointer to its first element. The cast is the overload's
+// own, so the call must know which one it reached (T-0017).
+class Summer {
+public:
+    int total(const int xs[4]) const;
+    int total(int a, int b) const;
+};
+
 // A class whose move is code of its own: it keeps its own address, and its move constructor
 // sets it again. Copying its bytes would leave it pointing at the old object, so a `List`
-// of it moves each element through its move constructor (D-0105).
+// of it moves each element through its move constructor (D-0105). It has no default
+// constructor: a `List` of it compiles though `List::resize` would need one, and a call to
+// `resize` is refused (T-0230).
 class Anchored {
 public:
-    Anchored();
     explicit Anchored(int id);
     Anchored(Anchored&& other);
     Anchored(const Anchored&) = delete;

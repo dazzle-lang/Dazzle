@@ -199,20 +199,18 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0013](tasks/T-0013-hover-on-imported-name.md)** Hover on an imported name · deferral, editor
 - **[T-0014](tasks/T-0014-import-cache-in-process-only.md)** The import cache is in-process only · deferral, interop
 
-## M7b — Full C and C++ interop (10 open)
+## M7b — Full C and C++ interop (8 open)
 
 - **[T-0008](tasks/T-0008-variadic-c-functions.md)** Variadic C functions · feature, interop
 - **[T-0009](tasks/T-0009-dazzle-struct-implementing-imported-c-abstract.md)** A Dazzle struct implementing an imported C++ abstract class · feature, interop
 - **[T-0010](tasks/T-0010-proof-on-real-libraries-dear-imgui.md)** Proof on real libraries: Dear ImGui and Jolt fixtures · feature, interop
 - **[T-0015](tasks/T-0015-declarations-left-out-import.md)** Declarations left out of an import · deferral, interop
-- **[T-0017](tasks/T-0017-imported-overloaded-method-not-cast-at.md)** An imported overloaded method is not cast at the boundary · deferral, codegen
 - **[T-0018](tasks/T-0018-inheritance-between-imported-c-classes.md)** Inheritance between imported C++ classes · deferral, interop
 - **[T-0019](tasks/T-0019-whole-c-array-member-cannot-be.md)** A whole C array member cannot be copied or passed as a slice · deferral, checker
 - **[T-0020](tasks/T-0020-libclang-parses-with-its-own-default.md)** Libclang parses with its own default target · deferral, interop
-- **[T-0021](tasks/T-0021-untyped-imported-integer-not-range-checked.md)** An untyped imported integer is not range-checked · deferral, checker
 - **[T-0179](tasks/T-0179-c-namespace-reached-as-module-its.md)** A C++ namespace reached as a module of its own: ImGui::Begin, not imgui::ImGui::Begin · feature, interop
 
-## M9 — LSP: diagnostics, hover, go-to-definition, completion (12 open)
+## M9 — LSP: diagnostics, hover, go-to-definition, completion (11 open)
 
 - **[T-0022](tasks/T-0022-more-code-actions-inlay-hints-for.md)** More code actions, and inlay hints for implicit `drop`s · deferral, editor
 - **[T-0023](tasks/T-0023-no-incremental-analysis.md)** No incremental analysis · deferral, editor
@@ -225,7 +223,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0072](tasks/T-0072-doxygen-comment-generation-in-vs-code.md)** Doxygen comment generation in the VS Code extension · feature, editor
 - **[T-0073](tasks/T-0073-remaining-quick-fixes.md)** The remaining quick fixes · feature, editor
 - **[T-0074](tasks/T-0074-debugging-next-steps.md)** Debugging, next steps · feature, editor
-- **[T-0108](tasks/T-0108-dz-fix-renames-assigned-but-unread.md)** dz fix renames an assigned but unread variable only where it is declared · bug, tooling
 
 ## M10 — Macros (5 open)
 
@@ -235,7 +232,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (19 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (16 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
@@ -253,11 +250,8 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
-- **[T-0230](tasks/T-0230-list-imported-c-class-with-no.md)** A List of an imported C++ class with no default constructor does not compile · bug, codegen
-- **[T-0241](tasks/T-0241-trait-default-body-copies-self-into.md)** A trait's default body copies self into a Self value, though Self may not be plain · bug, checker
-- **[T-0242](tasks/T-0242-trait-default-body-cannot-call-supertrait.md)** A trait's default body cannot call a supertrait's method on self · bug, checker
 
-## M15 — `dz bench`, and the C++ comparison (7 open)
+## M15 — `dz bench`, and the C++ comparison (6 open)
 
 - **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
@@ -265,7 +259,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
 - **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 - **[T-0238](tasks/T-0238-virtual-method-with-body-cannot-promise.md)** A virtual method with a body cannot promise what its overrides kill · design, ownership
-- **[T-0239](tasks/T-0239-kills-clause-checker-suggests-names-box.md)** A kills clause the checker suggests names Box's private m_ptr instead of its @value tie · bug, diagnostics
 
 ## M16 — Packages: dependencies that are fetched (1 open)
 
@@ -280,7 +273,7 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 
-## none — not scheduled (29 open)
+## none — not scheduled (27 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -296,7 +289,6 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
 - **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
-- **[T-0122](tasks/T-0122-constructor-cannot-declare-kills-clause.md)** A constructor cannot declare a kills clause · bug, ownership
 - **[T-0137](tasks/T-0137-kills-clause-must-be-exact-so.md)** A `kills` clause must be exact, so a change in a body ripples up every caller · design, ownership
 - **[T-0138](tasks/T-0138-game-ten-thousand-lines-test-ties.md)** A game of ten thousand lines, to test ties and placement at scale · feature, language
 - **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
@@ -310,4 +302,3 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
-- **[T-0227](tasks/T-0227-move-on-path-that-ends-in.md)** A move on a path that ends in return is counted when a loop body runs again · feature, flow

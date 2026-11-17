@@ -2,10 +2,10 @@
 id: T-0021
 title: An untyped imported integer is not range-checked
 milestone: M7b
-status: open
-kind: deferral
+status: done
+kind: bug
 area: checker
-where: `dz_check/src/check.rs`, imported constant in a typed context
+where: `dz_check/src/lib.rs`: `TypeTable::foreign_ints`, filled by `collect_foreign`; `dz_check/src/check.rs`: `path_expr`, the `SymbolKind::Const` arm; `crates/dz/tests/run.rs`: `an_imported_constant_is_range_checked_as_a_literal`
 ---
 
 **What goes wrong.** A Dazzle integer literal is checked against the type its context wants:
@@ -42,3 +42,11 @@ worth asserting in a test so the fix does not add a `static_cast` where none is 
 
 A `typeerrors/` case and a matching `typed/` case (invariant 8): the first narrowing a big
 constant, the second widening it.
+
+**Done** (2026-11-17, r140), filed as a bug: a value was truncated silently. The importer's
+integer value is kept, by symbol, in `TypeTable::foreign_ints`, and a path to such a
+constant whose context is a narrower integer type is `DZ0502`, with a literal's message and
+help, at the use. A constant that fits, or one used where a wider type is wanted, converts
+as before with no cast added. A macro libclang could not evaluate has no value and is not
+imported as an integer at all, so nothing goes through unchecked. The test is in
+`crates/dz/tests/run.rs` rather than `typed/` and `typeerrors/`, which import no headers.

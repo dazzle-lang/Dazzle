@@ -2657,6 +2657,7 @@ const WARNING_CLEAN: &[&str] = &[
     "projection",
     "indexed",
     "trait_generic_methods",
+    "default_bodies",
     "implicit_as",
     "ref_fields",
     "region_arena",
@@ -3252,6 +3253,57 @@ fn a_c_array_member_is_indexed_not_copied() {
     }
     // Indexing and `.len` are fine; only the copy is refused.
     assert_eq!(stderr.matches("DZ0707").count(), 1, "expected one array-copy error:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// T-0230: a `List` of an imported C++ class with no default constructor is a list like any
+/// other (`tests/run/cppinterop` builds one), but `resize`, which builds elements at their
+/// default, is refused where it is called (DZ0590), once.
+#[test]
+fn resize_of_a_class_with_no_default_is_refused() {
+    let dir = scratch(
+        "dz_import_no_default",
+        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.hpp\"]\nkeeps = []\n",
+        "fn main() {\n    let mut xs = List<api::Pinned>()\n    xs.push(api::Pinned(1))\n    \
+         xs.resize(3)\n    println!(\"{}\", xs.len())\n}\n",
+    );
+    std::fs::write(
+        dir.join("api.hpp"),
+        "#pragma once\nclass Pinned {\npublic:\n    explicit Pinned(int v) : value(v) {}\n    \
+         int get() const { return value; }\nprivate:\n    int value;\n};\n",
+    )
+    .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0590").count(), 1, "expected one DZ0590:\n{stderr}");
+    assert_eq!(stderr.matches("error[").count(), 1, "and nothing else:\n{stderr}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// T-0021: an imported integer constant is untyped as a literal is, and checked as one: it
+/// converts to a type its value fits (`SMALL` to `u8`, `SOME_BIG` to `i64`), and is
+/// `DZ0502` where it does not (`SOME_BIG` to `u8`), once, at the use.
+#[test]
+fn an_imported_constant_is_range_checked_as_a_literal() {
+    let dir = scratch(
+        "dz_import_const_range",
+        "[module]\nname = \"a\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\napi = { cpp = \"api\" }\n\n[cpp.libs.api]\ninclude_dirs = [\".\"]\nimport = [\"api.h\"]\n",
+        "fn main() {\n    let b: u8 = api::SOME_BIG\n    let s: u8 = api::SMALL\n    \
+         let w: i64 = api::SOME_BIG\n    println!(\"{} {} {}\", b, s, w)\n}\n",
+    );
+    std::fs::write(dir.join("api.h"), "#pragma once\n#define SOME_BIG 300\n#define SMALL 7\n")
+        .unwrap();
+    let out = Command::new(dz()).args(["check", dir.to_str().unwrap()]).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("DZ0703") {
+        return; // no libclang here
+    }
+    assert_eq!(stderr.matches("DZ0502").count(), 1, "expected one DZ0502:\n{stderr}");
+    assert_eq!(stderr.matches("error[").count(), 1, "and nothing else:\n{stderr}");
+    assert!(stderr.contains(":2:"), "at the narrowing use, line 2:\n{stderr}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

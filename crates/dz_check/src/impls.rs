@@ -651,6 +651,14 @@ impl TypeTable {
         if t.named() == Some(r.trait_sym) {
             return true;
         }
+        // `Self` in a trait's own default body is spelled as the trait, and stands for every
+        // implementer, so it also implements what the trait requires (spec §7.6, T-0242).
+        if let Some(own) = self.self_trait_bounds(t) {
+            return self
+                .trait_closure(&own, t)
+                .iter()
+                .any(|x| x.trait_sym == r.trait_sym && x.args == r.args);
+        }
         // The machine's own types implement the prelude's operator traits (spec §11.2).
         if let Some(name) = self.prelude_names.get(&r.trait_sym) {
             if self.builtin_implements(t, name, &r.args) {

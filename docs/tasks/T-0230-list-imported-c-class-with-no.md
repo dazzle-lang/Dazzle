@@ -2,7 +2,7 @@
 id: T-0230
 title: A List of an imported C++ class with no default constructor does not compile
 milestone: M12
-status: open
+status: done
 kind: bug
 area: codegen
 where: `crates/dz_mono/src/lib.rs`: `Called`, `called_methods` (T-0199); `crates/dz_cpp/src/lib.rs`: `has_method`; `crates/dz_project/src/std/collections/list.dz`: `resize`
@@ -37,3 +37,23 @@ the meantime.
 | Where codegen asks | `crates/dz_cpp/src/lib.rs`: `has_method` |
 | The method that default-constructs | `crates/dz_project/src/std/collections/list.dz`: `resize` |
 | The class that met it | `tests/run/cppinterop/vendor/shapes/include/shapes.hpp`: `Anchored` |
+
+**Done** (2026-11-17, r140): the user's choice, "template and refusal".
+
+- **The C++ compiles.** `List::resize` builds elements with the runtime's
+  `construct(T&)`, a function template. It now builds `T()` under `if constexpr
+  (__is_constructible(T))`, so for a class with no default the construction is discarded
+  rather than compiled. This is the same effect as making each such method a member
+  template, and simpler: the runtime is already a template there. `__is_constructible` is a
+  compiler built-in in GCC, Clang and MSVC, as `__is_class` is, so the runtime still needs no
+  `<type_traits>`.
+- **A call is refused.** An imported class records `no_default` when it declares
+  constructors and none can be called with no arguments (`collect_foreign`). Monomorphization,
+  which sees every call with its concrete type arguments, reports `DZ0590` at a call to a
+  method whose body builds a type parameter at its default (`construct(x)` with no value)
+  where that parameter is such a class (`refuse_no_default`). That covers a call reached
+  through another generic body's instance too.
+
+`tests/run/cppinterop`'s `Anchored` lost the default constructor added as a workaround, so
+the fixture now builds a `List` of a class with none (its C++ failed before this, checked).
+`resize_of_a_class_with_no_default_is_refused` in `crates/dz/tests/run.rs` pins `DZ0590`.

@@ -1407,7 +1407,11 @@ impl<'a, 'w> Walker<'a, 'w> {
                 return;
             };
 
-            let member_vis = member.vis;
+            // A trait's methods are as visible as the trait: they are written without `pub`,
+            // and a call `log.write(1)` reaches them wherever the trait is seen, so
+            // `Writer::write(&mut log, 1)` must too.
+            let member_vis =
+                if symbol.kind == crate::SymbolKind::Trait { symbol.vis } else { member.vis };
             let member_sort = member.sort;
             let member_span = member.span;
             let owner_module = symbol.module;

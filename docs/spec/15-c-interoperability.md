@@ -209,7 +209,7 @@ libclang pass runs once and not on every build.
 | a bit-field, `unsigned on : 1` | an ordinary member to read and assign. It has no address, so `&` on one is refused (`DZ0706`) |
 | a function pointer, `void (*)(const RGFW_event *)` | `fn(^RGFW_event)` (§5.4): a Dazzle function is handed to C as a callback |
 | member function | method — `const` takes `&self`, any other `&mut self`. A `static` one needs associated functions, which Dazzle does not have yet, and is left out with that reason |
-| constructor | a constructor call, `Counter(10)` |
+| constructor | a constructor call, `Counter(10)`. A class whose constructors all take arguments has no default, so what builds an element at its default, `List::resize`, is refused for it (`DZ0590`); a `List` of it is otherwise like any other |
 | destructor | **C++ runs it.** Dazzle emits no `drop` for an imported type; the type is move-only instead, so it is never destroyed twice |
 | C++ copy constructor | what makes such a type copyable again: a class with a destructor *and* a public copy constructor is an ordinary value |
 | `namespace A::B` | nested scope: `ns::A::B::thing`. An `inline` namespace adds no segment, as in C++ |

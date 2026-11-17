@@ -160,3 +160,62 @@ fn a_clause_through_a_private_field_is_offered_with_its_tie() {
     assert!(text.contains("pub fn forget(&mut self) kills self@names {"), "{text}");
     assert_eq!(json(&dir)["diagnostics"].as_array().map(Vec::len), Some(0), "{text}");
 }
+
+/// T-0108: an assigned but unread variable is named again at each assignment, and the
+/// rename `dz fix` applies reaches every one, so the program still compiles after it.
+#[test]
+fn renaming_an_unread_variable_renames_its_assignments() {
+    let dir = project(
+        "assigned",
+        "fn tally(xs: &[]i32) {\n    let mut n = 0\n    for x in xs {\n        n += x\n    }\n    n = 3\n}\n\nfn main() {\n    tally([1, 2][..])\n}\n",
+    );
+    let out = Command::new(dz()).arg("fix").arg(&dir).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
+    let text = source(&dir);
+    assert!(
+        text.contains("let mut _n = 0") && text.contains("_n += x") && text.contains("_n = 3"),
+        "{text}"
+    );
+    let v = json(&dir);
+    assert_eq!(v["diagnostics"].as_array().map(Vec::len), Some(0), "{v}");
+}
+
+/// T-0239: a clause through another module's type names it by the ties that type declares,
+/// `Box`'s `@value` and `List`'s `[*]`, never by their private `m_ptr` and `m_data`; the
+/// tie the fix offers then compiles.
+#[test]
+fn a_clause_through_a_box_names_its_tie_not_its_private_field() {
+    let dir = project(
+        "boxed_tie",
+        "pub struct Bag {\n    pub items: List<i32> = List<i32>()\n}\n\npub struct Holder {\n    \
+         m_bags: List<Box<Bag>> = List<Box<Bag>>()\n\n    \
+         pub fn empty_all(&mut self) {\n        for &mut b in m_bags {\n            \
+         if let &mut bag = b {\n                bag.items.clear()\n            }\n        }\n    }\n}\n\n\
+         fn main() {\n    let mut h = Holder{}\n    h.empty_all()\n}\n",
+    );
+    let v = json(&dir);
+    let d = v["diagnostics"]
+        .as_array()
+        .and_then(|ds| ds.iter().find(|d| d["code"] == "DZ0415"))
+        .unwrap_or_else(|| panic!("a DZ0415: {v}"))
+        .clone();
+    let said = format!("{} {}", d["message"], d["help"]);
+    assert!(!said.contains("m_ptr") && !said.contains("m_data"), "{said}");
+    assert!(said.contains("m_bags[*]@value.items@items"), "{said}");
+    let mut edits: Vec<(usize, usize, String)> = d["fix"]["edits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let at = |k: &str| e[k].as_u64().unwrap() as usize;
+            (at("start"), at("end"), e["text"].as_str().unwrap().to_owned())
+        })
+        .collect();
+    edits.sort_by_key(|e| std::cmp::Reverse(e.0));
+    let mut text = std::fs::read_to_string(dir.join("src/main.dz")).unwrap();
+    for (start, end, new) in edits {
+        text.replace_range(start..end, &new);
+    }
+    std::fs::write(dir.join("src/main.dz"), &text).unwrap();
+    assert_eq!(json(&dir)["diagnostics"].as_array().map(Vec::len), Some(0), "{text}");
+}

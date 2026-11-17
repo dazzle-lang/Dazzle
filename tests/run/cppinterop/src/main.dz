@@ -66,6 +66,12 @@ fn main() {
     }
     println!("anchored {} {}", anchors.len(), ids)
 
+    // An overloaded method whose one overload takes an array, cast to a pointer at the
+    // call as that overload's own parameter says (T-0017).
+    let summer = shp::shapes::Summer{}
+    let four = [1, 2, 3, 4]
+    println!("summed {} {}", summer.total(&four), summer.total(5, 6))
+
     // A named template instantiation is an ordinary type (spec §15.4).
     let pair = shp::IntPair(3, 9)
     println!("pair {} {}", pair.first(), pair.sum())

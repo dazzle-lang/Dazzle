@@ -50,6 +50,7 @@ pub(crate) struct BodyBuilder {
     base_init: Option<ExprId>,
     unsafe_blocks: Vec<BlockId>,
     clones: Vec<ExprId>,
+    method_keys: Vec<(ExprId, String)>,
 }
 
 impl BodyBuilder {
@@ -68,7 +69,13 @@ impl BodyBuilder {
             base_init: None,
             unsafe_blocks: Vec::new(),
             clones: Vec::new(),
+            method_keys: Vec::new(),
         }
+    }
+
+    /// Record which overload of a method name the call `e` reached (T-0017).
+    pub(crate) fn mark_method_key(&mut self, e: ExprId, key: String) {
+        self.method_keys.push((e, key));
     }
 
     /// Record that `e` is a read written `a.clone()` (spec §6.3, D-0106).
@@ -207,6 +214,7 @@ impl BodyBuilder {
         self.blocks.truncate(mark.blocks);
         self.locals.truncate(mark.locals);
         self.clones.retain(|e| e.index() < mark.exprs);
+        self.method_keys.retain(|(e, _)| e.index() < mark.exprs);
     }
 
     /// Finish the body. `root` is the block the function's statements went into, and
@@ -242,6 +250,7 @@ impl BodyBuilder {
             base_init: self.base_init,
             unsafe_blocks: self.unsafe_blocks,
             clones: self.clones,
+            method_keys: self.method_keys,
         }
     }
 }

@@ -380,12 +380,32 @@ fn tie_path_held(
     let steps = &place.steps;
     let mut i = 0;
     'outer: while i < steps.len() {
-        if let Ty::Named { sym, args } = ty.peeled_refs() {
+        // The type's ties, through any pointer to it, as its fields are (`field_of`): after
+        // a container's elements, what is there is behind the container's pointer.
+        if let Ty::Named { sym, args } = ty.peeled() {
+            // The tie that names the most of what is left, so `tie @stored =
+            // m_storages[*]@value` is preferred to `tie @components = m_storages@items, …`
+            // for a path into what the storages hold (T-0239). A tie that names memory, as
+            // `@items` does, ends a path (`DZ0562`), so it is used only where it names all
+            // that is left; one that names values, `Box`'s `@value` or a type's `[*]`, may
+            // be followed into their fields: `m_bags[*]@value.items`, not `List`'s and
+            // `Box`'s private `m_data` and `m_ptr`.
+            let mut best: Option<(Option<String>, usize, Ty)> = None;
             for decl in dz_check::ties::tie_decls(table, *sym) {
-                let Some(name) = &decl.name else { continue };
+                let name = decl.name.clone();
                 let Some(first) = decl.paths.first() else { continue };
                 let Some((rep, end)) = export_steps(table, res, *sym, args, first) else {
                     continue;
+                };
+                // A named tie's path in the form the place is in, a container's `[*]` read as
+                // its own fields, so `m_storages[*]@value` meets a kill through `m_storages`'
+                // storage. The `[*]` tie is the very thing that reading rewrites, so its own
+                // path is compared as declared.
+                let rep = if name.is_some() {
+                    let holder = Ty::Named { sym: *sym, args: args.clone() };
+                    super::canonicalize(table, res, &holder, &rep)
+                } else {
+                    rep
                 };
                 // `tie @value = m_ptr[*]` names the memory behind a pointer field, and so
                 // does the allocation keeping it valid, `m_ptr`'s storage (`Box`).
@@ -395,19 +415,35 @@ fn tie_path_held(
                     }
                     _ => None,
                 };
+                let names_values = storage.is_some();
                 let matched = steps[i..].starts_with(&rep)
                     || storage.as_ref().is_some_and(|s| steps[i..].starts_with(s));
                 let rep = match storage {
                     Some(s) if !steps[i..].starts_with(&rep) => s,
                     _ => rep,
                 };
-                if !rep.is_empty() && matched {
-                    held.push(ty.clone());
-                    out.push(TieStep::Tie(ident(name)));
-                    i += rep.len();
-                    ty = end;
-                    continue 'outer;
+                let ends = i + rep.len() == steps.len();
+                // A value's fields follow a tie naming values: in a place, an element's
+                // field comes after its pointer's storage, `m_ptr`, storage, `.items`.
+                let continues = names_values
+                    && matches!(steps.get(i + rep.len()), Some(Step::Field(_) | Step::Elements));
+                if !rep.is_empty()
+                    && matched
+                    && (name.is_none() || ends || continues)
+                    && best.as_ref().map_or(true, |b| rep.len() > b.1)
+                {
+                    best = Some((name, rep.len(), end));
                 }
+            }
+            if let Some((name, len, end)) = best {
+                held.push(ty.clone());
+                out.push(match name {
+                    Some(name) => TieStep::Tie(ident(&name)),
+                    None => TieStep::Elements(Span::DUMMY),
+                });
+                i += len;
+                ty = end;
+                continue 'outer;
             }
         }
         match &steps[i] {

@@ -6,6 +6,7 @@ log 7
 log 7.5
 log x
 log y
+log true
 stamp true
 stamp 64
 LOUD owned!
@@ -17,5 +18,5 @@ LOUD x AND y!
 [t] 7.5
 [t] x
 [t] y
-counts 8 5 5 = 13
+counts 9 5 5 = 14
 picked grace 2

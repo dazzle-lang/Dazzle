@@ -1810,7 +1810,8 @@ impl<'a> Emitter<'a> {
             self.file = file;
             self.unsupported(
                 span,
-                "a trait object (`^Trait`) of a generic trait, one with associated types, or one                  whose methods mention `Self`",
+                "a trait object (`^Trait`) of a generic trait, one with associated types, or one \
+                 whose methods mention `Self`",
                 "owed by M12",
             );
         }
@@ -5931,7 +5932,7 @@ impl<'a> Emitter<'a> {
 
             hir::ExprKind::Call { callee, args } => {
                 let placed = self.placement.and_then(|p| p.placed(e));
-                self.call(callee, args, body.ty(e).clone(), node.span, placed)
+                self.call(e, callee, args, body.ty(e).clone(), node.span, placed)
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -6454,6 +6455,7 @@ impl<'a> Emitter<'a> {
     /// result function passes one past its last parameter, the heap if nothing better.
     fn call(
         &mut self,
+        id: ExprId,
         callee: &hir::Callee,
         args: &[ExprId],
         node_ty: Ty,
@@ -6488,13 +6490,13 @@ impl<'a> Emitter<'a> {
             },
             // A member function of an imported C++ class crosses the same boundary as a
             // free one, and wants the same casts (spec §15.2). The call node carries the
-            // name, not the overload key, so this applies only where the name names one
-            // method — and an overload set's members differ in their parameter types, which
-            // is exactly when guessing would cast against the wrong one.
+            // name; for a name with several methods, the checker recorded which one the call
+            // reached, so its casts are that overload's own (T-0017).
             hir::Callee::Method { owner, name, .. } if self.is_foreign(*owner) => {
                 match self.table.struct_sig(*owner) {
-                    Some(s) => match s.overloads.get(name).map(Vec::as_slice) {
-                        Some([key]) => s.methods.get(key).cloned(),
+                    Some(s) => match (self.cur().method_key(id), s.overloads.get(name)) {
+                        (Some(key), _) => s.methods.get(key).cloned(),
+                        (None, Some(keys)) if keys.len() == 1 => s.methods.get(&keys[0]).cloned(),
                         _ => None,
                     },
                     None => None,

@@ -1,0 +1,21 @@
+// Spec §6.7, T-0122: a constructor may change what a `&mut` parameter reaches, and says so
+// in a `kills` clause after its parameters, as a function does; a caller then knows which of
+// its references the call ends. Here the constructor is accepted, and the view of the list's
+// first element, kept across the call, is the mistake.
+// expect: DZ0413
+
+pub struct Registry {
+    pub id: usize
+
+    Registry(all: &mut List<i32>) kills all@items {
+        all.push(1)
+        id = all.len()
+    }
+}
+
+fn kept_across(all: &mut List<i32>) -> usize kills all@items {
+    all.push(5)
+    let first = &all[0]
+    let r = Registry(all)
+    return r.id + first as usize
+}

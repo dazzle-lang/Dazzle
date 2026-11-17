@@ -1,0 +1,9 @@
+[module]
+name    = "default_bodies"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

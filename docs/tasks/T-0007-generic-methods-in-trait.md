@@ -105,5 +105,6 @@ warning-clean list, on clang++ and g++. `tests/errors/generic_trait_method_*` (`
 `dz explain DZ0589`.
 
 Not covered: a trait object of a generic `impl` is still T-0049's, and a qualified call to
-another module's trait method, `sinks::Writer::write(&mut log, 1)`, trips a visibility
-check that `log.write(1)` does not, which predates this.
+another module's trait method, `Writer::write(&mut log, 1)`, tripped a visibility check that
+`log.write(1)` did not, which predated this: fixed in r140, a trait's methods being as
+visible as the trait, and now in the fixture.

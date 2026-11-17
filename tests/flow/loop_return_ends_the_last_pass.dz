@@ -1,0 +1,17 @@
+// Spec §6.4, T-0227: a pass of a loop starts again from the body's end and from each
+// `continue`, never from a `return`, which leaves the function. A local moved by the `return`
+// that ends the last pass is not moved when the body runs again, since it does not.
+// expect: (none)
+
+fn gather(n: i32) -> List<String> {
+    let mut items = List<String>()
+    let mut i = 0
+    loop {
+        items.push(String("x"))
+        i += 1
+        if i < n {
+            continue
+        }
+        return items
+    }
+}

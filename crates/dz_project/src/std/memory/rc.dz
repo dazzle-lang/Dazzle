@@ -91,7 +91,7 @@ impl<T> Nullable for Rc<T> {
 
     /// Another owner, so the value outlives whatever happens to this one.
     fn guard(&self) -> Rc<T> {
-        return self
+        return self.clone()
     }
 
     fn ptr(&self) -> ^mut T {

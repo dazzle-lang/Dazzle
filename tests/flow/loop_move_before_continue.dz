@@ -1,0 +1,16 @@
+// Spec §6.4, T-0227: a move before a `continue` is moved when the body runs again, though
+// the `continue` leaves its branch: the next pass starts from it.
+// expect: DZ0401
+
+fn take(s: String) {}
+
+fn twice(c: bool) {
+    let x = String("a")
+    loop {
+        take(x)
+        if c {
+            continue
+        }
+        return
+    }
+}

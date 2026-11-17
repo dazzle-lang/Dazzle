@@ -1845,3 +1845,14 @@ fn main() {
     emit(&mut log)
 }
 ```
+
+## DZ0590
+
+A method that builds an element at its default, `List::resize`, which makes the new
+elements as `T()`, cannot be called where the element is an imported C++ class whose
+constructors all take arguments: there is no default to build (spec §15.2). Every Dazzle
+type has a default, so only such a class meets this. A `List` of one is otherwise a list
+like any other: build each element with a constructor and add it, `push` or `insert`, or give
+the class a default constructor in C++.
+
+No example: it takes a vendored C++ library (`tests/run/cppinterop`'s `Anchored` is one).

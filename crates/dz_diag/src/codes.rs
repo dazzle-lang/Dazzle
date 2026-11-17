@@ -475,6 +475,10 @@ pub const BOX_UPCAST_NOT_VIRTUAL: &str = "DZ0588";
 /// implementation, chosen where the receiver's type is known; a trait object's vtable has no
 /// slot for it (D-0108, spec §7.6, §8.1).
 pub const GENERIC_METHOD_THROUGH_OBJECT: &str = "DZ0589";
+/// A method that builds an element at its default, `List::resize`, called where the element
+/// is an imported C++ class with no constructor callable with no arguments: there is no
+/// default to build (spec §15.2, T-0230).
+pub const NO_DEFAULT_TO_BUILD: &str = "DZ0590";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

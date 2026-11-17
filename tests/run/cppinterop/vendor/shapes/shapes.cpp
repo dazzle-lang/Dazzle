@@ -47,7 +47,9 @@ void Counter::add(int by) { total += by; }
 
 void Counter::add(Point p) { total += p.x + p.y; }
 
-Anchored::Anchored() : self(this), value(0) {}
+int Summer::total(const int xs[4]) const { return xs[0] + xs[1] + xs[2] + xs[3]; }
+
+int Summer::total(int a, int b) const { return a + b; }
 
 Anchored::Anchored(int id) : self(this), value(id) {}
 

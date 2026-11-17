@@ -575,8 +575,16 @@ DZ_INLINE void drop_static(BuiltStatic<T, Make, Name>& cell) {
 template <class T, class U> DZ_INLINE void construct(T& dst, U&& v) {
     ::new (static_cast<void*>(&dst)) T(static_cast<U&&>(v));
 }
+// A type with no default constructor, an imported C++ class, has nothing to build here, and
+// a call that would reach this is refused (DZ0590); but the instance holding the call is
+// compiled whether or not anything calls it, so it must compile (T-0230).
 template <class T> DZ_INLINE void construct(T& dst) {
-    ::new (static_cast<void*>(&dst)) T();
+    if constexpr (__is_constructible(T)) {
+        ::new (static_cast<void*>(&dst)) T();
+    } else {
+        (void)dst;
+        abort();
+    }
 }
 //
 // A destructor runs only for a class or a union. On anything else — a number, a pointer,

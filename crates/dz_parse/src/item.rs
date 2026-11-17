@@ -974,6 +974,17 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+        // `kills all@items`: what the constructor ends of what its parameters reach, as a
+        // function's clause says, after where a function's return type would be (spec
+        // §6.7, T-0122). What it builds is not yet anyone's, so `self` is never named.
+        let (kills, kills_span) = if self.at(TokenKind::Kills) {
+            let clause_start = self.start();
+            self.bump();
+            let kills = self.parse_kills(false);
+            (kills, Some(self.span_from(clause_start)))
+        } else {
+            (Vec::new(), None)
+        };
         let body = if self.at(TokenKind::LBrace) { Some(self.parse_block()) } else { None };
         FnDecl {
             span: self.span_from(start),
@@ -989,9 +1000,8 @@ impl<'a> Parser<'a> {
             ret: None,
             ret_ties: Vec::new(),
             fallible: false,
-            // A constructor kills nothing: what it builds is not yet anyone's.
-            kills: Vec::new(),
-            kills_span: None,
+            kills,
+            kills_span,
             sends: Vec::new(),
             sends_span: None,
             body,

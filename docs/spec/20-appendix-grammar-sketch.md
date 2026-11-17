@@ -43,7 +43,8 @@ member        = field | fn_decl | ctor | tie_decl ;
 field         = { attribute } [ visibility ] [ "own" ] ident ":" type
                 [ "=" expr ] [ raw_string ] TERM ;  (* the tag, §13.1 *)
 tie_decl      = "tie" ( "@" ident | "[" "*" "]" ) "=" kill_list TERM ;  (* paths from fields, §6.7 *)
-ctor          = ident "(" [ params ] ")" block ;
+ctor          = ident "(" [ params ] ")" [ ":" path "(" [ expr { "," expr } ] ")" ]
+                [ "kills" kill_list ] block ;   (* base initialiser §7.3; clause §6.7, T-0122 *)
 impl_decl     = "impl" [ generics ] path [ "<" type_list ">" ] "for" type "{" { impl_item } "}" ;
 impl_item     = "type" ident "=" type TERM | fn_decl ;
 

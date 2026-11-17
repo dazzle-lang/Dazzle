@@ -404,6 +404,9 @@ fn rebuild(world: &mut World) kills world               // anything reachable fr
   clause a body needs while it is being written. Every function says it, private ones
   included, so a signature always tells what a call can invalidate, and a change to a body
   never breaks a caller somewhere else without the signature changing too.
+- **A constructor says it too**, after its parameters and any base initialiser, where a
+  function's return type would be: `Registry(all: &mut List<i32>) kills all@items { … }`.
+  What it builds is not yet anyone's, so it names only what its parameters reach.
 - **Where there is no body to hold it to**, the clause is a promise instead: a trait method
   without a default, an `extern fn`, a function type. An implementation's own clause is
   exact for its body, as anywhere, and may name no more than the trait's; so may its

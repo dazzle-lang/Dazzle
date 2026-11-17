@@ -115,6 +115,7 @@ fn check_body(
         moved: HashMap::new(),
         cloneable: std::collections::HashSet::new(),
         quiet: false,
+        loops: Vec::new(),
     };
     cx.body();
     // References used after their memory was killed, and clauses that do not say what
@@ -154,7 +155,7 @@ impl Unread {
 /// it is not an error; but an unread `let` is usually a leftover or a typo, and a parameter
 /// nothing reads is a signature worth a second look.
 fn unused(body: &hir::Body, unread: &mut Unread) {
-    for (l, u) in body.locals.iter().zip(hir::local_uses(body)) {
+    for (i, (l, u)) in body.locals.iter().zip(hir::local_uses(body)).enumerate() {
         // `self` is part of a method's shape; a leading `_` says "unused on purpose"; a
         // local whose span is not its own name — an implicit `it` — was written by no one;
         // and one a macro's hygiene renamed is the macro author's (spec §12.6).
@@ -183,20 +184,34 @@ fn unused(body: &hir::Body, unread: &mut Unread) {
             .at(body.file, l.span, "nothing reads this")
         };
         // The span is the name exactly as written (`written` above), so a `_` in front of it
-        // is the whole of the rename: a leading `_` is what says "unused on purpose".
-        let underscore = dz_diag::Edit {
+        // renames it: a leading `_` is what says "unused on purpose". A variable that is
+        // assigned is named again at each assignment, and each is renamed with it, or the
+        // fix would leave them naming nothing (T-0108).
+        let underscore = |span: dz_span::Span| dz_diag::Edit {
             file: body.file,
-            span: dz_span::Span { start: l.span.start, end: l.span.start },
+            span: dz_span::Span { start: span.start, end: span.start },
             text: "_".to_owned(),
         };
-        unread.pending.push((
-            key,
-            d.with_help(format!(
-                "if that is deliberate, name it `_{}`; otherwise remove it",
-                l.name
-            ))
-            .with_fix(format!("rename it `_{}`", l.name), vec![underscore]),
+        let mut edits = vec![underscore(l.span)];
+        let mut certain = true;
+        for e in &body.exprs {
+            if !matches!(e.kind, hir::ExprKind::Local(x) if x.index() == i) {
+                continue;
+            }
+            // Written by a macro, or otherwise not the name as it is in the file: no edit
+            // here can be certain, so the rename is left to the help.
+            if e.span.len() as usize != l.name.len() {
+                certain = false;
+                continue;
+            }
+            edits.push(underscore(e.span));
+        }
+        let d = d.with_help(format!(
+            "if that is deliberate, name it `_{}`; otherwise remove it",
+            l.name
         ));
+        let d = if certain { d.with_fix(format!("rename it `_{}`", l.name), edits) } else { d };
+        unread.pending.push((key, d));
     }
 }
 
@@ -259,6 +274,18 @@ struct Flow<'a> {
     /// Set while replaying a loop body to find what it moves. The replay must not report,
     /// or every diagnostic inside a loop would appear twice.
     quiet: bool,
+    /// The loops being walked, innermost last, each with what was moved at every `break`
+    /// and `continue` that leaves or restarts it (T-0227).
+    loops: Vec<LoopFrame>,
+}
+
+/// One loop being walked: its label's id, when a nested loop names it, and the moved set at
+/// each jump to it. A jump diverges, so what it moved reaches no join in the body; it reaches
+/// the loop instead, at the next pass or after the loop.
+struct LoopFrame {
+    id: Option<u32>,
+    breaks: Vec<HashMap<Place, Span>>,
+    continues: Vec<HashMap<Place, Span>>,
 }
 
 impl<'a> Flow<'a> {
@@ -269,6 +296,13 @@ impl<'a> Flow<'a> {
     }
 
     fn type_name(&self, t: &Ty) -> String {
+        // A trait is a value only as `Self` in its own default bodies, where it was written
+        // `Self` and means the implementer.
+        if let Ty::Named { sym, .. } = t {
+            if self.res.symbol(*sym).kind == dz_resolve::SymbolKind::Trait {
+                return "Self".to_owned();
+            }
+        }
         dz_check::type_name(self.res, t)
     }
 
@@ -443,12 +477,12 @@ impl<'a> Flow<'a> {
             hir::StmtKind::Expr(e) => self.value(*e),
             // A `loop` no `break` leaves ends only by `return`, so nothing after it runs and
             // a function may end with it (spec §10.2, D-0102). A `while` may always end.
-            hir::StmtKind::While { cond, body, forever, .. } => {
+            hir::StmtKind::While { cond, body, forever, label } => {
                 self.read(*cond);
-                self.loop_body(*body, &[]);
+                self.loop_body(*body, &[], label.as_ref().map(|l| l.id));
                 *forever
             }
-            hir::StmtKind::For { bindings, subject, body, shape, .. } => {
+            hir::StmtKind::For { bindings, subject, body, shape, label } => {
                 // A user iterator is copied or moved into the loop's own iterator, which
                 // `advance` then mutates (spec §10.4) — so its subject is a value, which an
                 // iterator that is not plain moves into. An array or slice is walked in place,
@@ -464,7 +498,7 @@ impl<'a> Flow<'a> {
                     self.read(*subject);
                 }
                 let fresh: Vec<LocalId> = bindings.iter().flatten().copied().collect();
-                self.loop_body(*body, &fresh);
+                self.loop_body(*body, &fresh, label.as_ref().map(|l| l.id));
                 false
             }
             // A deferred statement runs at scope exit, among the drops in reverse order of
@@ -485,23 +519,48 @@ impl<'a> Flow<'a> {
     /// `fresh` are a `for`'s bindings, which every pass binds anew: moving the element out
     /// of `x` in `for x in it { take(move(x)) }` leaves nothing for the next pass to find
     /// missing, because the next pass has another `x`.
-    fn loop_body(&mut self, body: BlockId, fresh: &[LocalId]) {
+    fn loop_body(&mut self, body: BlockId, fresh: &[LocalId], id: Option<u32>) {
         let revive_fresh = |this: &mut Self| {
             for l in fresh {
                 this.revive(&Place { local: *l, path: Vec::new() });
             }
         };
+        let join = |into: &mut HashMap<Place, Span>, from: HashMap<Place, Span>| {
+            for (place, span) in from {
+                into.entry(place).or_insert(span);
+            }
+        };
+        let frame = || LoopFrame { id, breaks: Vec::new(), continues: Vec::new() };
         revive_fresh(self);
         let entry = self.moved.clone();
         let was_quiet = std::mem::replace(&mut self.quiet, true);
-        self.block(body);
+        self.loops.push(frame());
+        let diverges = self.block(body);
+        let first = self.loops.pop().expect("pushed above");
         self.quiet = was_quiet;
-        let after = std::mem::replace(&mut self.moved, entry);
-        for (place, span) in after {
-            self.moved.entry(place).or_insert(span);
+        // A pass starts again from the body's end, when that is reachable, and from each
+        // `continue`: not from a `return`, which leaves the function, nor a `break` (T-0227).
+        let ended = std::mem::replace(&mut self.moved, entry);
+        if !diverges {
+            join(&mut self.moved, ended);
         }
+        for state in first.continues {
+            join(&mut self.moved, state);
+        }
+        let again = self.moved.clone();
         revive_fresh(self);
-        self.block(body);
+        self.loops.push(frame());
+        let diverges = self.block(body);
+        let second = self.loops.pop().expect("pushed above");
+        // After the loop: where a pass begins, at which a `while` or `for` may stop, and
+        // each `break`, whose moves reach what follows the loop.
+        let ended = std::mem::replace(&mut self.moved, again);
+        if !diverges {
+            join(&mut self.moved, ended);
+        }
+        for state in second.continues.into_iter().chain(second.breaks) {
+            join(&mut self.moved, state);
+        }
     }
 
     // --- expressions -------------------------------------------------------
@@ -830,8 +889,12 @@ impl<'a> Flow<'a> {
                 if let Some(v) = v {
                     // `return x` of a whole local is a move C++ already makes, and the
                     // checker leaves it unwritten so the value can be built in place
-                    // (`dz_check::moves`): nothing after it can see the local again.
-                    if matches!(self.body.expr(v).kind, hir::ExprKind::Local(_)) {
+                    // (`dz_check::moves`): nothing after it can see the local again. Not
+                    // `self`, a receiver the method borrows: `return self` of a value that
+                    // is not plain would copy it (T-0241).
+                    if matches!(self.body.expr(v).kind, hir::ExprKind::Local(_))
+                        && matches!(self.denotes(v), Denotes::Owned(_))
+                    {
                         self.read(v);
                     } else {
                         self.value(v);
@@ -840,7 +903,24 @@ impl<'a> Flow<'a> {
                 }
                 true
             }
-            hir::ExprKind::Break(_) | hir::ExprKind::Continue(_) => true,
+            // A jump diverges: what it moved goes to the loop it names, the innermost or the
+            // one its label's id picks, at the next pass or after the loop (T-0227).
+            hir::ExprKind::Break(target) | hir::ExprKind::Continue(target) => {
+                let at = match target {
+                    None => self.loops.len().checked_sub(1),
+                    Some(id) => self.loops.iter().rposition(|f| f.id == Some(id)),
+                };
+                if let Some(i) = at {
+                    let state = self.moved.clone();
+                    let frame = &mut self.loops[i];
+                    if matches!(self.body.expr(e).kind, hir::ExprKind::Break(_)) {
+                        frame.breaks.push(state);
+                    } else {
+                        frame.continues.push(state);
+                    }
+                }
+                true
+            }
             // A slice views its base in place; the ends are values (spec §5.3).
             hir::ExprKind::SliceRange { base, start, end } => {
                 self.place_only(base);

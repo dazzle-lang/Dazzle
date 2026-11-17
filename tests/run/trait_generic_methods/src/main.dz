@@ -90,6 +90,8 @@ fn main() {
     log.write("two")
     log.pair(3, 4.5)
     through_bound(&mut log)
+    // Named through another module's trait, whose methods are as visible as it is.
+    Writer::write(&mut log, true)
     let mut stamps = Stamps{}
     Stamp::stamp(&mut stamps, true)
     Stamp::stamp<i64>(&mut stamps, 64)

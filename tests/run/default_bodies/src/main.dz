@@ -1,0 +1,78 @@
+// A trait's default bodies (spec §7.6): `Self` there is every implementer, so a body calls
+// the methods of the traits its trait requires, and meets their bounds (T-0242); and since
+// `Self` may be any type, a copy of `self` is written `self.clone()` (T-0241, D-0106).
+
+trait Tr {
+    fn size(&self) -> i32
+}
+
+struct Tally<T: Tr> {
+    pub n: i32 = 0
+
+    Tally(count: i32) {
+        n = count
+    }
+}
+
+trait Counted : Tr {
+    fn name(&self) -> const &str
+
+    fn twice(&self) -> i32 {
+        return self.size() * 2
+    }
+
+    fn tally(&self) -> Tally<Self> {
+        return Tally<Self>(self.size())
+    }
+}
+
+struct Box3 {
+    pub w: i32 = 3
+}
+
+impl Tr for Box3 {
+    fn size(&self) -> i32 {
+        return w
+    }
+}
+
+impl Counted for Box3 {
+    fn name(&self) -> const &str {
+        return "box"
+    }
+}
+
+// A copy of `self` in a default body is `self.clone()`, which `Clone` as a supertrait
+// provides: `return self` would be a copy of an implementer that may own something.
+trait Stamped : Clone {
+    fn stamp(&self) -> i32
+
+    fn duplicate(&self) -> Self {
+        return self.clone()
+    }
+}
+
+struct Label {
+    pub text: String
+}
+
+impl Clone for Label {
+    fn clone(&mut self, other: &Label) {
+        text = other.text.clone()
+        text.push_str("'")
+    }
+}
+
+impl Stamped for Label {
+    fn stamp(&self) -> i32 {
+        return text.byte_len() as i32
+    }
+}
+
+fn main() {
+    let b = Box3{}
+    println!("{} {} {}", b.name(), b.twice(), b.tally().n)
+    let l = Label{ text: String("ab") }
+    let d = l.duplicate()
+    println!("{} {} {} {}", l.text, l.stamp(), d.text, d.stamp())
+}

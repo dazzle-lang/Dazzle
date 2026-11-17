@@ -260,6 +260,10 @@ pub struct StructSig {
     /// `drop` for one — but the type is move-only all the same, because copying it would
     /// run that destructor twice (spec §15.2, §6.3).
     pub cpp_owned: bool,
+    /// An imported C++ class that declares constructors, none of which can be called with no
+    /// arguments: nothing can build one at its default, so an element of one is never made
+    /// that way (`List::resize`, T-0230). Every Dazzle type has a default.
+    pub no_default: bool,
     /// Keyed by method key: the name itself, or `name#1`, `name#2`… for a second and later
     /// method of the same name, which is allowed only for implementations of one trait at
     /// different arguments (spec §18.27).
@@ -394,6 +398,9 @@ pub struct TypeTable {
     /// the two are run by different commands and neither belongs in the other's binary.
     pub benches: Vec<SymbolId>,
     sigs: HashMap<SymbolId, ItemSig>,
+    /// An imported integer constant's value, by its symbol: it is untyped as a literal is,
+    /// so a narrow context checks its range as a literal's (spec §5.1, §15.2, T-0021).
+    pub foreign_ints: HashMap<SymbolId, i128>,
     /// The generic parameters of a struct, union or trait, in declaration order (spec
     /// §8.1). A generic *function*'s parameters live on its [`FnSig`] instead, because a
     /// method has a signature but no `SymbolId` of its own.
@@ -708,6 +715,15 @@ impl TypeTable {
             .collect()
     }
 
+    /// A trait's own type, as `Self` is spelled in the trait's default bodies: the trait
+    /// itself, whose closure is what every implementer has (spec §7.6, T-0242). `None` for
+    /// anything else.
+    pub fn self_trait_bounds(&self, t: &Ty) -> Option<Vec<TraitRef>> {
+        let Ty::Named { sym, args } = t else { return None };
+        matches!(self.get(*sym), Some(ItemSig::Trait(_)))
+            .then(|| vec![TraitRef { trait_sym: *sym, args: args.clone(), span: Span::new(0, 0) }])
+    }
+
     /// What a type nobody has chosen yet may do — a parameter's bounds, or a projection's
     /// (spec §8.1, §8.5). Empty for anything else, which has implementations instead.
     pub fn abstract_bounds(&self, t: &Ty) -> Vec<TraitRef> {
@@ -956,6 +972,10 @@ impl TypeTable {
                             .iter()
                             .any(|t| self.clones_itself(t, stack))
                     }),
+                    // A trait is a value only as `Self` in its own default bodies, where it
+                    // stands for every implementer: like a type parameter, it may be any
+                    // type, so it is never plain (D-0106, T-0241).
+                    Some(ItemSig::Trait(_)) => true,
                     _ => false,
                 };
                 stack.pop();
@@ -1352,6 +1372,7 @@ impl<'a> Ctx<'a> {
                 tests: Vec::new(),
                 benches: Vec::new(),
                 sigs: HashMap::new(),
+                foreign_ints: HashMap::new(),
                 type_params: HashMap::new(),
                 param_bounds: HashMap::new(),
                 assoc_params: HashMap::new(),
@@ -1527,6 +1548,8 @@ impl Ctx<'_> {
                             ..StructSig::default()
                         };
                         self.foreign_methods(module.id, f, &d.qualified(), methods, &mut sig);
+                        sig.no_default =
+                            !sig.ctors.is_empty() && sig.ctors.iter().all(|c| c.required() > 0);
                         ItemSig::Struct(sig)
                     }
                     DeclKind::Enum { backing, variants, .. } => ItemSig::Enum {
@@ -1543,7 +1566,10 @@ impl Ctx<'_> {
                         values: variants.iter().map(|v| Some(v.value)).collect(),
                     },
                     DeclKind::Const { value, .. } => ItemSig::Const(match value {
-                        ConstValue::Int(_) => Ty::IntLit,
+                        ConstValue::Int(v) => {
+                            self.table.foreign_ints.insert(sym, *v);
+                            Ty::IntLit
+                        }
                         ConstValue::Float { single: true, .. } => Ty::Float(FloatTy::F32),
                         ConstValue::Float { .. } => Ty::FloatLit,
                         // A macro whose expansion is not a number but has a type of its

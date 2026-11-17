@@ -255,6 +255,26 @@ fn a_default_body_meets_bounds_through_self_and_its_associated_types() {
     assert!(snippet(&unbounded).contains(&dz_diag::codes::UNSATISFIED_BOUND));
 }
 
+/// Spec §7.6 (T-0242): `Self` in a trait's default body is every implementer, so it has the
+/// methods and meets the bounds of the traits the trait requires. A trait it does not
+/// require is still not reached, and neither is a supertrait's method through a trait
+/// object, whose vtable has the trait's own.
+#[test]
+fn a_default_body_reaches_its_supertraits() {
+    let decls = "trait Tr {\n fn size(&self) -> i32\n}\n\ntrait Other {\n fn other(&self) -> i32\n}\n\nstruct Tally<T: Tr> {\n pub n: i32 = 0\n}\n\n";
+    let reaches = format!(
+        "{decls}trait Counted : Tr {{\n fn twice(&self) -> i32 {{\n  return self.size() * 2\n }}\n fn tally(&self) -> Tally<Self> {{\n  return Tally<Self>{{}}\n }}\n}}\n"
+    );
+    assert!(snippet(&reaches).is_empty(), "{:?}", snippet(&reaches));
+    let unrelated =
+        format!("{decls}trait Counted : Tr {{\n fn twice(&self) -> i32 {{\n  return self.other()\n }}\n}}\n");
+    assert_eq!(snippet(&unrelated), vec![dz_diag::codes::NO_SUCH_METHOD]);
+    let object = format!(
+        "{decls}trait Counted : Tr {{\n fn name(&self) -> i32\n}}\n\nfn f(c: &Counted) -> i32 {{\n return c.size()\n}}\n"
+    );
+    assert_eq!(snippet(&object), vec![dz_diag::codes::NO_SUCH_METHOD]);
+}
+
 /// Spec §5.2: one missing `unsafe` is one mistake, however many raw-memory operations
 /// sit inside the expression it should have wrapped.
 #[test]
