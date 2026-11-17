@@ -2655,6 +2655,7 @@ const WARNING_CLEAN: &[&str] = &[
     "formatting",
     "collections",
     "projection",
+    "indexed",
     "implicit_as",
     "ref_fields",
     "region_arena",

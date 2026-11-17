@@ -646,6 +646,29 @@ impl Ty {
             _ => false,
         }
     }
+
+    /// Does this type have the error type anywhere inside it — `Indexed<{unknown}>` from a
+    /// type argument that failed its bound? Such a type was reported where it was made, so a
+    /// question asked of it later answers quietly (invariant 6).
+    pub fn mentions_error(&self) -> bool {
+        match self {
+            Ty::Error => true,
+            Ty::Assoc(p) => p.on.mentions_error() || p.trait_args.iter().any(Ty::mentions_error),
+            Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => i.mentions_error(),
+            Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
+                inner.mentions_error()
+            }
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } | Ty::ConstSlice(elem) => {
+                elem.mentions_error()
+            }
+            Ty::Tuple(parts) => parts.iter().any(Ty::mentions_error),
+            Ty::Named { args, .. } | Ty::Variant(_, _, args) => args.iter().any(Ty::mentions_error),
+            Ty::Fn { params, ret, .. } => {
+                params.iter().any(Ty::mentions_error) || ret.mentions_error()
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Replace generic parameters by type, by parameter id (spec §8.4).

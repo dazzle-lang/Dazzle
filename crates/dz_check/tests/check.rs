@@ -231,6 +231,28 @@ fn a_payload_default_is_checked_against_its_field() {
     .is_empty());
 }
 
+/// Spec §7.6, §8.5 (T-0037): in a trait's own default body, `Self` written as a type
+/// argument is the implementer, and an associated type may do what its declaration bounds
+/// it by, so both meet a bound `Tr` there. A type that does not is still refused.
+#[test]
+fn a_default_body_meets_bounds_through_self_and_its_associated_types() {
+    let tally =
+        "struct Tally<T: Tr> {\n pub n: i32 = 0\n\n Tally(count: i32) {\n  n = count\n }\n}\n\n";
+    let decls = format!("trait Tr {{\n fn size(&self) -> i32\n}}\n\n{tally}");
+    let through_self = format!(
+        "trait Tr {{\n fn size(&self) -> i32\n fn tally(&self) -> Tally<Self> {{\n  return Tally<Self>(self.size())\n }}\n}}\n\n{tally}"
+    );
+    assert!(snippet(&through_self).is_empty(), "{:?}", snippet(&through_self));
+    let through_assoc = format!(
+        "{decls}trait Source {{\n type It : Tr\n fn tally(&self) -> Tally<It> {{\n  return Tally<It>(1)\n }}\n}}\n"
+    );
+    assert!(snippet(&through_assoc).is_empty(), "{:?}", snippet(&through_assoc));
+    let unbounded = format!(
+        "{decls}trait Source {{\n type It\n fn tally(&self) -> Tally<It> {{\n  return Tally<It>(1)\n }}\n}}\n"
+    );
+    assert!(snippet(&unbounded).contains(&dz_diag::codes::UNSATISFIED_BOUND));
+}
+
 /// Spec §5.2: one missing `unsafe` is one mistake, however many raw-memory operations
 /// sit inside the expression it should have wrapped.
 #[test]

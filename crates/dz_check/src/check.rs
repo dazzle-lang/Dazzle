@@ -2560,7 +2560,7 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             Some(item) => ForItem::Value(item),
             None => {
-                if !ty.is_wildcard() {
+                if !ty.mentions_error() && !ty.is_wildcard() {
                     let t = self.cx.name_of(ty);
                     self.cx.error_help(
                         codes::TYPE_MISMATCH,
@@ -4930,9 +4930,17 @@ impl<'a, 'c> Body<'a, 'c> {
 
         if !seg.generics.is_empty() {
             // A constructor of `Box`, `Rc` or `Weak` may be written of an abstract base,
-            // `Weak<Shape>(&shapes)`, as its type may (T-0232).
-            let written: Vec<Ty> =
-                seg.generics.iter().map(|t| self.cx.lower_checked_type(t, handle)).collect();
+            // `Weak<Shape>(&shapes)`, as its type may (T-0232). `Self` written as an argument
+            // is the enclosing type, as it is anywhere else in a body: in a trait's default
+            // body, `Indexed<Self>(self)` (T-0037).
+            let written: Vec<Ty> = seg
+                .generics
+                .iter()
+                .map(|t| {
+                    let lowered = self.cx.lower_checked_type(t, handle);
+                    self.subst(&lowered)
+                })
+                .collect();
             if written.len() != sig.generics.len() {
                 let (wanted, got) = (sig.generics.len(), written.len());
                 self.cx.error_help(
@@ -4983,7 +4991,13 @@ impl<'a, 'c> Body<'a, 'c> {
 
         for def in &sig.generics {
             let chosen = map[&def.param.id].clone();
-            self.check_bounds(def, &chosen, span);
+            // A type that fails its bound was reported here; the call's result is built of
+            // the error type, so nothing later says it again: `Indexed(xs)` of an array is
+            // one mistake, not also a loop over something that cannot be iterated
+            // (invariant 6).
+            if !self.check_bounds(def, &chosen, span) {
+                map.insert(def.param.id, Ty::Error);
+            }
         }
 
         let solved: Vec<Ty> = sig.generics.iter().map(|d| map[&d.param.id].clone()).collect();
@@ -5075,7 +5089,10 @@ impl<'a, 'c> Body<'a, 'c> {
                     Ty::Error
                 }
             };
-            self.check_bounds(def, &chosen, span);
+            if !self.check_bounds(def, &chosen, span) {
+                args.push(Ty::Error);
+                continue;
+            }
             args.push(chosen);
         }
         args
@@ -5120,14 +5137,15 @@ impl<'a, 'c> Body<'a, 'c> {
         self.solve_call(&sig, seg, args, span, name, false)
     }
 
-    /// Does the type chosen for a parameter satisfy the parameter's bounds (spec §8.1)?
+    /// Does the type chosen for a parameter satisfy the parameter's bounds (spec §8.1)? Each
+    /// one it does not is reported, and the answer is `false`.
     ///
     /// The bounds are written in terms of the parameter, so `T: Mul` is `T: Mul<T>`; when
     /// `T` is solved to `Vec3` the obligation becomes `Mul<Vec3>`, which is why the bound is
     /// substituted before it is checked.
-    fn check_bounds(&mut self, def: &ParamDef, chosen: &Ty, span: Span) {
+    fn check_bounds(&mut self, def: &ParamDef, chosen: &Ty, span: Span) -> bool {
         if chosen.is_wildcard() {
-            return;
+            return true;
         }
         // A plain parameter is never a view, so its body may store one anywhere; only a
         // `view` parameter may be given a view (spec §6.7, D-0093).
@@ -5152,8 +5170,9 @@ impl<'a, 'c> Body<'a, 'c> {
                      the parameter `view {p}` where it is only passed on (spec §6.7)"
                 ),
             );
-            return;
+            return false;
         }
+        let mut ok = true;
         let mut map = HashMap::new();
         map.insert(def.param.id, chosen.clone());
         for bound in &def.bounds {
@@ -5185,7 +5204,9 @@ impl<'a, 'c> Body<'a, 'c> {
                 format!("`{p}` is bounded by `{shown}`"),
                 help,
             );
+            ok = false;
         }
+        ok
     }
 
     /// `Mul<f32>` — a trait reference as it would be written, for a diagnostic.

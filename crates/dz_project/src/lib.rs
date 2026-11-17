@@ -1095,6 +1095,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
         include_str!("std/collections/hash_map_values_mut.dz"),
     ),
     ("<std>/collections/hash_set.dz", include_str!("std/collections/hash_set.dz")),
+    ("<std>/collections/indexed.dz", include_str!("std/collections/indexed.dz")),
     ("<std>/collections/key.dz", include_str!("std/collections/key.dz")),
     ("<std>/collections/list.dz", include_str!("std/collections/list.dz")),
     ("<std>/collections/search.dz", include_str!("std/collections/search.dz")),

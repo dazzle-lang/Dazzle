@@ -1,0 +1,14 @@
+0: slime 3
+1: bat 5
+2: orc 9
+count 3 last 2
+from the second: 0 bat
+from the second: 1 orc
+after 0 3
+after 1 6
+after 2 11
+countdown 0 3
+countdown 1 2
+countdown 2 1
+still 3
+letters 3

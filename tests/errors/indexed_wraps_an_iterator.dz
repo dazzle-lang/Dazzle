@@ -1,0 +1,12 @@
+// expect: DZ0531
+//
+// `Indexed` numbers an iterator. An array is numbered in a loop head instead: `for i, x in
+// xs.indexed()` (spec §10.4).
+
+fn main() {
+    let xs = [1, 2]
+    let pairs = Indexed(xs)
+    for i, x in pairs {
+        println!("{} {}", i, x)
+    }
+}

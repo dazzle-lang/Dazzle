@@ -159,8 +159,18 @@ live where the tuple does. The number of names must be the tuple's size (`DZ0549
 names always mean the parts of one element and never anything else.
 
 **A pass count** comes from `indexed()`: `for i, e in xs.indexed()` binds a `usize` counting
-passes from zero, then the element with the same choice of `e`, `&e` or `&mut e`. It works on
-anything `for` does. For now `indexed()` is known only in a loop's head.
+passes from zero, then the element with the same choice of `e`, `&e` or `&mut e`. In a loop's
+head it works on anything `for` does: an array, a slice, a range, a container, an iterator.
+
+Anywhere else **`indexed()` is a value**, of the standard library's **`Indexed<I>`**, an
+iterator whose `Item` is `(usize, I::Item)`. A container has it as a method of `Iterable`,
+`xs.indexed()`, which numbers a fresh `xs.iter()`; an iterator is numbered by handing it to
+`Indexed`, `Indexed(it)`, which takes it by value: a plain one is copied and any other moves
+in (§6.4), since a method takes its receiver only by reference (§7.3). So `let pairs =
+xs.indexed()` can be kept, passed to a function that takes a `T: Iterate`, and looped over
+later. A loop's head that names `indexed()` makes the same passes and binds the same values
+as a loop over that `Indexed`, and in addition may write through `&mut e`, number an array or
+a range, and number an iterator in place.
 
 **Consuming.** `for e in entities` over an array the function owns — a local, a by-value
 parameter, a field of either — whose elements are not plain moves each element out into

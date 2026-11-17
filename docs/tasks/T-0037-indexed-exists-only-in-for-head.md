@@ -2,10 +2,10 @@
 id: T-0037
 title: `indexed()` exists only in a `for` head
 milestone: M12
-status: open
-kind: deferral
+status: done
+kind: feature
 area: checker
-where: `dz_check/src/check.rs`, `for_stmt`
+where: `crates/dz_project/src/std/collections/indexed.dz` (`Indexed<I>`); `crates/dz_project/src/std/core/iterate.dz` (`Iterable::indexed`); `dz_check/src/check.rs`, `for_stmt` (the loop head's counted form, kept) and `solve_call` (`Self` as a type argument); `dz_check/src/lib.rs` (an associated type's bounds inside its trait); `tests/run/indexed/`
 ---
 
 **What `indexed()` is today.** It gives a loop the element *and* its position:
@@ -47,3 +47,34 @@ part of the job: two implementations of the same name would drift.
 **Unblocked** (r75): [T-0050](T-0050-associated-type-projection.md) is done, and an adapter
 whose `Item` is built from the inner one's can now be written — `tests/run/projection` has
 one, `Numbered<I>`, with `type Item = (usize, I::Item)`. What is left is the work above.
+
+**Done** (2026-11-17, r138), asked for by the user, but not quite as planned above: the
+loop head's special case is kept. Two things stood in the way of deleting it.
+
+- **A method has no by-value receiver** (§7.3), so `it.indexed()` on an iterator cannot take
+  the iterator into the adapter. It could only copy it, which is right for a plain iterator
+  and a silent copy of anything else. A default body that does that is accepted today, but
+  only through a hole, T-0241. So `Iterate` has no `indexed()`: an iterator is numbered
+  with **`Indexed(it)`**, which takes it by value.
+- **`for i, &mut e in list.indexed()`** writes because the loop sees the `&mut` binding and
+  asks for `iter_mut()`. A method cannot see how its result will be bound, so the adapter
+  over a container is read-only.
+
+What there is now: `std`'s **`Indexed<I>`** (`collections/indexed.dz`), an iterator of
+`(usize, I::Item)`; **`Iterable::indexed()`**, a default method, `Indexed(self.iter())`, so
+`let pairs = xs.indexed()` works on every container; and `Indexed(it)` for an iterator. A
+loop head that names `indexed()` keeps its counted loop, with the same passes and bindings as
+a loop over the value, plus `&mut e`, arrays and ranges, which spec §10.4 now says.
+
+Two checker fixes came with it, both needed by `Iterable::indexed`'s body: `Self` written as
+a type argument in a body is the enclosing type (`Indexed<Self>(…)`), and an associated type
+used inside its own trait's default body has the bounds its declaration gives it (`type Iter :
+Iterate` makes `Iter` an iterator there). A type argument that fails its bound is now the
+error type afterwards, so `Indexed(xs)` of an array is one diagnostic, not also "cannot be
+iterated" at the loop. Found on the way: T-0241, and T-0242 (a default body cannot reach a
+supertrait's method through `self`). Tests: `tests/run/indexed`, `tests/errors/indexed_*`,
+`typed/`'s `numbered`, and `dz_check`'s
+`a_default_body_meets_bounds_through_self_and_its_associated_types`.
+
+The adapters the readiness review wanted after this one (`filter`, `map`, `rev`, `zip`) meet
+the same receiver question, which is a language decision of its own.

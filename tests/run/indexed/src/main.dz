@@ -1,0 +1,109 @@
+// `indexed()` as a value (spec §10.4, T-0037): a container's `indexed()` is an ordinary
+// method from `Iterable`, which hands out an `Indexed` of a fresh iterator, and an iterator
+// is numbered by handing it to `Indexed` itself. Both are kept in a local, passed to a
+// generic function, and looped over; a `for` head that names `indexed()` loops with a count
+// and makes the same passes, with `&mut e` too.
+
+struct Monster {
+    pub name: String
+    pub hp:   i32 = 0
+}
+
+// An iterator of values it makes, plain data: `Indexed(c)` copies it.
+struct Countdown {
+    pub left: i32 = 0
+}
+
+impl Iterate for Countdown {
+    type Item = i32
+
+    fn valid(&self) -> bool {
+        return left > 0
+    }
+
+    fn get(&self) -> i32 {
+        return left
+    }
+
+    fn advance(&mut self) {
+        left -= 1
+    }
+}
+
+// An iterator that owns its text is not plain: `Indexed(w)` moves it in.
+struct Letters {
+    pub text: String
+    pub at:   usize = 0
+}
+
+impl Iterate for Letters {
+    type Item = usize
+
+    fn valid(&self) -> bool {
+        return at < text.byte_len()
+    }
+
+    fn get(&self) -> usize {
+        return at
+    }
+
+    fn advance(&mut self) {
+        at += 1
+    }
+}
+
+fn count<view T: Iterate>(it: T) -> usize {
+    let mut n: usize = 0
+    for _ in it {
+        n += 1
+    }
+    return n
+}
+
+// The last pass's count, read through the tuple an `Indexed` hands out.
+fn last_count<view T: Iterate>(it: Indexed<T>) -> usize {
+    let mut last: usize = 0
+    for i, _ in it {
+        last = i
+    }
+    return last
+}
+
+fn main() {
+    let mut monsters = List<Monster>()
+    monsters.push(Monster{ name: String("slime"), hp: 3 })
+    monsters.push(Monster{ name: String("bat"), hp: 5 })
+    monsters.push(Monster{ name: String("orc"), hp: 9 })
+
+    // A container's `indexed()`, kept and then looped over.
+    let pairs = monsters.indexed()
+    for i, &m in pairs {
+        println!("{}: {} {}", i, m.name, m.hp)
+    }
+    println!("count {} last {}", count(monsters.indexed()), last_count(monsters.indexed()))
+
+    // An iterator part-way through, numbered from where it stands.
+    let mut it = monsters.iter()
+    it.advance()
+    for i, &m in Indexed(it) {
+        println!("from the second: {} {}", i, m.name)
+    }
+
+    // A `for` head may write through `&mut e`.
+    for i, &mut m in monsters.indexed() {
+        m.hp += i as i32
+    }
+    for i, &m in monsters.indexed() {
+        println!("after {} {}", i, m.hp)
+    }
+
+    let c = Countdown{ left: 3 }
+    for i, v in Indexed(c) {
+        println!("countdown {} {}", i, v)
+    }
+    println!("still {}", c.left)
+
+    let w = Letters{ text: String("abc") }
+    let letters = Indexed(w)
+    println!("letters {}", count(letters))
+}

@@ -22,6 +22,12 @@ pub trait Iterate {
 pub trait Iterable {
     view type Iter : Iterate
     fn iter(&self) -> Iter
+
+    /// The elements numbered from zero, `(usize, Item)`: `Indexed(xs.iter())` (§10.4). An
+    /// iterator is numbered by handing it to `Indexed` itself, which takes it.
+    fn indexed(&self) -> Indexed<Iter> {
+        return Indexed<Iter>(self.iter())
+    }
 }
 
 /// A container whose elements a loop may change: `for &mut e in xs` calls `iter_mut()`.

@@ -3415,6 +3415,30 @@ impl<'a> Ctx<'a> {
             self.push_declared_params(sym);
             let decls = self.collect_assoc_types(members);
             self.pop_params();
+            // Inside the trait's own default bodies an associated type is a parameter, and
+            // what it may do is what its declaration bounds it by: `type Iter : Iterate`
+            // makes `Iter` an iterator there, as `C::Iter` is one outside (spec §8.5).
+            let params = self.table.assoc_params(sym).to_vec();
+            for (name, param) in params {
+                let Some(decl) = decls.iter().find(|d| d.name == name) else { continue };
+                let me = Ty::Param(param.clone());
+                let bounds: Vec<TraitRef> = decl
+                    .bounds
+                    .iter()
+                    .map(|b| TraitRef {
+                        trait_sym: b.trait_sym,
+                        args: b
+                            .args
+                            .iter()
+                            .map(|a| ty::substitute_with(a, &HashMap::new(), Some(&me)))
+                            .collect(),
+                        span: b.span,
+                    })
+                    .collect();
+                if !bounds.is_empty() {
+                    self.table.param_bounds.insert(param.id, bounds);
+                }
+            }
             if !decls.is_empty() {
                 self.table.assoc_decls.insert(sym, decls);
             }

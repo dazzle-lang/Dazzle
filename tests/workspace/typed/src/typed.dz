@@ -188,6 +188,22 @@ fn iterating(items: &[]Vec3) -> f32 {
     return total
 }
 
+// `indexed()` as a value (spec §10.4): a container's, from `Iterable`, and an iterator
+// numbered by `Indexed`, each `(usize, Item)`.
+fn numbered(xs: &List<Vec3>) -> usize {
+    let pairs: Indexed<SliceIter<Vec3>> = xs.indexed()
+    let mut last: usize = 0
+    for i, &_v in pairs {
+        last = i
+    }
+    let mut it = xs.iter()
+    it.advance()
+    for i, _ in Indexed(it) {
+        last += i
+    }
+    return last
+}
+
 fn switching(s: Shape) -> f32 {
     switch s {
         case Circle(c) {

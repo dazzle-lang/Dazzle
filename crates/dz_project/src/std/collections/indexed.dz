@@ -1,0 +1,35 @@
+/// Another iterator's items, each with its pass count from zero: `xs.indexed()` hands out
+/// `(usize, Item)`. Over a list, `(0, &a), (1, &b), …` (spec §10.4).
+///
+/// It holds the iterator it numbers, which may be a view of a container, so it is a view
+/// too. A `for` head that names `indexed()` loops over the sequence with a count instead of
+/// building one of these, with the same passes and the same bindings, and may write through
+/// `&mut e`, which an `Indexed` of a read-only iterator cannot.
+pub view struct Indexed<view I: Iterate> {
+    m_inner: I
+    m_count: usize = 0
+
+    Indexed(inner: I) {
+        m_inner = inner
+    }
+}
+
+impl<view I: Iterate> Iterate for Indexed<I> {
+    type Item = (usize, I::Item)
+
+    #[inline]
+    fn valid(&self) -> bool {
+        return m_inner.valid()
+    }
+
+    #[inline]
+    fn get(&self) -> (usize, I::Item) {
+        return (m_count, m_inner.get())
+    }
+
+    #[inline]
+    fn advance(&mut self) {
+        m_inner.advance()
+        m_count += 1
+    }
+}
