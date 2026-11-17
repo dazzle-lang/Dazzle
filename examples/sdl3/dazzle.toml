@@ -23,17 +23,18 @@ keeps   = []
 # OpenGL past version 1.1 is not exported by the system library on every platform (on
 # Windows, `opengl32.dll` has nothing newer), so its functions are asked of the driver at
 # run time. glad is the loader generated for that, a single header with its implementation
-# behind a define; raylib ships one for OpenGL 4.3 core, so this reuses raylib's copy rather
-# than vendoring another. Its folder also holds raylib's own `dirent.h`, which would hide
-# the system's, so the include path is the folder above it. `main` hands glad
-# `SDL_GL_GetProcAddress` once the context exists.
+# behind a define, kept in `vendor/glad`: generated for exactly what the scene uses, OpenGL
+# 3.3 core with no extensions, by glad 2.0.8 from the specification it carries, so running
+# it again writes the same file:
+#   pip install glad2==2.0.8
+#   glad --reproducible --api "gl:core=3.3" --extensions "" --out-path vendor/glad c --header-only
+# `main` hands it `SDL_GL_GetProcAddress` once the context exists.
 [cpp.libs.glad]
-root         = "../vendor/raylib/src"
-header       = "external/glad.h"
-include_dirs = ["."]
-# raylib's copy leaves its allocator to the includer, as raylib sets it to its own.
-defines      = ["GLAD_GL_IMPLEMENTATION", "GLAD_MALLOC=malloc", "GLAD_FREE=free"]
-import       = ["external/glad.h"]
+root         = "vendor/glad"
+header       = "include/glad/gl.h"
+include_dirs = ["include"]
+defines      = ["GLAD_GL_IMPLEMENTATION"]
+import       = ["glad/gl.h"]
 # OpenGL keeps only a `void*` it is given, as a client-side vertex array, and only
 # `unsafe` makes one (spec §15.2).
 keeps        = []
