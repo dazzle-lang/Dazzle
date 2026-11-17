@@ -118,12 +118,15 @@ the stdlib and the benchmarks go together, since the new programs show what `std
    day; its spelling is the user's decision).
 5. **Benchmarks.** Two whole programs against C++, `json` (T-0173, done 2026-11-14: 1.16×
    on clang++ and 1.31× on g++, with floats written in full, r130, and `loop`, r131, the
-   user's decisions on what it found; the rest is T-0225) and `raytrace`
+   user's decisions on what it found; the rest was T-0225, done 2026-11-17 at 0.92× and
+   1.01×) and `raytrace`
    (T-0174, done 2026-11-14: 1.07× its C++ half on both compilers, from 1.25× on clang++,
    once private functions were `static` (T-0221), a literal on the left typed as the right
    operand and a union's `switch` ended in `else`; the rest is T-0222); an ECS against Rust and C++, a simple one of a few hundred lines, showing a
    query inside a query (T-0172); and the generic-instantiation pair with numbers tracked
-   over time (T-0075). The other programs get no Rust half.
+   over time (T-0075, done 2026-11-17: `generics`, 0.85× and 0.93× at run time and 1.3–1.4×
+   to build from clean; every recorded run in `tests/bench_programs/HISTORY.md`, and a
+   run compared with the last). The other programs get no Rust half.
 6. **The release.** Release notes from the §21 rows since r117 (0.1's revision), and
    packages (T-0077) if there is time, otherwise 0.3. The version stays 0.1 and nothing is
    tagged until the user asks. **The notes must also cover build times**, which §21 does
@@ -251,13 +254,11 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
 
-## M15 — `dz bench`, and the C++ comparison (6 open)
+## M15 — `dz bench`, and the C++ comparison (4 open)
 
-- **[T-0075](tasks/T-0075-generic-instantiation-benchmark-pair-tracking-numbers.md)** A generic-instantiation benchmark pair, and tracking the numbers · feature, bench
 - **[T-0164](tasks/T-0164-peak-memory-30-50-over-c.md)** "Peak memory over C++ in astar and words: HashMap's open-addressing layout, and short Strings" · feature, ownership
 - **[T-0184](tasks/T-0184-emit-only-standard-library-declarations-program.md)** Emit only the standard library declarations a program reaches · feature, tooling
 - **[T-0188](tasks/T-0188-panic-location-names-its-file-as.md)** A panic's location names its file as the project's path was spelled on the command line · design, tooling
-- **[T-0225](tasks/T-0225-what-keeps-json-behind-its-c.md)** "What keeps json behind its C++ half: float text, and a union moved through every !-> return" · feature, codegen
 - **[T-0238](tasks/T-0238-virtual-method-with-body-cannot-promise.md)** A virtual method with a body cannot promise what its overrides kill · design, ownership
 
 ## M16 — Packages: dependencies that are fetched (1 open)

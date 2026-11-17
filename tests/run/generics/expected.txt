@@ -18,4 +18,5 @@ bound at two arguments: 14.5
 hex: ff FF, fixed: 3.14, braces: {}
 consts: 8 4 8
 range value: 6
+ref on the left: true false true
 done

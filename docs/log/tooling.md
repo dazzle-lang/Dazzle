@@ -2,6 +2,38 @@
 
 Part of the build log in `docs/log/` — what was built and decided, kept as the record. Open work is in `docs/tasks/`; nothing here needs reading to decide what to do next.
 
+## Generic instantiation against C++ templates, and the benchmarks' history (T-0075, T-0225; 2026-11-17)
+
+**`tests/bench_programs/generics`** is the seventh whole-program pair: one generic driver
+run for six key types, from `i64` to `Pair<String, u16>`, over an AVL tree map, a quicksort,
+a binary search and a generic `Pair` with generic `Eq`, `Ord` and `Digest` impls, all the
+program's own; the C++ half is the same code as templates rather than `std::map` and
+`std::sort`, since the question is what Dazzle's monomorphization (§8.4, §8.6) costs, not
+two libraries. At run time nothing (0.85× on clang++, 0.93× on g++). At build time from
+clean, 1.3–1.4× the C++ half in release and 1.5× in debug: the C++ compiler compiles the
+12,000 lines of instances Dazzle hands it where the C++ half is 375 lines of templates, and
+Dazzle's own phases are 112 ms. After a one-line change Dazzle is ahead.
+
+**Why the history is ratios.** `tools/bench_history.py` keeps every recorded run in
+`tests/bench_programs/history.jsonl`, one line per program and compiler, and writes
+`HISTORY.md` from it. A run is compared with the last one recorded on the same CPU and the
+same compiler *version* (the first two runs, on clang 23 and GCC 16, are tables of their
+own), ratio against ratio, never time against time: absolute times move 10–20% between
+sittings and the halves of one run move together. The thresholds, 10% for run time and
+20% for a build, are loose so that they catch a change of kind; the first compared run
+moved by 0–1% everywhere but one build ratio (+4%). Recording is by hand, `--record` or
+`bench_history.py record`, when a run is published: CI's shared runners are too noisy, and
+recording there would make every run a commit. The history was backfilled from the 26
+versions of `RESULTS.md` in git (216 records), so it starts on 2026-10-24, and its first use
+was to date `json`'s g++ step from 1.05× to 1.00× to r137.
+
+**T-0225 closed**: `json` measured again at 0.92× on clang++ and 1.01× on g++; what is left,
+5–7 MiB of region chunks and a build that prices reflection on purpose, is not a gap in time.
+
+**A codegen bug the pair found**: `&a < b` with `b` a `&T`, `T` a number, lowered to
+`compare(addr(a), b)`; `native_trait_call` dropped a `&` on the right operand of a
+primitive's `eq` and `cmp` but not on the left. It now drops both (`tests/run/generics`).
+
 ## Releases, the installers and `dz new` (T-0076; 2026-11-04)
 
 The user asked what would make Dazzle easier to take up, and chose to start with being able to

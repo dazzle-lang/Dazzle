@@ -56,6 +56,12 @@ fn largest<T: Ord>(a: T, b: T) -> T in (a@home, b@home) {
     return b
 }
 
+// `&a < b` with `b` a `&T`: for a number both operands are plain values in the C++. The
+// `&` on the left was once emitted as a pointer, which no C++ compiler took (T-0075).
+fn first_below<T: Ord>(xs: &List<T>, key: &T) -> bool {
+    return &xs[0] < key && &xs[0] != key && !(key < &xs[0])
+}
+
 // §8.2: an unbounded `T` is enough for a plain container.
 struct Pair<T> {
     pub first:  T
@@ -321,5 +327,11 @@ fn main() {
         total += i
     }
     println!("range value: {}", total)
+    let mut sorted = List<i32>()
+    sorted.push(3)
+    sorted.push(8)
+    let mut scores = List<Score>()
+    scores.push(Score(3))
+    println!("ref on the left: {} {} {}", first_below(&sorted, &5), first_below(&sorted, &3), first_below(&scores, &Score(4)))
     println!("done")
 }

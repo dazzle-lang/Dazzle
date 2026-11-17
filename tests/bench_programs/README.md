@@ -2,13 +2,16 @@
 
 `tests/bench` compares Dazzle and C++ one construct at a time: an indexed load, a
 destructor, a virtual call. That shows the constructs compile to the same thing. It does not
-show what a *program* costs. These do: five programs a C++ programmer would recognise as
-real work, each written twice, idiomatically, and timed end to end (T-0090).
+show what a *program* costs. These do: seven programs a C++ programmer would recognise as
+real work, each written twice, idiomatically, and timed end to end (T-0090). Every run
+recorded is kept in [`HISTORY.md`](HISTORY.md), so a change that makes Dazzle's side slower
+shows as a ratio that moved (T-0075).
 
 | Program | What it does | What it leans on |
 |---|---|---|
 | `ecs` | a battle of 600 units in two teams for 100 steps, on an entity-component-system library of its own: each step moves every unit, pushes apart those that overlap, lets each strike the nearest enemy in reach or close in on it, and replaces the dead. In Rust too, three ways (below) | a generic `World` holding any component type, found by `typeid_of`, in a `Box` of an abstract base; sparse sets; systems as function values; a query inside a query over the same storages, writing both entities; a write to another unit's component while walking positions; despawning and spawning after the loops |
 | `astar` | 200 A* searches across a 400×400 grid with 30% walls | a generic binary heap bounded by `Ord`; `HashMap` keyed by a struct with its own `Hash`; two maps, a heap and a path allocated and dropped per search; bounds-checked grid reads; optionals |
+| `generics` | runs one generic driver for six key types, from `i64` to `Pair<String, u16>`: 200,000 keys added to an ordered map, 200,000 lookups, and 200,000 more keys sorted, counted and searched (T-0075) | the program's own generic code instantiated six times over: an AVL tree map in one `List`, bounded by `Ord` and two traits of the program's; a quicksort, a binary search and a count of distinct elements; a `Pair<A, B>` whose `Eq`, `Ord` and `Digest` come from its parts'; keys and values made through function values. The C++ half is the same code as templates |
 | `expr` | generates 100,000 `let` statements (8 MB of text), tokenizes them, parses each into a tree and evaluates it; about one in eight fails on purpose | `String` building, `str` views as tokens and map keys, a tagged union of `Box`es (a tree that frees itself), recursion, `!->` errors propagated with `or return` |
 | `json` | generates 100,000 records as a JSON document (17 MB), parses it into a tree, turns the tree into a `List<Record>`, and writes the records back out compactly (13 MB) | a parser over bytes reporting through `!->`, a recursive tagged union of `String`s and `List`s built and freed, `parse_f64` and float formatting, copying text out of the tree, and a writer written once against reflection's type table (the C++ half writes `to_json` by hand) |
 | `raytrace` | renders the ray tracer of `examples/stb`, without the PNG, at 960×540 with 16 rays a pixel: spheres, a checkered floor, soft shadows and mirrors | `f32` arithmetic through `std::math`'s `Vec3` and its operator traits, small structs passed and returned by value, `sqrt`, `pow`, `exp`, `sin` and `cos`, tagged unions switched on in the inner loop, `Hit?` returned from every intersection test, recursion |
@@ -29,7 +32,10 @@ Each program is a folder: `src/main.dz` and `dazzle.toml` are the Dazzle half, a
   slots probed eight at a time, where `std::unordered_map` allocates a node per entry.
   That is most of `astar`'s lead: measured once with Dazzle's map, heap and sort ported
   line for line into the C++ half (2026-11-04), `astar` was even with C++ (1.00× and
-  1.01×), `expr` 1.13–1.19× and `words` 1.13–1.29×.
+  1.01×), `expr` 1.13–1.19× and `words` 1.13–1.29×. The exception is `generics`, whose
+  question is not a library but what instantiating a program's own generic code costs:
+  both halves write the same map and algorithms, so `std::map` and `std::sort` do not
+  stand in for them, as `ecs` writes its own library in each language.
 - **Memory goes where each language puts it.** Dazzle code names no allocator: the
   compiler places each value (spec §14.6), in the region of the function that builds it
   when it never leaves, where the caller keeps it when it is returned, and on the heap
@@ -124,7 +130,23 @@ python tools/bench_programs.py                    # every program, clang++ and g
 python tools/bench_programs.py --cxx g++ --runs 20 words
 python tools/bench_programs.py --quick            # small inputs: do the halves agree?
 python tools/bench_programs.py --markdown tests/bench_programs/RESULTS.md --json out.json
+python tools/bench_programs.py --record --markdown tests/bench_programs/RESULTS.md
+python tools/bench_programs.py --check            # exit 1 if a ratio got worse
+python tools/bench_history.py record out.json     # record a run after looking at it
 ```
+
+Every full run ends by comparing itself with the last run recorded on the same CPU and the
+same C++ compiler, program by program, and marks a ratio **worse** when it grew by more
+than 10% for run time or 20% for a build from clean. It compares ratios, never absolute
+times, because the two halves of one run share the machine's state and the ratio moves
+much less than either time. The thresholds are loose on purpose: they catch a change of
+kind (an inlining lost, a copy where there was a move) rather than of degree, which a
+quiet run's ratio would cross by noise. `--record` adds the run to
+[`history.jsonl`](history.jsonl), one line per program and compiler, with both halves'
+times, peak memory, builds and Dazzle's own phases, and writes [`HISTORY.md`](HISTORY.md)
+from it. Record a run that is published in `RESULTS.md`, so the two agree; a run on a busy
+machine is better not recorded. The history before 2026-11-17 is every version of
+`RESULTS.md` git held, read back by `python tools/bench_history.py backfill`.
 
 Use a release build of `dz`: a debug one makes Dazzle's build time look worse than it is.
 Close everything else first; the report prints the load average before and after, and a
@@ -190,7 +212,11 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   127 ms, against 187 and 125). Against Rust, Dazzle is about half the time of the versions
   that keep the nested queries' shape, collecting and `Cell`s (241 ms each), and 1.13–1.16×
   the one written as index loops with `get_disjoint_mut` (113).
-- **`json`** (added 2026-11-14, T-0173) is 0.96× its C++ half on clang++ and 1.06× on g++,
+- **`json`** (added 2026-11-14, T-0173) is 0.92× its C++ half on clang++ and 1.01× on g++
+  (2026-11-17, at r140), where T-0225, what kept it behind, was closed: the g++ side went
+  from 1.05× to 1.00–1.01× with r137, when `#[inline]` began to inline every call
+  ([`HISTORY.md`](HISTORY.md) shows the step), and its peak memory is 185–187 MiB against
+  180, the regions' chunks. Before that it was 0.96× and 1.06×,
   since a float's text is `std::to_chars`' own where that is already D-0101's (T-0225), a
   check's location a constant (T-0220) and a union built in place (T-0231), all
   2026-11-16; it was 0.99× and 1.07× after values moved by default (r135, T-0235), and 1.06×
@@ -219,6 +245,19 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   [T-0225](../../docs/tasks/T-0225-what-keeps-json-behind-its-c.md). Its writer goes through
   reflection and its reader is written by hand on both sides, since safe code cannot build a
   `String` at a raw address.
+- **`generics`** (added 2026-11-17, T-0075) asks what Dazzle's own monomorphization
+  (spec §8.4, §8.6) costs against C++ templates. At run time nothing: 0.85× its C++ half on
+  clang++ and 0.93× on g++, at the same peak memory, as expected of two halves that both
+  end as concrete code; not broken down further. At build time, a release build from clean
+  is 1.27 s against 0.89 on clang++ and 1.17 against 0.91 on g++, and a debug one 0.58
+  against 0.38 and 0.72 against 0.47. Dazzle's own phases are 112 ms of it, where `json`'s,
+  777 lines against these 560, are 75: the difference is mostly making the instances, six
+  maps and six sorts with their `List`s, not measured apart. The rest is the C++ compiler given what Dazzle made, 12,000 lines of
+  instances (`generics.inst.cpp`, `std`'s `List` of each node and key type included) where
+  the C++ half is 375 lines its compiler instantiates itself. After a one-line change
+  Dazzle is ahead, 0.21 s against 0.38 in debug and 0.65 against 0.88 in release, since only
+  the program's own C++ is compiled again. Writing it found one compiler bug: `&a < b` with
+  `b` a `&T` and `T` a number emitted the left `&` as a pointer, which no C++ compiler took.
 - **Build time: 1.7–2.9 s for Dazzle against 0.3–0.5 s for C++.** Dazzle's own phases,
   from reading the manifests to emitting the C++, take about 35 ms of it. Importing
   `stdlib.h` with libclang, which the standard library does for every program, takes

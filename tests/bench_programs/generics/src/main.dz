@@ -1,0 +1,557 @@
+// Generic code instantiated many times: the Dazzle half of a whole-program benchmark
+// (tests/bench_programs/README.md). `main.cpp` beside this folder is the same program as C++
+// templates, and both must print the same checksum.
+//
+// What it exercises: a generic ordered map of the program's own, an AVL tree whose nodes
+// live in one `List` and link by index, bounded by `Ord` and two traits of the program's;
+// a generic quicksort, binary search and count of distinct elements; a generic `Pair` whose
+// `Eq`, `Ord` and `Digest` come from its parts'; and a generic driver that takes the key
+// and value it makes as function values. Each runs on six key types, from `i64` to
+// `Pair<String, u16>`, so every one is instantiated six times.
+//
+// Dazzle makes each instance itself (spec §8.4) and hands C++ plain structs and functions,
+// where the C++ half's templates are instantiated by the C++ compiler. The output is
+// concrete code either way, so the run time should be level; the build time is the
+// question this benchmark is for (T-0075).
+//
+// Usage: generics [n]
+
+/// SplitMix64, written out rather than taken from `std::random`, so the C++ half can
+/// produce exactly the same keys.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    pub fn below(&mut self, n: u64) -> u64 {
+        return self.next() % n
+    }
+}
+
+/// Two numbers as one, where the order matters: the checksum's step.
+fn mix(seed: u64, h: u64) -> u64 {
+    return (seed ^^ h) * 1099511628211
+}
+
+/// What a value adds to the checksum.
+trait Digest {
+    fn digest(&self) -> u64
+}
+
+/// Two values given for one key, as one.
+trait Tally {
+    fn plus(&self, rhs: &Self) -> Self
+}
+
+impl Digest for i64 {
+    fn digest(&self) -> u64 {
+        return self as u64
+    }
+}
+
+impl Digest for i32 {
+    fn digest(&self) -> u64 {
+        return self as i64 as u64
+    }
+}
+
+impl Digest for u64 {
+    fn digest(&self) -> u64 {
+        return self
+    }
+}
+
+impl Digest for u32 {
+    fn digest(&self) -> u64 {
+        return self as u64
+    }
+}
+
+impl Digest for u16 {
+    fn digest(&self) -> u64 {
+        return self as u64
+    }
+}
+
+impl Digest for f64 {
+    fn digest(&self) -> u64 {
+        // Every value is a whole number of halves, so twice it is exact.
+        return (self * 2.0) as i64 as u64
+    }
+}
+
+impl Digest for String {
+    fn digest(&self) -> u64 {
+        let mut h: u64 = 1469598103934665603
+        for b in self.as_str() as &[]u8 {
+            h = mix(h, b as u64)
+        }
+        return h
+    }
+}
+
+impl Tally for i64 {
+    fn plus(&self, rhs: &i64) -> i64 {
+        return self + rhs
+    }
+}
+
+impl Tally for i32 {
+    fn plus(&self, rhs: &i32) -> i32 {
+        return self + rhs
+    }
+}
+
+impl Tally for u64 {
+    fn plus(&self, rhs: &u64) -> u64 {
+        return self + rhs
+    }
+}
+
+impl Tally for u16 {
+    fn plus(&self, rhs: &u16) -> u16 {
+        return self + rhs
+    }
+}
+
+impl Tally for f64 {
+    fn plus(&self, rhs: &f64) -> f64 {
+        return self + rhs
+    }
+}
+
+/// A grid position, ordered by row and then by column.
+struct Cell {
+    pub x: i16 = 0
+    pub y: i16 = 0
+}
+
+impl Eq for Cell {
+    fn eq(&self, rhs: &Cell) -> bool {
+        return x == rhs.x && y == rhs.y
+    }
+}
+
+impl Ord for Cell {
+    fn cmp(&self, rhs: &Cell) -> Ordering {
+        if y != rhs.y {
+            return if y < rhs.y {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        if x != rhs.x {
+            return if x < rhs.x {
+                .Less
+            } else {
+                .Greater
+            }
+        }
+        return .Equal
+    }
+}
+
+impl Digest for Cell {
+    fn digest(&self) -> u64 {
+        return mix(x as i64 as u64, y as i64 as u64)
+    }
+}
+
+/// Two values ordered by the first, then the second.
+struct Pair<A: Ord, B: Ord> {
+    pub first:  A
+    pub second: B
+}
+
+impl<A: Ord, B: Ord> Eq for Pair<A, B> {
+    fn eq(&self, rhs: &Pair<A, B>) -> bool {
+        return first == rhs.first && second == rhs.second
+    }
+}
+
+impl<A: Ord, B: Ord> Ord for Pair<A, B> {
+    fn cmp(&self, rhs: &Pair<A, B>) -> Ordering {
+        let c = first.cmp(&rhs.first)
+        if c != Ordering::Equal {
+            return c
+        }
+        return second.cmp(&rhs.second)
+    }
+}
+
+impl<A: Ord + Digest, B: Ord + Digest> Digest for Pair<A, B> {
+    fn digest(&self) -> u64 {
+        return mix(first.digest(), second.digest())
+    }
+}
+
+struct TreeNode<K, V> {
+    pub key:    K
+    pub value:  V
+    pub left:   i32 = -1
+    pub right:  i32 = -1
+    pub height: i32 = 1
+}
+
+/// An ordered map: an AVL tree whose nodes live in one list, linked by their index in it,
+/// so a node is never allocated or freed on its own. Adding a key that is there already
+/// tallies the two values.
+struct TreeMap<K: Ord + Digest, V: Tally + Digest> {
+    m_nodes: List<TreeNode<K, V>> = List<TreeNode<K, V>>()
+    m_root:  i32 = -1
+
+    tie @items = m_nodes@items
+
+    pub fn len(&self) -> usize {
+        return m_nodes.len()
+    }
+
+    /// The value of `key`, or `null` when it is not in the map.
+    pub fn find(&self, key: &K) -> ^V in self@items {
+        let mut at = m_root
+        while at >= 0 {
+            let node = &m_nodes[at as usize]
+            if key < &node.key {
+                at = node.left
+            } else if &node.key < key {
+                at = node.right
+            } else {
+                return &node.value
+            }
+        }
+        return null
+    }
+
+    /// The value of `key`, to change, or `null` when it is not in the map.
+    pub fn find_mut(&mut self, key: &K) -> ^mut V in self@items {
+        let mut at = m_root
+        while at >= 0 {
+            let node = &mut m_nodes[at as usize]
+            if key < &node.key {
+                at = node.left
+            } else if &node.key < key {
+                at = node.right
+            } else {
+                return &mut node.value
+            }
+        }
+        return null
+    }
+
+    /// `value` under `key`: a new entry, or tallied with the value already there.
+    pub fn add(&mut self, key: K, value: V) kills self@items sends key to self, value to self {
+        if let &mut old = self.find_mut(&key) {
+            old = old.plus(&value)
+            return
+        }
+        let fresh = m_nodes.len() as i32
+        m_nodes.push(TreeNode<K, V>{ key: key, value: value })
+        m_root = self.link(m_root, fresh)
+    }
+
+    /// A digest of every entry, in the order of the keys.
+    pub fn checksum(&self) -> u64 {
+        let mut sum: u64 = 0
+        let mut stack = List<i32>()
+        let mut at = m_root
+        while at >= 0 || !stack.is_empty() {
+            while at >= 0 {
+                stack.push(at)
+                at = m_nodes[at as usize].left
+            }
+            at = stack.pop() or 0
+            let node = &m_nodes[at as usize]
+            sum = mix(mix(sum, node.key.digest()), node.value.digest())
+            at = node.right
+        }
+        return sum
+    }
+
+    /// Hang the node at `fresh` under the subtree at `at`, and balance it again on the way
+    /// back up: the subtree's new root.
+    fn link(&mut self, at: i32, fresh: i32) -> i32 {
+        if at < 0 {
+            return fresh
+        }
+        if m_nodes[fresh as usize].key < m_nodes[at as usize].key {
+            let left = self.link(m_nodes[at as usize].left, fresh)
+            m_nodes[at as usize].left = left
+        } else {
+            let right = self.link(m_nodes[at as usize].right, fresh)
+            m_nodes[at as usize].right = right
+        }
+        return self.balance(at)
+    }
+
+    fn height(&self, at: i32) -> i32 {
+        return if at < 0 {
+            0
+        } else {
+            m_nodes[at as usize].height
+        }
+    }
+
+    fn update(&mut self, at: i32) {
+        let left = self.height(m_nodes[at as usize].left)
+        let right = self.height(m_nodes[at as usize].right)
+        m_nodes[at as usize].height = if left > right {
+            left + 1
+        } else {
+            right + 1
+        }
+    }
+
+    fn rotate_right(&mut self, at: i32) -> i32 {
+        let top = m_nodes[at as usize].left
+        m_nodes[at as usize].left = m_nodes[top as usize].right
+        m_nodes[top as usize].right = at
+        self.update(at)
+        self.update(top)
+        return top
+    }
+
+    fn rotate_left(&mut self, at: i32) -> i32 {
+        let top = m_nodes[at as usize].right
+        m_nodes[at as usize].right = m_nodes[top as usize].left
+        m_nodes[top as usize].left = at
+        self.update(at)
+        self.update(top)
+        return top
+    }
+
+    fn balance(&mut self, at: i32) -> i32 {
+        self.update(at)
+        let left = m_nodes[at as usize].left
+        let right = m_nodes[at as usize].right
+        let lean = self.height(left) - self.height(right)
+        if lean > 1 {
+            if self.height(m_nodes[left as usize].left) < self.height(m_nodes[left as usize].right) {
+                let top = self.rotate_left(left)
+                m_nodes[at as usize].left = top
+            }
+            return self.rotate_right(at)
+        }
+        if lean < -1 {
+            if self.height(m_nodes[right as usize].right) < self.height(m_nodes[right as usize].left) {
+                let top = self.rotate_right(right)
+                m_nodes[at as usize].right = top
+            }
+            return self.rotate_left(at)
+        }
+        return at
+    }
+}
+
+/// Sort `items` by `<`: quicksort on the median of three, and insertion sort below 16.
+fn quicksort<T: Ord>(items: &mut List<T>, from: usize, to: usize) kills items@items {
+    let mut lo = from
+    let mut hi = to
+    while hi - lo > 16 {
+        let last = hi - 1
+        let mid = lo + (hi - lo) / 2
+        if items[mid] < items[lo] {
+            items.swap(mid, lo)
+        }
+        if items[last] < items[lo] {
+            items.swap(last, lo)
+        }
+        if items[mid] < items[last] {
+            items.swap(mid, last)
+        }
+        // The median of the three is at `last` now, the pivot.
+        let mut store = lo
+        for i in lo..last {
+            if items[i] < items[last] {
+                items.swap(i, store)
+                store += 1
+            }
+        }
+        items.swap(store, last)
+        // The smaller side by recursion, the larger by the loop, so the depth is `log n`.
+        if store - lo < hi - store {
+            quicksort(items, lo, store)
+            lo = store + 1
+        } else {
+            quicksort(items, store + 1, hi)
+            hi = store
+        }
+    }
+    for i in lo + 1..hi {
+        let mut j = i
+        while j > lo && items[j] < items[j - 1] {
+            items.swap(j, j - 1)
+            j -= 1
+        }
+    }
+}
+
+fn sort<T: Ord>(items: &mut List<T>) kills items@items {
+    let n = items.len()
+    quicksort(items, 0, n)
+}
+
+/// Where the first element not less than `x` is in the sorted `items`.
+fn lower_bound<T: Ord>(items: &List<T>, x: &T) -> usize {
+    let mut lo: usize = 0
+    let mut hi = items.len()
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2
+        if items[mid] < x {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+/// How many different elements the sorted `items` holds; it panics when they are not sorted.
+fn distinct<T: Ord>(items: &List<T>) -> usize {
+    if items.is_empty() {
+        return 0
+    }
+    let mut count: usize = 1
+    for i in 1..items.len() {
+        if items[i] < items[i - 1] {
+            panic!("not sorted")
+        }
+        if items[i] != items[i - 1] {
+            count += 1
+        }
+    }
+    return count
+}
+
+/// One instance of everything: `n` keys made by `key` from numbers below `n / 2` added to
+/// a map with values made by `value`, `n` lookups of which about half miss, then `n` more
+/// keys sorted, counted and searched `n / 4` times.
+fn run<K: Ord + Digest, V: Tally + Digest>(
+    name: &str,
+    n: u64,
+    seed: u64,
+    key: fn(u64) -> K,
+    value: fn(u64) -> V
+) -> u64 {
+    let mut rng = Rng(seed)
+    let range = n / 2 + 1
+
+    let mut map = TreeMap<K, V>{}
+    for _ in 0..n {
+        let k = key(rng.below(range))
+        let v = value(rng.next())
+        map.add(k, v)
+    }
+
+    let mut found: u64 = 0
+    for _ in 0..n {
+        let k = key(rng.below(range * 2))
+        if let &v = map.find(&k) {
+            found = mix(found, v.digest())
+        }
+    }
+
+    let mut items = List<K>(n as usize)
+    for _ in 0..n {
+        items.push(key(rng.below(range)))
+    }
+    sort(&mut items)
+    let different = distinct(&items)
+    let mut ranks: u64 = 0
+    for _ in 0..n / 4 {
+        let k = key(rng.below(range))
+        ranks += lower_bound(&items, &k) as u64
+    }
+
+    let sum = mix(mix(mix(map.checksum(), found), ranks), different as u64)
+    println!("{}: {} keys, {} sorted of which {} distinct, {}", name, map.len(), items.len(), different, sum)
+    return sum
+}
+
+const SYLLABLES: [24]&str = ["ka", "lo", "mi", "ra", "ten", "sho", "vu", "en", "dar", "is", "po", "qua", "zel", "ne", "fi", "gor", "ul", "be", "tha", "xo", "rin", "ma", "cu", "dei"]
+
+/// A word for `r`: its digits in base 24, a syllable each, the lowest first.
+fn word(r: u64) -> String {
+    let mut text = String()
+    let mut rest = r
+    while true {
+        text.push_str(SYLLABLES[(rest % 24) as usize])
+        rest /= 24
+        if rest == 0 {
+            break
+        }
+    }
+    return text
+}
+
+fn key_i64(r: u64) -> i64 {
+    return r as i64 * 7 - 1000
+}
+
+fn key_u32(r: u64) -> u32 {
+    return (r * 2654435761) as u32
+}
+
+fn key_cell(r: u64) -> Cell {
+    return Cell{ x: (r % 1000) as i16, y: (r / 1000) as i16 }
+}
+
+fn key_word(r: u64) -> String {
+    return word(r)
+}
+
+fn key_pair(r: u64) -> Pair<i32, i32> {
+    return Pair<i32, i32>{ first: (r % 64) as i32, second: (r / 64) as i32 }
+}
+
+fn key_named(r: u64) -> Pair<String, u16> {
+    return Pair<String, u16>{ first: word(r % 500), second: (r / 500) as u16 }
+}
+
+fn value_i64(r: u64) -> i64 {
+    return (r % 1000) as i64 - 500
+}
+
+fn value_f64(r: u64) -> f64 {
+    return (r % 1000) as f64 * 0.5
+}
+
+fn value_u64(r: u64) -> u64 {
+    return r >> 40
+}
+
+fn value_i32(_r: u64) -> i32 {
+    return 1
+}
+
+fn value_u16(r: u64) -> u16 {
+    return (r % 7) as u16
+}
+
+fn main() {
+    let args = Process::args()
+    let n = if args.len() > 1 {
+        args[1].parse_i64() or 200000
+    } else {
+        200000
+    } as u64
+
+    let mut checksum: u64 = 0
+    checksum = mix(checksum, run<i64, i64>("i64 -> i64", n, 1, key_i64, value_i64))
+    checksum = mix(checksum, run<u32, f64>("u32 -> f64", n, 2, key_u32, value_f64))
+    checksum = mix(checksum, run<Cell, u64>("Cell -> u64", n, 3, key_cell, value_u64))
+    checksum = mix(checksum, run<String, i32>("String -> i32", n, 4, key_word, value_i32))
+    checksum = mix(checksum, run<Pair<i32, i32>, i64>("Pair<i32, i32> -> i64", n, 5, key_pair, value_i64))
+    checksum = mix(checksum, run<Pair<String, u16>, u16>("Pair<String, u16> -> u16", n, 6, key_named, value_u16))
+    println!("checksum {}", checksum)
+}

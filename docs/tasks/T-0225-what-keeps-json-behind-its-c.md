@@ -2,7 +2,7 @@
 id: T-0225
 title: "What keeps json behind its C++ half: float text, and a union moved through every !-> return"
 milestone: M15
-status: open
+status: done
 kind: feature
 area: codegen
 where: `tests/bench_programs/json/`; `crates/dz_project/src/std/collections/list.dz` (`grow_to`, `move_to`: the first allocation and byte moves, D-0105); `crates/dz_project/src/std/memory/scope_arena.dz` (region chunks); `crates/dz_cpp/src/lib.rs`: the lowering of `or return` on a `!->` call, `let` of its value and `push(move(v))`; `crates/dz_cpp/src/runtime.rs`: `Res`, `format_float`
@@ -173,3 +173,26 @@ small enough. Marking `make_room` `cold, noinline` by hand helped g++ with this 
 (-1.5%) and hurt it with the old one (+2.1%), so it is inlining luck, not an attribute to
 add. The writer is more code: `json`'s release build from clean is 0.96 to 1.01 s on
 clang++ and 1.08 to 1.23 s on g++ (C++: 0.72 and 0.70).
+
+**Measured again and closed, 2026-11-17** (at r140, `519eb50`, a quiet machine, load 0.33;
+`RESULTS.md`, and the run recorded in `HISTORY.md`):
+
+| `json` | Dazzle | C++ | Dazzle / C++ | Peak memory | Build from clean, release |
+|---|---:|---:|---:|---:|---:|
+| clang++ | 204 ms | 221 ms | 0.92× | 185.2 / 179.6 MiB | 1.05 / 0.71 s |
+| g++ | 210 ms | 208 ms | 1.01× | 186.9 / 179.7 MiB | 1.11 / 0.70 s |
+
+The g++ side's last step, from 1.05× to 1.00–1.01×, came with r137 (`#[inline]` inlines
+every call, D-0107) and has held in every run since; the history (T-0075) shows it.
+`json` is level with its C++ half on g++ and ahead on clang++, so nothing here keeps it
+behind any more. What remains is not a gap in time:
+
+- **Peak memory, 5–7 MiB above C++'s**, the region chunks of `main`'s outermost region
+  (above, and T-0233); a question about regions, not about `json`.
+- **The build, 1.5× C++'s from clean in release**: the reflective writer's plans and the
+  instances, where the C++ half writes `to_json` by hand. The benchmark prices reflection on
+  purpose (the user's choice, 2026-11-16).
+
+Neither is a reason to keep this open. A regression in run time or build time now shows
+as a ratio that moved in `tools/bench_programs.py`'s comparison; peak memory is recorded
+in the history but not compared.

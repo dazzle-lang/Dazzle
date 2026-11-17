@@ -7835,11 +7835,15 @@ impl<'a> Emitter<'a> {
             });
         }
         // `eq` and `cmp` take `&Self`, so the operand arrives as `&b`; the operator wants `b`.
+        // The receiver may be written `&a` too, as in `&node.key < key` with `key` a `&K`:
+        // a primitive's `&a` is a pointer in C++, and `compare(&a, b)` names no function.
+        let unref = |x: ExprId| match self.cur().expr(x).kind {
+            hir::ExprKind::Ref { place, .. } => place,
+            _ => x,
+        };
+        let recv = unref(recv);
         let b = match args.first() {
-            Some(&x) => match self.cur().expr(x).kind {
-                hir::ExprKind::Ref { place, .. } => place,
-                _ => x,
-            },
+            Some(&x) => unref(x),
             None => return None,
         };
         // In order, as the call it stands for would be (spec §7.2, 18.49).

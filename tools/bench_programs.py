@@ -23,6 +23,12 @@ T-0152); `DZ_REGIONS=0` in the environment builds it with every value on the hea
     python tools/bench_programs.py --cxx g++ --runs 20 astar
     python tools/bench_programs.py --quick               # small inputs: does it all agree?
     python tools/bench_programs.py --markdown out.md --json out.json
+    python tools/bench_programs.py --record --markdown tests/bench_programs/RESULTS.md
+
+Every full run is compared with the last one recorded on the same CPU and compiler, ratio
+against ratio (`tools/bench_history.py`, T-0075); `--record` adds it to
+`tests/bench_programs/history.jsonl`, and `--check` exits 1 when a ratio got worse past the
+threshold.
 
 The numbers are only as good as the machine is quiet. The load average is printed before
 anything runs, and a run on a busy machine says so in its report.
@@ -40,6 +46,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+import bench_history
 
 ROOT = Path(__file__).resolve().parent.parent
 SUITE = ROOT / "tests" / "bench_programs"
@@ -559,7 +567,19 @@ def main():
     p.add_argument("--quick", action="store_true", help="small inputs and 2 runs")
     p.add_argument("--markdown", help="also write the report here")
     p.add_argument("--json", help="also write every measurement here")
+    p.add_argument(
+        "--record",
+        action="store_true",
+        help="add this run to tests/bench_programs/history.jsonl and write HISTORY.md",
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 if a ratio is worse than the last run recorded, past the threshold",
+    )
     a = p.parse_args()
+    if a.quick and (a.record or a.check):
+        sys.exit("--quick runs small inputs, which say nothing about speed: not recorded or compared")
 
     programs = a.programs or sorted(d.name for d in SUITE.iterdir() if (d / "main.cpp").exists())
     for prog in programs:
@@ -615,14 +635,30 @@ def main():
     print(text)
     if a.markdown:
         Path(a.markdown).write_text(text, encoding="utf-8")
+    run = {"machine": info, "mode": a.mode, "results": results, "rust": rust_results}
     if a.json:
-        Path(a.json).write_text(
-            json.dumps(
-                {"machine": info, "mode": a.mode, "results": results, "rust": rust_results}, indent=2
-            )
-            + "\n",
-            encoding="utf-8",
+        Path(a.json).write_text(json.dumps(run, indent=2) + "\n", encoding="utf-8")
+
+    if a.quick:
+        return
+    # Against the last run recorded on the same CPU and compiler (T-0075): ratios, since
+    # the absolute times move between sittings and the ratio within a run much less.
+    new = bench_history.records_of(run)
+    lines, worse = bench_history.compare(new, bench_history.read())
+    print("\nAgainst the last run recorded (tests/bench_programs/HISTORY.md):\n")
+    print("\n".join(lines))
+    if a.record:
+        bench_history.append(new)
+        bench_history.RENDERED.write_text(bench_history.render(bench_history.read()), encoding="utf-8")
+        print(f"\nrecorded in {bench_history.HISTORY.relative_to(ROOT)}", file=sys.stderr)
+    if worse:
+        print(
+            f"\n{worse} ratio(s) worse than the last run recorded, past "
+            f"{bench_history.RUN_THRESHOLD:.0%} (run) or {bench_history.BUILD_THRESHOLD:.0%} (build)",
+            file=sys.stderr,
         )
+        if a.check:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
