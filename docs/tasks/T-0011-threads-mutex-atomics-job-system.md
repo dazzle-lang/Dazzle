@@ -1,11 +1,19 @@
 ---
 id: T-0011
 title: Threads, a mutex, atomics and a job system
-milestone: v2
+milestone: M19
 status: open
 kind: feature
 area: concurrency
 ---
+
+**Scheduled for 0.3 by the user on 2026-11-18, as M19.** The design is
+[D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md); nothing is built
+until [T-0245](T-0245-try-break-d-0096-before-deciding.md) has tried to break it and the
+user has decided it. Its prerequisites are tasks of their own: `Arc` (T-0001), an atomic
+memory tracker (T-0038), a safe `TypeMap` (T-0246), `thread_local` drops on every thread
+(T-0247), and ThreadSanitizer in CI (T-0248). What is below predates D-0096; where they
+differ, D-0096 holds.
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole

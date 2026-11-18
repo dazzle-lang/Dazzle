@@ -1,7 +1,7 @@
 ---
 id: T-0065
 title: Checking a game without looking at it
-milestone: none
+milestone: M20
 status: open
 kind: feature
 area: llm-tooling

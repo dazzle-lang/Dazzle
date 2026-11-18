@@ -1,7 +1,7 @@
 ---
 id: T-0001
 title: `Arc<T>`
-milestone: v2
+milestone: M19
 status: open
 kind: feature
 area: ownership

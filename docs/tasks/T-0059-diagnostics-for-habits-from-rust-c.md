@@ -1,7 +1,7 @@
 ---
 id: T-0059
 title: Diagnostics for habits from Rust and C++
-milestone: none
+milestone: M20
 status: open
 kind: feature
 area: llm-tooling

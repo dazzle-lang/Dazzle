@@ -9,9 +9,40 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
+**The 0.3 plan**, set by the user on 2026-11-18. Five parts; the first three are new roadmap
+milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
+hot reload (M13), the web (M18) and a voxel game as the release's proof.
+
+1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
+   §6.7, §7.7, §8, §14): T-0245 tries to break D-0096 and brings its open questions to the
+   user; only once D-0096 is decided, T-0011 builds it, on its prerequisites T-0001 (`Arc`),
+   T-0038 (the tracker atomic), T-0246 (a safe `TypeMap`) and T-0247 (`thread_local` drops on
+   every thread), with T-0248 (ThreadSanitizer in CI) as its test. The proof is `ecs` running
+   its systems in parallel.
+2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
+   project and works with no network after setup. T-0250, the guide such an agent reads and
+   the README's line to it, kept apart from the compiler's own `CLAUDE.md`; T-0064, `dz new
+   --agent` and `dz agent init` (a plain `dz new` writes no agent files); T-0249, `dz doc`,
+   the documents inside `dz`; T-0061 (`dz api`), T-0063 (`dz query`, references and rename),
+   T-0066 (parseable test output), T-0065 (checking a game headless), T-0059 (diagnostics for
+   Rust and C++ habits); T-0252, an eval that measures it. T-0251 makes the website come from
+   these same documents: until it is done, the website is separate and **every decision, new
+   feature and roadmap change must be copied to it by hand**.
+3. **MSVC (M21).** `cl.exe` was never refused for a language reason; `dz` speaks only GCC's
+   command line. T-0253 (a toolchain with MSVC's flags), T-0254 (the runtime without GCC
+   builtins), T-0255 (what `-fwrapv` and the other two meaning-carrying flags become, for the
+   user to decide before T-0253 lands), T-0256 (a CI row, warning-clean at `/W4`).
+4. **Doc tests (T-0067)**, in M20: once the docs ship inside `dz` for agents to copy from,
+   every snippet in them compiles. A design task: its syntax is the user's call.
+5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).
+   Agents and the LSP both run analysis constantly.
+
+Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
+M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
+
 **0.2 is released (2026-11-17, `v0.2.0`, at r143)**, the user's call once every part of the
-plan below was done; its notes are `docs/releases/v0.2.0.md`. What comes next is the user's
-to plan. The sections below are the record of how 0.2 was reached.
+plan below was done; its notes are `docs/releases/v0.2.0.md`. The sections below are the
+record of how 0.2 was reached.
 
 **Done 2026-11-15: values move by default (T-0235, D-0106, r135)**, decided by the user and
 put ahead of the performance work, so that work and the new benchmarks are written in the
@@ -203,9 +234,8 @@ r57 (stderr, `Time`, generic methods, `Random`, `Path` and `File`); what follows
 from M12's open tasks. Later, by the roadmap: fetched packages (M16), hot reload (M13), and
 the release workflow and installer (T-0076).
 
-**When asked what there is to work on**, answer from `docs/tasks.md` in two parts and say
-both: the milestone work (M12 first, then the other milestones' open tasks), and the tooling
-that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under `none`).
+**When asked what there is to work on**, answer from the 0.3 plan at the top of this
+section: M19, M20 and M21, then the rest of the plan. Other milestones' open tasks come after.
 
 ## M7a — C interop: a vendored C library, built from source (2 open)
 
@@ -243,11 +273,10 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (15 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (14 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
-- **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
 - **[T-0046](tasks/T-0046-converting-mat4-raylib-matrix-copies-field.md)** Converting `Mat4` to raylib's `Matrix` is a transpose, not a cast · deferral, interop
@@ -276,12 +305,17 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 
 - **[T-0143](tasks/T-0143-placement-under-memory-budget-or-with.md)** Placement under a memory budget, or with no heap · design, ownership
 
-## v2 — after the first release (2 open)
+## M19 — Threads (7 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
+- **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
+- **[T-0245](tasks/T-0245-try-break-d-0096-before-deciding.md)** Try to break D-0096 before deciding it · design, concurrency
+- **[T-0246](tasks/T-0246-safe-typemap-owned-trait-objects-for.md)** A safe TypeMap and owned trait objects, for a world keyed by type · feature, stdlib
+- **[T-0247](tasks/T-0247-thread-local-static-dropped-on-every.md)** A thread_local static is dropped on every thread, not only the main one · feature, ownership
+- **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
 
-## none — not scheduled (28 open)
+## M20 — Working with an agent (11 open)
 
 - **[T-0059](tasks/T-0059-diagnostics-for-habits-from-rust-c.md)** Diagnostics for habits from Rust and C++ · feature, llm-tooling
 - **[T-0061](tasks/T-0061-api-dump-dz-api-module.md)** An API dump: `dz api <module>` · feature, llm-tooling
@@ -290,6 +324,20 @@ that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under 
 - **[T-0065](tasks/T-0065-checking-game-without-looking-at-it.md)** Checking a game without looking at it · feature, llm-tooling
 - **[T-0066](tasks/T-0066-parseable-test-bench-output.md)** Parseable test and bench output · feature, llm-tooling
 - **[T-0067](tasks/T-0067-doc-tests.md)** Doc tests · design, language
+- **[T-0249](tasks/T-0249-dz-doc-spec-primer-decisions-examples.md)** dz doc: the spec, the primer, the decisions and the examples inside dz, searchable offline · feature, llm-tooling
+- **[T-0250](tasks/T-0250-guide-for-agent-asked-write-dazzle.md)** A guide for an agent asked to write a Dazzle program, and the README's line to it · feature, llm-tooling
+- **[T-0251](tasks/T-0251-website-generated-from-this-repository-docs.md)** The website is generated from this repository's docs, not written by hand · feature, tooling
+- **[T-0252](tasks/T-0252-agent-eval-fixed-requests-built-offline.md)** An agent eval: fixed requests, built offline, measured over time · feature, llm-tooling
+
+## M21 — MSVC (4 open)
+
+- **[T-0253](tasks/T-0253-dz-drives-cl-exe-toolchain-with.md)** dz drives cl.exe: a toolchain with MSVC's own flags · feature, tooling
+- **[T-0254](tasks/T-0254-runtime-without-gcc-clang-builtins.md)** The runtime without GCC and Clang builtins · feature, codegen
+- **[T-0255](tasks/T-0255-what-fwrapv-fno-finite-loops-fno.md)** What -fwrapv, -fno-finite-loops and -fno-strict-aliasing promise, under cl.exe · design, codegen
+- **[T-0256](tasks/T-0256-msvc-in-ci-warning-clean-at.md)** MSVC in CI, warning-clean at /W4 · feature, tooling
+
+## none — not scheduled (21 open)
+
 - **[T-0068](tasks/T-0068-named-arguments-at-call-site.md)** Named arguments at the call site · design, language
 - **[T-0069](tasks/T-0069-distinct-types.md)** Distinct types · design, language
 - **[T-0070](tasks/T-0070-one-word-one-job.md)** One word, one job · design, language

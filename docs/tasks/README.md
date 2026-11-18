@@ -20,9 +20,40 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
+**The 0.3 plan**, set by the user on 2026-11-18. Five parts; the first three are new roadmap
+milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
+hot reload (M13), the web (M18) and a voxel game as the release's proof.
+
+1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
+   §6.7, §7.7, §8, §14): T-0245 tries to break D-0096 and brings its open questions to the
+   user; only once D-0096 is decided, T-0011 builds it, on its prerequisites T-0001 (`Arc`),
+   T-0038 (the tracker atomic), T-0246 (a safe `TypeMap`) and T-0247 (`thread_local` drops on
+   every thread), with T-0248 (ThreadSanitizer in CI) as its test. The proof is `ecs` running
+   its systems in parallel.
+2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
+   project and works with no network after setup. T-0250, the guide such an agent reads and
+   the README's line to it, kept apart from the compiler's own `CLAUDE.md`; T-0064, `dz new
+   --agent` and `dz agent init` (a plain `dz new` writes no agent files); T-0249, `dz doc`,
+   the documents inside `dz`; T-0061 (`dz api`), T-0063 (`dz query`, references and rename),
+   T-0066 (parseable test output), T-0065 (checking a game headless), T-0059 (diagnostics for
+   Rust and C++ habits); T-0252, an eval that measures it. T-0251 makes the website come from
+   these same documents: until it is done, the website is separate and **every decision, new
+   feature and roadmap change must be copied to it by hand**.
+3. **MSVC (M21).** `cl.exe` was never refused for a language reason; `dz` speaks only GCC's
+   command line. T-0253 (a toolchain with MSVC's flags), T-0254 (the runtime without GCC
+   builtins), T-0255 (what `-fwrapv` and the other two meaning-carrying flags become, for the
+   user to decide before T-0253 lands), T-0256 (a CI row, warning-clean at `/W4`).
+4. **Doc tests (T-0067)**, in M20: once the docs ship inside `dz` for agents to copy from,
+   every snippet in them compiles. A design task: its syntax is the user's call.
+5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).
+   Agents and the LSP both run analysis constantly.
+
+Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
+M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
+
 **0.2 is released (2026-11-17, `v0.2.0`, at r143)**, the user's call once every part of the
-plan below was done; its notes are `docs/releases/v0.2.0.md`. What comes next is the user's
-to plan. The sections below are the record of how 0.2 was reached.
+plan below was done; its notes are `docs/releases/v0.2.0.md`. The sections below are the
+record of how 0.2 was reached.
 
 **Done 2026-11-15: values move by default (T-0235, D-0106, r135)**, decided by the user and
 put ahead of the performance work, so that work and the new benchmarks are written in the
@@ -214,9 +245,8 @@ r57 (stderr, `Time`, generic methods, `Random`, `Path` and `File`); what follows
 from M12's open tasks. Later, by the roadmap: fetched packages (M16), hot reload (M13), and
 the release workflow and installer (T-0076).
 
-**When asked what there is to work on**, answer from `docs/tasks.md` in two parts and say
-both: the milestone work (M12 first, then the other milestones' open tasks), and the tooling
-that would make Dazzle easy for an LLM to work in (the `llm-tooling` rows under `none`).
+**When asked what there is to work on**, answer from the 0.3 plan at the top of this
+section: M19, M20 and M21, then the rest of the plan. Other milestones' open tasks come after.
 
 ## A task file
 

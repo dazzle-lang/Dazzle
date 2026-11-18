@@ -1,7 +1,7 @@
 ---
 id: T-0067
 title: Doc tests
-milestone: none
+milestone: M20
 status: open
 kind: design
 area: language

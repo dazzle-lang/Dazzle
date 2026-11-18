@@ -1,7 +1,7 @@
 ---
 id: T-0061
 title: An API dump: `dz api <module>`
-milestone: none
+milestone: M20
 status: open
 kind: feature
 area: llm-tooling
