@@ -20,7 +20,7 @@ impl<T> Iterate for SliceIterMut<T> {
     }
 
     #[inline]
-    fn get(&self) -> &mut T in self@items {
+    fn get(&mut self) -> &mut T in self@items {
         return &mut m_slice[m_index]
     }
 

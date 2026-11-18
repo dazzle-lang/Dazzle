@@ -23,7 +23,7 @@ impl<view I: Iterate> Iterate for Indexed<I> {
     }
 
     #[inline]
-    fn get(&self) -> (usize, I::Item) {
+    fn get(&mut self) -> (usize, I::Item) {
         return (m_count, m_inner.get())
     }
 

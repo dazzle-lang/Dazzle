@@ -44,7 +44,7 @@ impl Iterate for Countdown {
     fn valid(&self) -> bool {
         return left > 0
     }
-    fn get(&self) -> i32 {
+    fn get(&mut self) -> i32 {
         return left
     }
     fn advance(&mut self) {
@@ -64,7 +64,7 @@ impl Iterate for Query {
     fn valid(&self) -> bool {
         return at < 3
     }
-    fn get(&self) -> (usize, &P, &mut i32) {
+    fn get(&mut self) -> (usize, &P, &mut i32) {
         // Block-valued references: these did not compile until the value of a block that
         // yields a `&T` was held as a pointer.
         let name: &P = unsafe { &names^[at] }

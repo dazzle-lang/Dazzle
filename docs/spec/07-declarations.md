@@ -568,6 +568,44 @@ static SCRATCH: TempArena = TempArena{}
   within a module in reverse order of declaration. Each is left at its default, as a
   moved-from value is (§6.4), so a drop that runs later and reads a static already dropped
   sees an empty value, never freed memory. `[DECIDED — D-0094]`
+- **A function that touches a plain static is `#[main_thread]`** (§22.5), as is every
+  function calling one, so threads never race on it. A `const`, a `#[thread_local]` static,
+  one whose type is `Share` (a `Mutex`, an atomic) and one touched only inside `unsafe` need
+  nothing. `[DECIDED — D-0096]`
 
 `const` has no storage and is folded into its uses; `static` is one place in memory. The
 standard allocators (§14.2) are statics. `[DECIDED — §18.46]`
+
+## 7.8 Closures
+
+`[DECIDED — D-0112; not built yet: T-0259]` A **closure** is a function without a name,
+written where it is used, that may use the locals around it:
+
+```dz
+enemies.sort_by(fn(a, b) { return a.hp < b.hp })
+let target = player.at
+units.sort_by(fn(a, b) { return a.at.distance(target) < b.at.distance(target) })   // reads `target`
+```
+
+- **Its parameters' types come from where it is used**, the `view fn` type it is passed as,
+  and may be written, `fn(a: &Enemy, b: &Enemy) -> bool { … }`. So may the result. A `return`
+  in the body returns from the closure.
+- **What it captures is worked out from use**: a local the body reads is captured as `&`,
+  one it writes as `&mut`. Nothing is copied. The editor shows the captures on hover.
+- **It is a view** (§6.7): it may be passed down and called, and is placed as a reference is,
+  so it is never stored in a field of a struct that is not a view, never returned past what
+  it captures, and never handed to a thread that outlives it. A kill of anything it captured
+  ends it, as a kill ends a reference.
+- **It kills nothing it captured.** A body that would, such as one pushing onto a captured
+  list, is an error; a write that kills nothing, `total += x`, is fine. The body's kills
+  through its own parameters are what its type's `kills` clause says, as for a function
+  (§6.7).
+- **Its type is `view fn(…)`**, one type for every closure of that signature, with clauses
+  and `#[main_thread]` as a function type has (§6.7, §22.5): `fn sort_by(&mut self, before:
+  view fn(a: &T, b: &T) -> bool) kills self@items`. A value of it is a code pointer and the
+  captures' address, so a function taking one is one function, not one per closure (§8.4). A
+  plain function converts to a `view fn` of its signature.
+
+Closures that own what they capture, and may therefore be stored or given to `spawn!`, are
+not in the language yet. In parallel code a closure's captures are checked as arguments are
+(§22.7).

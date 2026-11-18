@@ -20,7 +20,7 @@ impl<T> Iterate for SliceIter<T> {
     }
 
     #[inline]
-    fn get(&self) -> &T in self@items {
+    fn get(&mut self) -> &T in self@items {
         return &m_slice[m_index]
     }
 

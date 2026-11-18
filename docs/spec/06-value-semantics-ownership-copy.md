@@ -567,11 +567,11 @@ pub view struct SliceIter<T> {
     tie @items = m_slice
 }
 impl<T> Iterate for SliceIter<T> {
-    fn get(&self) -> &T in self@items { return &m_slice[m_index] }
+    fn get(&mut self) -> &T in self@items { return &m_slice[m_index] }
     …
 }
 fn first(xs: &List<i32>) -> &i32 {
-    let it = xs.iter()
+    let mut it = xs.iter()
     return it.get()                 // fine: in `xs`, not in the local `it`
 }
 ```
@@ -602,7 +602,7 @@ pub view struct HashMapKeys<K: Hash + Eq, V> {
     }
 }
 impl<K: Hash + Eq, V> Iterate for HashMapKeys<K, V> {
-    fn get(&self) -> &K in self@items { return m_map.key_at(m_slot) or unreachable }
+    fn get(&mut self) -> &K in self@items { return m_map.key_at(m_slot) or unreachable }
     …
 }
 ```
@@ -613,12 +613,13 @@ is in `map`.
 **A view struct given to a function stands for what it views**, as a slice or a `&str` does.
 A view input is a reference, a pointer, a slice or a `&str` parameter, or `self`, and also a
 view taken by value: a view struct, or a value of a `view` parameter. A result elided to a
-view struct, or `in` it whole, is in what the struct views, so it outlives the struct, and a
-temporary iterator's item can be kept:
+view struct, or `in` it whole, is in what the struct views, so it outlives the struct, and an
+item outlives the iterator it came from:
 
 ```dz
-fn first<view T: Iterate>(it: &T) -> T::Item { return it.get() }
-let a = first(&xs.iter())       // in `xs`; dies when `xs` grows
+fn first<view T: Iterate>(it: &mut T) -> T::Item { return it.get() }
+let mut it = xs.iter()
+let a = first(&mut it)          // in `xs`, not `it`; dies when `xs` grows
 fn at_of(p: &Peek) -> &usize { return &p.at }           // error: `at` is `p`'s own
 fn at_named(p: &Peek) -> &usize in p.at { return &p.at } // fine: tied to `p` itself
 ```

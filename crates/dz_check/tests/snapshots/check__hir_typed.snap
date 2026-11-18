@@ -3435,7 +3435,7 @@ body impl#15 method valid -> bool
         field #1: usize
           local _0 self: HashMapIterMut<K, V>
         call-method HashMap::slot_count: usize
-          field #0: &mut HashMap<K, V>
+          field #0: &HashMap<K, V>
             local _0 self: HashMapIterMut<K, V>
 body impl#15 method get -> (&K, &mut V)
   param _0 self: HashMapIterMut<K, V>
@@ -3596,7 +3596,7 @@ body impl#18 method valid -> bool
         field #1: usize
           local _0 self: HashMapValuesMut<K, V>
         call-method HashMap::slot_count: usize
-          field #0: &mut HashMap<K, V>
+          field #0: &HashMap<K, V>
             local _0 self: HashMapValuesMut<K, V>
 body impl#18 method get -> &mut V
   param _0 self: HashMapValuesMut<K, V>
@@ -6602,7 +6602,7 @@ body impl#39 method valid -> bool
         field #1: usize
           local _0 self: SlotMapIterMut<T>
         call-method SlotMap::len: usize
-          field #0: &mut SlotMap<T>
+          field #0: &SlotMap<T>
             local _0 self: SlotMapIterMut<T>
 body impl#39 method get -> (Key<T>, &mut T)
   param _0 self: SlotMapIterMut<T>
@@ -6738,7 +6738,7 @@ body impl#41 method valid -> bool
         field #1: usize
           local _0 self: SliceIterMut<T>
         len: usize
-          field #0: &mut []T
+          field #0: &[]T
             local _0 self: SliceIterMut<T>
 body impl#41 method get -> &mut T
   param _0 self: SliceIterMut<T>
@@ -23363,11 +23363,11 @@ body fn a_reference_passed_on -> i32
       deref: i32
         local _1 r: &i32
 body fn first_item -> T::Item
-  param _0 it: &T
+  param _0 it: &mut T
   block
     return: !
       call-method Iterate::get: T::Item
-        local _0 it: &T
+        local _0 it: &mut T
 body fn count_items -> i32
   param _0 xs: &C
   param _1 seen: fn(C::Iter::Item) -> void
@@ -23457,28 +23457,30 @@ body fn walked -> i32
 body fn projections -> i32
   param _0 xs: &List<i32>
   block
-    let _1 a: &i32
+    let _1 it: SliceIter<i32>
+      call-method Iterable::iter: SliceIter<i32>
+        local _0 xs: &List<i32>
+    let _2 a: &i32
       call first_item: &i32
-        ref: &SliceIter<i32>
-          call-method Iterable::iter: SliceIter<i32>
-            local _0 xs: &List<i32>
-    let _2 flagged: Flagged<SliceIter<i32>>
+        ref mut: &mut SliceIter<i32>
+          local _1 it: SliceIter<i32>
+    let _3 flagged: Flagged<SliceIter<i32>>
       struct-lit Flagged: Flagged<SliceIter<i32>>
         #0
           call-method Iterable::iter: SliceIter<i32>
             local _0 xs: &List<i32>
-    let _3 pair: (&i32, bool)
+    let _4 pair: (&i32, bool)
       call first_item: (&i32, bool)
-        ref: &Flagged<SliceIter<i32>>
-          local _2 flagged: Flagged<SliceIter<i32>>
+        ref mut: &mut Flagged<SliceIter<i32>>
+          local _3 flagged: Flagged<SliceIter<i32>>
     return: !
       binary +: i32
         binary +: i32
           deref: i32
-            local _1 a: &i32
+            local _2 a: &i32
           deref: i32
             tuple-index #0: &i32
-              local _3 pair: (&i32, bool)
+              local _4 pair: (&i32, bool)
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
@@ -23958,7 +23960,7 @@ body method Teller::total -> &i32
     return: !
       ref: &i32
         field #0: i32
-          field #0: &mut Ledger
+          field #0: &Ledger
             local _0 self: Teller
 body fn teller -> i32
   block
@@ -24636,3 +24638,61 @@ body fn recording -> i32
                 local _3 o: &^Recorder
     return: !
       local _2 sum: i32
+body method ViewTally::bump -> void
+  param _0 self: ViewTally
+  block
+    assign +=
+      field #0: &mut i32
+        local _0 self: ViewTally
+      int 1: i32
+body method ViewTally::note -> void
+  param _0 self: ViewTally
+  block
+    call-method List::push: void
+      field #1: &mut List<i32>
+        local _0 self: ViewTally
+      int 1: i32
+body method ViewTally::read -> i32
+  param _0 self: ViewTally
+  block
+    return: !
+      binary +: i32
+        deref: i32
+          field #0: &i32
+            local _0 self: ViewTally
+        cast: i32
+          call-method List::len: usize
+            field #1: &List<i32>
+              local _0 self: ViewTally
+body fn bump_through -> i32
+  param _0 t: &mut ViewTally
+  block
+    assign +=
+      field #0: &mut i32
+        local _0 t: &mut ViewTally
+      int 1: i32
+    call-method ViewTally::note: void
+      local _0 t: &mut ViewTally
+    return: !
+      call-method ViewTally::read: i32
+        local _0 t: &mut ViewTally
+body fn tallied -> i32
+  block
+    let _0 n: i32
+      int 0: i32
+    let _1 xs: List<i32>
+      call-ctor List#0: List<i32>
+    let _2 t: ViewTally
+      struct-lit ViewTally: ViewTally
+        #0
+          ref mut: &mut i32
+            local _0 n: i32
+        #1
+          ref mut: &mut List<i32>
+            local _1 xs: List<i32>
+    call-method ViewTally::bump: void
+      local _2 t: ViewTally
+    return: !
+      call bump_through: i32
+        ref mut: &mut ViewTally
+          local _2 t: ViewTally

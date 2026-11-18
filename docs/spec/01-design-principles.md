@@ -51,8 +51,10 @@ The principles, in priority order. When two conflict, the earlier one wins.
   - **`std`'s trusted bodies**: its containers' `kills` clauses are written by hand over
     `unsafe` code, and checked at run time in debug builds (§6.7, §14.2);
   - **the C and C++ a program calls**, and the `keeps` list a recipe vouches for (§15.1);
-  - **threads**: Dazzle has none of its own yet, and how they share memory is undecided
-    (§18.11);
+  - **threads**, until §22 is built (T-0011): it extends the promise to code that runs at
+    the same time, data races included, by `Send` and `Share`, a rule between the calls
+    that run at once, and `#[main_thread]` for statics and C, without changing what one
+    thread may do (D-0096);
   - **running out of stack**, which C++ does not define; on every platform Dazzle targets
     it ends the program.
 

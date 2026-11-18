@@ -12,7 +12,9 @@ pub trait Iterate {
     view type Item
 
     fn valid(&self) -> bool
-    fn get(&self) -> Item
+    /// `&mut self`, so an iterator may hand out `&mut` items: nothing reachable through a
+    /// `&` is written (§5.2).
+    fn get(&mut self) -> Item
     fn advance(&mut self)
 }
 

@@ -22,7 +22,7 @@ impl<T> Iterate for One<T> {
         return row < pool.len()
     }
 
-    fn get(&self) -> &mut T in self@items {
+    fn get(&mut self) -> &mut T in self@items {
         return &mut pool[row]
     }
 
@@ -48,7 +48,7 @@ impl<T> Iterate for Two<T> {
         return row < pool.len()
     }
 
-    fn get(&self) -> (usize, &mut T) in self@items {
+    fn get(&mut self) -> (usize, &mut T) in self@items {
         return (row, &mut pool[row])
     }
 

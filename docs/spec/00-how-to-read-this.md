@@ -41,7 +41,7 @@ impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone(
 
 | Concept | Syntax | One-line rule |
 |---|---|---|
-| Refer to a value | `&T` `&mut T` `^T` `^mut T` `own ^mut T` | `&`/`&mut` are non-null and **stack-only**; `^` is a C pointer, read-only unless `^mut`; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free, and reading or writing *through* a pointer is `unsafe` |
+| Refer to a value | `&T` `&mut T` `^T` `^mut T` `own ^mut T` | `&`/`&mut` are non-null and **stack-only**; nothing reachable through a `&` is written; `^` is a C pointer, read-only unless `^mut`; `own ^` means you free it; `^T` → `&T` needs an `or` clause, `&T` → `^T` is free, and reading or writing *through* a pointer is `unsafe` |
 | Move vs copy | `let b = a` / `let b = a.clone()` | a value that owns anything moves when it is used by value, and is copied only by `.clone()`; plain data copies (§6.3, §6.4) |
 | Invalidation | `fn push(&mut self, v: T) kills self@items` | every function says which ties (`@items`) it may end; a reference into a killed tie is an error to use; aliasing stays legal (§6.7) |
 | Memory | `List<T>()` | no allocator in ordinary code: the compiler places each value — the scope's region, the caller's result, else the heap (§14.6) |
@@ -54,6 +54,8 @@ impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone(
 | Sum type | `union S { A{…} B{} C }` + `switch` | tagged, exhaustive, no fallthrough; bare `C` carries `struct C` |
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size (`^mut Allocator` alone is one word, D-0103); an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
+| Closures | `xs.sort_by(fn(a, b) { return a.hp < b.hp })` | a function without a name; captures what it uses by reference, worked out from use; a view, never stored (§7.8) |
+| Threads | `for &mut e in xs.parallel() { … }`, `join!(a(…), b(…))` | passes and calls run at once; what one writes no other touches, checked at compile time; `Send`/`Share` say what crosses; statics and C are `#[main_thread]` (§22) |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
 | Metaprogramming | `macro m -> decl { … }`, invoked `#m …`; an `expr` or `stmt` macro `m!(…)` | declarative pattern → expand, so the LSP can complete inside it |
 | Reflection | `typeinfo_of<T>()` | one static table; your structs carry zero extra bytes |
@@ -65,5 +67,5 @@ reference lives only where references live — a local, a parameter, a result, o
 struct — never in an ordinary field or a container (this is why no struct carries a
 lifetime, and ties, §6.7, are enough).
 
-**And the promise they add up to:** a program with no `unsafe` has no undefined behaviour on
-one thread (§1.1).
+**And the promise they add up to:** a program with no `unsafe` has no undefined behaviour
+(§1.1), on one thread today and, once §22 is built, across threads too.

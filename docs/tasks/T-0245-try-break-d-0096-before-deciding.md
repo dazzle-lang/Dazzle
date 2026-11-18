@@ -2,7 +2,7 @@
 id: T-0245
 title: Try to break D-0096 before deciding it
 milestone: M19
-status: open
+status: done
 kind: design
 area: concurrency
 where: `docs/decisions/D-0096-threads-safe-multithreading-built-on-ties.md` (the design); `tests/bench_programs/ecs` (the ECS it is checked against)
@@ -26,6 +26,13 @@ is this task:
    shareable, the clause naming plain statics (`uses`?), `A::Target` or `target_of<A>`,
    `ref` as the keyword, the marker on `join`, what a panic on a worker does, and whether
    closures are needed after all.
+
+**Steps 1 and 2 done, 2026-11-18**, written into D-0096 as "Tried, 2026-11-18": the battle's
+four systems ported, the seven programs each given a rule, and seven holes the list did not
+have, each with a proposed rule. The one that the compiler showed is real: a view struct's
+`&mut` field is writable through `&`, so `&T` is not read-only and two parallel calls given
+one `&` could race. The probe programs belong in `tests/errors` once the rules are built.
+Left: step 3, the user's decisions.
 
 **Done when** every refused program has a rule, the open questions are answered, and D-0096
 is `decided`, with the spec sections it lists (§1.1, §6.7, §7.7, §8, §14.5, §14.6, §15)

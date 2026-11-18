@@ -1,6 +1,6 @@
 //! Checking function bodies: statements, expressions, and the rules of spec §9–§11.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use dz_ast::*;
@@ -1204,7 +1204,23 @@ struct Body<'a, 'c> {
     /// Whether the statement about to be checked is still among the constructor's opening
     /// ones, where `m_map = map` binds a reference field rather than writing through it.
     binding_prefix: bool,
+    /// The fields of `self`, under `&self`, whose `&mut` or `[]mut` type reads as `&` or
+    /// `[]`: nothing reachable through a `&` is written (spec §5.2, D-0096).
+    read_only_fields: Vec<String>,
+    /// Field accesses typed `&` where the field is a `&mut`, because they were reached
+    /// through a `&`: what the help for writing through one points at.
+    read_only_views: HashSet<Span>,
     hir: BodyBuilder,
+}
+
+/// A view's writable reference, as it reads when reached through a `&`: `&mut T` as `&T`,
+/// `[]mut T` as `[]T` (spec §5.2, D-0096). `None` for any other type, which is unchanged.
+fn read_only_view(ty: &Ty) -> Option<Ty> {
+    match ty {
+        Ty::Ref { mutable: true, inner } => Some(Ty::Ref { mutable: false, inner: inner.clone() }),
+        Ty::Slice { mutable: true, elem } => Some(Ty::Slice { mutable: false, elem: elem.clone() }),
+        _ => None,
+    }
 }
 
 /// One enclosing loop, while its body is checked.
@@ -1251,7 +1267,35 @@ impl<'a, 'c> Body<'a, 'c> {
             next_loop: 0,
             unbound: Vec::new(),
             binding_prefix: false,
+            read_only_fields: Vec::new(),
+            read_only_views: HashSet::new(),
             hir,
+        }
+    }
+
+    /// Whether the place `base`, of type `base_ty`, is reached through a `&`, so a view's
+    /// `&mut` field in it reads as `&` (spec §5.2). A reference or a slice says so in its
+    /// type, which this rule has already made read-only wherever it applied; a value is as
+    /// shared as whatever holds it, down to a local, or a field of a `&self`.
+    fn reached_through_shared(&mut self, base: &Expr, base_ty: &Ty) -> bool {
+        match base_ty {
+            Ty::Ref { mutable, .. } | Ty::Slice { mutable, .. } => !mutable,
+            // A raw pointer is written through only inside `unsafe`, which vouches for it.
+            Ty::Ptr { .. } | Ty::OwnPtr { .. } => false,
+            _ => match &base.kind {
+                ExprKind::Path(p) if p.segments.len() == 1 => {
+                    match self.local(&p.segments[0].name.name) {
+                        Some(Local { slot: Slot::SelfField { .. }, mutable, .. }) => !mutable,
+                        _ => false,
+                    }
+                }
+                // A field or an element of a value is as shared as the value.
+                ExprKind::Field { base: inner, .. } | ExprKind::Index { base: inner, .. } => {
+                    let inner_ty = self.expr_quiet(inner);
+                    self.reached_through_shared(inner, &inner_ty)
+                }
+                _ => false,
+            },
         }
     }
 
@@ -1959,6 +2003,15 @@ impl<'a, 'c> Body<'a, 'c> {
                         self.binding_prefix = !self.unbound.is_empty();
                     }
                     for (index, name, ty) in fields {
+                        // Through `&self`, a view's `&mut` field reads as `&`: nothing
+                        // reachable through a `&` is written (spec §5.2, D-0096).
+                        let ty = match read_only_view(&ty) {
+                            Some(read_only) if !is_mut => {
+                                self.read_only_fields.push(name.clone());
+                                read_only
+                            }
+                            _ => ty,
+                        };
                         self.bind_self_field(&name, ty, is_mut, index);
                     }
                 }
@@ -3070,7 +3123,42 @@ impl<'a, 'c> Body<'a, 'c> {
         })
     }
 
+    /// The help for writing through a view's `&mut` field that was reached through a `&`,
+    /// when `e` is, or reaches through, such a field (spec §5.2, D-0096).
+    fn read_only_view_help(&self, e: &Expr) -> Option<String> {
+        let field = match &e.kind {
+            ExprKind::Path(p) if p.segments.len() == 1 => {
+                let name = &p.segments[0].name.name;
+                let is_field = matches!(
+                    self.local(name),
+                    Some(Local { slot: Slot::SelfField { .. }, mutable: false, .. })
+                );
+                (is_field && self.read_only_fields.contains(name)).then(|| name.clone())
+            }
+            ExprKind::Field { name, .. } if self.read_only_views.contains(&e.span) => {
+                Some(name.name.clone())
+            }
+            _ => None,
+        };
+        if let Some(field) = field {
+            return Some(format!(
+                "`{field}` is a `&mut` reached through a `&`, so it reads as `&`: nothing \
+                 reachable through a `&` is written. Take `&mut self`, or a `&mut`, to write \
+                 through it (spec §5.2)"
+            ));
+        }
+        match &e.kind {
+            ExprKind::Field { base, .. } | ExprKind::Index { base, .. } => {
+                self.read_only_view_help(base)
+            }
+            _ => None,
+        }
+    }
+
     fn describe_place(&mut self, e: &Expr) -> (String, String) {
+        if let Some(help) = self.read_only_view_help(e) {
+            return ("memory behind a read-only reference".to_owned(), help);
+        }
         match &e.kind {
             ExprKind::Path(p) if p.segments.len() == 1 => {
                 let name = p.segments[0].name.name.clone();
@@ -3745,6 +3833,14 @@ impl<'a, 'c> Body<'a, 'c> {
                     self.require_unsafe(e.span, "reaching through a `^T` with `.`");
                 }
                 let (ty, index) = self.field_type(&b.ty, name, base.span);
+                // A view's `&mut` field reached through a `&` reads as `&` (spec §5.2).
+                let ty = match read_only_view(&ty) {
+                    Some(read_only) if self.reached_through_shared(base, &b.ty) => {
+                        self.read_only_views.insert(e.span);
+                        read_only
+                    }
+                    _ => ty,
+                };
                 // An imported C array member is a raw array in C++, which cannot be copied
                 // or assigned as a whole — only indexed, iterated or pointed at (§15.2).
                 if !reached_into && self.is_c_array_member(&b.ty, &ty) {
@@ -6612,15 +6708,21 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         };
         if !ok {
+            let help = match self.read_only_view_help(base) {
+                Some(h) => h,
+                None => help
+                    .unwrap_or(
+                        "the method takes `&mut self` — bind with `let mut`, or take `&mut` \
+                         here (spec §7.3)",
+                    )
+                    .to_owned(),
+            };
             self.cx.error_help(
                 codes::NOT_MUTABLE,
                 base.span,
                 format!("`{method}` needs a mutable receiver"),
                 "this is not mutable",
-                help.unwrap_or(
-                    "the method takes `&mut self` — bind with `let mut`, or take `&mut` here \
-                     (spec §7.3)",
-                ),
+                help,
             );
         }
     }

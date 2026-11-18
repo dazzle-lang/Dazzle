@@ -21,7 +21,7 @@ impl<K: Hash + Eq, V> Iterate for HashMapIterMut<K, V> {
         return m_slot < m_map.slot_count()
     }
 
-    fn get(&self) -> (&K, &mut V) in self@items {
+    fn get(&mut self) -> (&K, &mut V) in self@items {
         return (m_map.key_at(m_slot) or unreachable, m_map.value_at_mut(m_slot) or unreachable)
     }
 

@@ -19,7 +19,7 @@ impl<T> Iterate for DequeIter<T> {
         return m_index < m_deque.len()
     }
 
-    fn get(&self) -> &T in self@items {
+    fn get(&mut self) -> &T in self@items {
         return &m_deque[m_index]
     }
 

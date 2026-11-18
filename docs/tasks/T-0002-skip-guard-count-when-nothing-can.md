@@ -1,7 +1,7 @@
 ---
 id: T-0002
 title: Skip the guard's count when nothing can drop the owner
-milestone: M12
+milestone: M19
 status: open
 kind: feature
 area: ownership

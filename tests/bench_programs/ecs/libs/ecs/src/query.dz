@@ -15,7 +15,7 @@ impl<A> Iterate for Query<A> {
     }
 
     #[inline]
-    fn get(&self) -> (Entity, &mut A) in self@items {
+    fn get(&mut self) -> (Entity, &mut A) in self@items {
         return (storage.entity_at(row), storage.value_at(row))
     }
 
@@ -77,7 +77,7 @@ impl<A, B> Iterate for Query2<A, B> {
     }
 
     #[inline]
-    fn get(&self) -> (Entity, &mut A, &mut B) in self@items {
+    fn get(&mut self) -> (Entity, &mut A, &mut B) in self@items {
         return (entity, first.value_at(in_a), second.value_at(in_b))
     }
 

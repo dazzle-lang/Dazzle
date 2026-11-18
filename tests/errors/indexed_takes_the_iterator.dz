@@ -15,7 +15,7 @@ impl Iterate for Letters {
         return at < text.byte_len()
     }
 
-    fn get(&self) -> usize {
+    fn get(&mut self) -> usize {
         return at
     }
 

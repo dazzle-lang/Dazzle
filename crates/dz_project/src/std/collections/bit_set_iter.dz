@@ -34,7 +34,7 @@ impl Iterate for BitSetIter {
         return m_bits != 0
     }
 
-    fn get(&self) -> usize {
+    fn get(&mut self) -> usize {
         return m_word * 64 + m_bits.trailing_zeros() as usize
     }
 

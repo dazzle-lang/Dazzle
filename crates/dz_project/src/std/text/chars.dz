@@ -27,7 +27,7 @@ impl Iterate for Chars {
     }
 
     #[inline]
-    fn get(&self) -> char {
+    fn get(&mut self) -> char {
         let (c, _) = decode_utf8(m_text as &[]u8, m_at)
         return c
     }

@@ -138,12 +138,12 @@ fn walked_then_grown(xs: &mut List<i32>) kills xs@items {
 // An item outlives the iterator it came from: it is in what the iterator views, through the
 // tie a view struct declares on its view field (spec §6.7). So is a piece of a split.
 fn first_of(xs: &List<i32>) -> &i32 {
-    let it = xs.iter()
+    let mut it = xs.iter()
     return it.get()
 }
 
 fn first_piece(line: &String) -> &str {
-    let parts = line.as_str().split(",")
+    let mut parts = line.as_str().split(",")
     return parts.get()
 }
 
@@ -164,18 +164,20 @@ fn popped_text_survives(names: &mut List<const &str>) kills names@items {
 }
 
 // A view struct given to a function stands for what it views (spec §6.7, D-0093): an item
-// of a temporary iterator outlives it, in the list, and so does one from an iterator taken
-// by value.
-fn first_item<view T: Iterate>(it: &T) -> T::Item {
+// of an iterator lent as `&mut` outlives it, in the list, and so does one from an iterator
+// taken by value.
+fn first_item<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
 fn taken<view T: Iterate>(it: T) -> T::Item {
-    return it.get()
+    let mut walk = it
+    return walk.get()
 }
 
 fn kept_items(xs: &List<i32>) -> i32 {
-    let a = first_item(&xs.iter())
+    let mut it = xs.iter()
+    let a = first_item(&mut it)
     let b = taken(xs.iter())
     return a + b
 }

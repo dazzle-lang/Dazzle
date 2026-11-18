@@ -213,7 +213,14 @@ map` — and a generic function can take `C: Iterable` and loop over it. `[DECID
 
 `e` is bound from `Item`, read off the implementer. `advance` runs after the body on every
 completed pass, and `continue` jumps to it rather than past it, so a `continue` cannot spin
-forever. `break` leaves the whole construct.
+forever. `break` leaves the whole construct. `get` takes `&mut self` (§8.5), so an
+iterator may hand out `&mut` items while `&` stays read-only all the way down (§5.2).
+
+**A `for` over a parallel iterator runs its passes on every core**: `for &mut e in
+enemies.parallel()`, `for _, &mut p, &v in w.query_parallel<&mut Position, &Velocity>()`.
+The head is written as here; each pass gets an element no other pass gets, the body may
+only read what it uses from outside the loop, and `break` and `return` are errors (§22.3).
+`[DECIDED — D-0096]`
 
 ## 10.5 `defer`
 

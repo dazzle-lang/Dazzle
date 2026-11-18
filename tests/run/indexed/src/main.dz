@@ -21,7 +21,7 @@ impl Iterate for Countdown {
         return left > 0
     }
 
-    fn get(&self) -> i32 {
+    fn get(&mut self) -> i32 {
         return left
     }
 
@@ -43,7 +43,7 @@ impl Iterate for Letters {
         return at < text.byte_len()
     }
 
-    fn get(&self) -> usize {
+    fn get(&mut self) -> usize {
         return at
     }
 

@@ -81,6 +81,14 @@ Five ways to refer to something — the model your samples already use, plus `&m
   and it is on you to keep it valid. A `^T` is only read through; a `^mut T` may be written
   through as well. They stand to each other as `&T` and `&mut T` do, and as `&[]T` and
   `&mut []T` do: read-only unless `mut` is written. `[DECIDED — §18.37]`
+- **`&T` is read-only all the way down.** Nothing reachable through a `&` is written: a
+  `&mut` field of a view struct (§6.7) reached through `&` reads as a `&`, and a `^mut`
+  field as a `^`, so a method taking `&self` cannot write through either, and a function
+  taking `&T` writes nothing `T` reaches. An iterator that hands out `&mut` items takes
+  `&mut self` to do it (`Iterate::get`, §10.4). Inside `unsafe` a `^mut` field may still be
+  written, which the block vouches for, as `std`'s `Rc` writes its count. This is what lets
+  two threads read through one `&` (§22.2); on one thread it makes a `&` mean what it says.
+  `[DECIDED — D-0096]`
 - **`own ^mut T`** is a `^mut T` that this struct is responsible for releasing. It changes
   the *type's* semantics — see §6. `own ^T` exists too, an owned block that is only read,
   but a container writes into what it owns, so `own ^mut T` is the usual form.
@@ -381,6 +389,7 @@ be absent is the slice pointer, `^[]T`, which may be null, as text that may be a
 (i32, f32)              tuple
 T?                      optional  — see §5.6; built in, not a library type
 fn(i32, f32) -> bool    function pointer
+view fn(i32) -> bool    a closure, or a function, of that signature (§7.8)
 ```
 
 Tuples exist mainly for multiple return values; they have positional access `t.0`, `t.1`

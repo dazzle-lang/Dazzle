@@ -1,9 +1,10 @@
 # The Dazzle Language Specification
 
-**Version:** 0.2 (released 2026-11-17), revision 143
+**Version:** 0.2 (released 2026-11-17), revision 144
 **Status:** M0–M8, M10, M11, M14 and M15 implemented, and most of M9 and M12 — Dazzle
 programs compile and run, own, move and drop their resources deterministically, have no
-undefined behaviour outside `unsafe` on one thread (§1.1), get their memory where the
+undefined behaviour outside `unsafe` on one thread (§1.1; threads, §22, are specified and
+not built yet), get their memory where the
 compiler places it (§14.6), have generics, traits, unions, macros and reflection, call C
 and C++ libraries that `dz` builds from vendored source, run about as fast as the same
 programs written in C++, and are edited with a language server. Still to come: the editor
@@ -50,3 +51,4 @@ the file names only make them findable.
 | §19 | [Roadmap](19-roadmap.md) |
 | §20 | [Appendix: grammar sketch](20-appendix-grammar-sketch.md) |
 | §21 | [Changelog](21-changelog.md) |
+| §22 | [Threads](22-threads.md) |

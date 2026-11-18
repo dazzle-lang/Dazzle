@@ -1602,10 +1602,10 @@ error[DZ0501]: expected `i32`, found `T::Item`
      │            ^^^^^^^^ this is `T::Item`
 
 error[DZ0560]: `T` has no associated type `Size`
-     ┌─ typeerrors/src/errors.dz:1297:51
+     ┌─ typeerrors/src/errors.dz:1297:55
      │
-1297 │ fn no_such_associated_type<T: Iterate>(it: &T) -> T::Size {
-     │                                                   ^^^^^^^ no bound declares it
+1297 │ fn no_such_associated_type<T: Iterate>(it: &mut T) -> T::Size {
+     │                                                       ^^^^^^^ no bound declares it
      │
      = help: an associated type comes from a bound: none of `T`'s declares `type Size` (spec §8.5)
 
@@ -2204,3 +2204,27 @@ error[DZ0501]: expected `i32`, found `&str`
      │
 1784 │     Text { width: i32 = "wide" }
      │                         ^^^^^^ this is `&str`
+
+error[DZ0507]: cannot assign to memory behind a read-only reference
+     ┌─ typeerrors/src/errors.dz:1798:9
+     │
+1798 │         count += 1
+     │         ^^^^^ not mutable
+     │
+     = help: `count` is a `&mut` reached through a `&`, so it reads as `&`: nothing reachable through a `&` is written. Take `&mut self`, or a `&mut`, to write through it (spec §5.2)
+
+error[DZ0507]: `push` needs a mutable receiver
+     ┌─ typeerrors/src/errors.dz:1802:9
+     │
+1802 │         seen.push(1)
+     │         ^^^^ this is not mutable
+     │
+     = help: `seen` is a `&mut` reached through a `&`, so it reads as `&`: nothing reachable through a `&` is written. Take `&mut self`, or a `&mut`, to write through it (spec §5.2)
+
+error[DZ0507]: cannot assign to memory behind a read-only reference
+     ┌─ typeerrors/src/errors.dz:1807:5
+     │
+1807 │     t.count += 1
+     │     ^^^^^^^ not mutable
+     │
+     = help: `count` is a `&mut` reached through a `&`, so it reads as `&`: nothing reachable through a `&` is written. Take `&mut self`, or a `&mut`, to write through it (spec §5.2)

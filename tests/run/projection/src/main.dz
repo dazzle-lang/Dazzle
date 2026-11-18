@@ -35,7 +35,7 @@ impl Iterate for Countdown {
         return left > 0
     }
 
-    fn get(&self) -> Token {
+    fn get(&mut self) -> Token {
         return Token{ id: left }
     }
 
@@ -46,7 +46,7 @@ impl Iterate for Countdown {
 
 // A list's iterator is a view of the list, so a generic function over iterators takes a
 // `view` parameter, which may be given one (spec §6.7).
-fn first<view T: Iterate>(it: &T) -> T::Item {
+fn first<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
@@ -100,7 +100,7 @@ impl<view I: Iterate> Iterate for Numbered<I> {
         return inner.valid()
     }
 
-    fn get(&self) -> (usize, I::Item) {
+    fn get(&mut self) -> (usize, I::Item) {
         return (m_index, inner.get())
     }
 
@@ -148,7 +148,8 @@ fn main() {
     for i in 1..5 {
         xs.push(i * 10)
     }
-    println!("first {}", first(&xs.iter()))
+    let mut walk = xs.iter()
+    println!("first {}", first(&mut walk))
     println!("count {} total {}", count(xs.iter()), total(&xs))
     each(&xs, show_int)
 
@@ -162,8 +163,8 @@ fn main() {
     }
 
     drain(Countdown{ left: 2 }, keep)
-    let counting = Countdown{ left: 3 }
-    let top = first(&counting)
+    let mut counting = Countdown{ left: 3 }
+    let top = first(&mut counting)
     println!("first token {}", top.id)
 
     let tail: ^i32 = last(xs.iter())

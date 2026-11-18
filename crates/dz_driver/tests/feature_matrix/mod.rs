@@ -89,7 +89,7 @@ pub fn pair() -> (i32, i32) {
     return (3, 9)
 }
 
-pub fn first_of<view T: Iterate>(it: &T) -> T::Item {
+pub fn first_of<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
@@ -253,7 +253,7 @@ pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
     ),
     (
         "associated_type_projection",
-        "let mut xs = List<i32>()\nxs.push(3)\nxs.push(4)\nr = first_of(&xs.iter()) + count_of(&xs)",
+        "let mut xs = List<i32>()\nxs.push(3)\nxs.push(4)\nlet mut it = xs.iter()\nr = first_of(&mut it) + count_of(&xs)",
         5,
     ),
 ];
@@ -296,7 +296,7 @@ pub const MISTAKES: &[(&str, &str, &str)] = &[
     ("break_to_unknown_label", "for i in 0..2 {\n    r += i\n    break nowhere\n}", "DZ0550"),
     ("continue_to_unknown_label", "while r < 2 {\n    r += 1\n    continue nowhere\n}", "DZ0550"),
     ("generic_method_bound", "let c = Counter{ n: 1 }\nlet (a, _) = c.twice(Res{ n: 1 })\nr = a.n", "DZ0531"),
-    ("projection_is_the_chosen_type", "let xs = List<i32>()\nlet s: &str = first_of(&xs.iter())", "DZ0501"),
+    ("projection_is_the_chosen_type", "let xs = List<i32>()\nlet mut it = xs.iter()\nlet s: &str = first_of(&mut it)", "DZ0501"),
 ];
 
 /// `(name, wrapper)`: `BODY` is replaced by the case, indented to fit, and `NAME` by a

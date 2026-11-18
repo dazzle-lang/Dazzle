@@ -29,20 +29,21 @@ fn kept_in_a_tuple(a: &mut List<i32>) kills a@items {
 
 // The item outlives the iterator, but not the list's array, which it is in.
 fn item_while_growing(xs: &mut List<i32>) -> i32 kills xs@items {
-    let it = xs.iter()
+    let mut it = xs.iter()
     let first = it.get()
     xs.push(1)
     return first
 }
 
-// The same through a generic function given a temporary iterator, which stands for what it
+// The same through a generic function lent the iterator, which stands for what it
 // views (D-0093).
-fn first_item<view T: Iterate>(it: &T) -> T::Item {
+fn first_item<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
 fn item_of_temporary(xs: &mut List<i32>) -> i32 kills xs@items {
-    let a = first_item(&xs.iter())
+    let mut it = xs.iter()
+    let a = first_item(&mut it)
     xs.push(1)
     return a
 }

@@ -35,8 +35,9 @@ params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 generics      = "<" gparam { "," gparam } ">" ;
-gparam        = [ "view" ] ident [ ":" bound { "+" bound } ] ;
-                (* `view` is a keyword only here, before `struct` and before `type`, §6.7 *)
+gparam        = [ "view" | "ref" ] ident [ ":" bound { "+" bound } ] ;
+                (* `view` is a keyword only here, before `struct`, before `type` and before
+                   `fn` in a type, §6.7; `ref` only here, §22.8 *)
 
 struct_decl   = [ "view" ] "struct" ident [ generics ] [ ":" path ] "{" { member } "}" ;  (* one base *)
 member        = field | fn_decl | ctor | tie_decl ;
@@ -60,7 +61,9 @@ access_type   = "^" type | "&" [ "mut" ] type
               | "[" [ expr ] "]" type
               | "own" "^" type
               | "const" type    (* only `const &str`, `const &cstr` and `const &[]T`, §5.3 *)
-              | "fn" "(" [ fn_type_params ] ")"
+              | { attribute } [ "view" ] "fn" "(" [ fn_type_params ] ")"
+                (* `view fn` is a closure's type, §7.8; the one attribute a function type
+                   takes is `#[main_thread]`, §22.5 *)
                 [ ( "->" | "!->" ) type [ "in" ( tie_path | "(" tie_path { "," tie_path } ")" ) ] ]
                 [ "kills" ( tie_path | "(" tie_path { "," tie_path } ")" ) ]
                 [ "sends" ( send | "(" send { "," send } ")" ) ]
@@ -114,7 +117,11 @@ primary       = literal | "none" | path | struct_lit | call | index | field_acce
               | "&" expr | "&mut" expr | unary | intrinsic | macro_invoke
               | "." ident [ struct_lit_body ]
               | "unsafe" block
+              | closure
               | array_lit ;
+closure       = "fn" "(" [ closure_param { "," closure_param } ] ")"
+                [ ( "->" | "!->" ) type ] block ;   (* §7.8 *)
+closure_param = ident [ ":" type ] ;
 array_lit     = "[" [ expr { "," expr } [ "," ] ] "]" ;
 struct_lit    = path struct_lit_body ;
 struct_lit_body = "{" [ field_init { "," field_init } [ "," ] ] "}" ;

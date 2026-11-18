@@ -273,9 +273,8 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 - **[T-0032](tasks/T-0032-name-expansion-resolves-where-macro-declared.md)** A name an expansion resolves where the macro is declared must be `pub` there · deferral, macros
 - **[T-0033](tasks/T-0033-hygiene-renames-by-name-within-one.md)** Hygiene renames by name within one expansion · deferral, macros
 
-## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (14 open)
+## M12 — Stdlib pass: `List`, `String`, `HashMap`, allocators, math (13 open)
 
-- **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0003](tasks/T-0003-handle-or-with-value-fallback.md)** A handle's `or` with a value fallback · feature, ownership
 - **[T-0041](tasks/T-0041-union-variant-carrying-struct-with-constructor.md)** A union variant carrying a struct with a constructor cannot be built · deferral, checker
 - **[T-0045](tasks/T-0045-methods-on-untyped-literal.md)** Methods on an untyped literal · deferral, checker
@@ -289,6 +288,10 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 - **[T-0094](tasks/T-0094-function-pointers-casts-null-optional-fn.md)** Function pointers: casts, null, optional fn, and C's function-pointer typedefs and globals · design, interop
 - **[T-0170](tasks/T-0170-literal-passed-where-string-wanted-converts.md)** A literal passed where a String is wanted converts, and the converted copy is placed like a written one · feature, language
 - **[T-0213](tasks/T-0213-let-x-list-i-binds-reference.md)** let x = list[i] binds a reference to the element, where let x = arr[i] copies it · design, language
+
+## M13 — Hot reload (§17.6) (1 open)
+
+- **[T-0257](tasks/T-0257-panic-in-game-code-must-not.md)** A panic in game code must not take down an editor that runs the game in-process · design, tooling
 
 ## M15 — `dz bench`, and the C++ comparison (4 open)
 
@@ -305,15 +308,16 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 
 - **[T-0143](tasks/T-0143-placement-under-memory-budget-or-with.md)** Placement under a memory budget, or with no heap · design, ownership
 
-## M19 — Threads (7 open)
+## M19 — Threads (8 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
+- **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
-- **[T-0245](tasks/T-0245-try-break-d-0096-before-deciding.md)** Try to break D-0096 before deciding it · design, concurrency
 - **[T-0246](tasks/T-0246-safe-typemap-owned-trait-objects-for.md)** A safe TypeMap and owned trait objects, for a world keyed by type · feature, stdlib
 - **[T-0247](tasks/T-0247-thread-local-static-dropped-on-every.md)** A thread_local static is dropped on every thread, not only the main one · feature, ownership
 - **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
+- **[T-0259](tasks/T-0259-closures-for-parallel-loop-bodies-first.md)** Closures (D-0112, spec §7.8) · feature, language
 
 ## M20 — Working with an agent (11 open)
 

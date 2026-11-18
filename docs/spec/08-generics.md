@@ -23,6 +23,11 @@ the missing bound — not at the instantiation.
 This is the whole reason for the choice: **the LSP can complete inside a generic body**,
 because it knows exactly what `T` can do.
 
+Two more kinds of parameter say what they take: **`view T`**, which may be given a view
+(§6.7), and **`ref A`**, which takes only a `&T` or a `&mut T`, and names the type it points
+at as `A::Target` (§22.8). The bounds `Send` and `Share` say a `T` may cross to another
+thread (§22.2).
+
 **A method may have type parameters of its own**, beside its type's:
 
 ```dz
@@ -155,7 +160,7 @@ pub trait Iterate {
     type Item                       // "each implementer names this"
 
     fn valid(&self) -> bool         // is there a current element?
-    fn get(&self) -> Item           // ...then this is it
+    fn get(&mut self) -> Item           // ...then this is it
     fn advance(&mut self)       // step past it
 }
 ```
@@ -172,7 +177,7 @@ impl<T> Iterate for SliceIter<T> {
     type Item = &T                     // stepping a []T yields references into it
 
     fn valid(&self) -> bool   { return m_index < m_slice.len }
-    fn get(&self)   -> &T     { return &m_slice[m_index] }
+    fn get(&mut self)   -> &T     { return &m_slice[m_index] }
     fn advance(&mut self) { m_index += 1 }
 }
 
@@ -185,7 +190,7 @@ impl Iterate for RangeIter {
     type Item = i32                    // stepping 0..n yields plain i32 values
 
     fn valid(&self) -> bool   { return m_current < m_end }
-    fn get(&self)   -> i32    { return m_current }
+    fn get(&mut self)   -> i32    { return m_current }
     fn advance(&mut self) { m_current += 1 }
 }
 ```
@@ -217,7 +222,7 @@ Mul<f32> for Mat4` has `type Output = Mat4` (§11.2). `[DECIDED — §18.29]`
 `T`'s implementation chooses, whatever that turns out to be:
 
 ```dz
-fn first<view T: Iterate>(it: &T) -> T::Item {
+fn first<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
@@ -244,7 +249,7 @@ takes a `view` parameter, and the associated types `Iterate::Item` and `Iterable
   wherever it is reached from `T`, and a different type from `U::Item`. It can do what the
   trait's bounds on `type Item` say, and nothing more: `Iterate` puts none on `Item`, so a
   `T::Item` is moved, never copied (§8.2), and has no methods.
-- **At an instance, it is the implementation's choice.** `first(&list.iter())` returns a
+- **At an instance, it is the implementation's choice.** `first(&mut it)` of a `list.iter()` returns a
   `&i32`, because `SliceIter<i32>` chose `type Item = &i32`; a caller sees that type, never
   the projection. `T::Output` for a number is the number: `i32 + i32` is an `i32` (§11.2).
 

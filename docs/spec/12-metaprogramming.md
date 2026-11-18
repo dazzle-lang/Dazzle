@@ -348,6 +348,8 @@ declaration it does not apply to, with arguments it does not take, or written tw
 | `#[bench]` | a function at module level | a benchmark `dz bench` times (§19 M15) |
 | `#[thread_local]` | a `static` | one variable per thread (§7.7) |
 | `#[inline]` | a function or a method with a body | its body is visible to every module that calls it, and an optimised build inlines every call to it (§16.5) |
+| `#[main_thread]` | a function, a method, or a function type | it runs on the main thread only, since it touches a plain static or C that is not thread-safe; held to the body as a `kills` clause is (§22.5) |
+| `#[parallel]` | a function or macro of `std` | what it runs, runs at the same time, and is checked by §22.3's rule; `std`'s own, never written in a program |
 
 **`#[inline]` changes where a body is compiled and how it is called, never what it does.** A
 module is compiled on its own, so without the attribute a call from another module is a call

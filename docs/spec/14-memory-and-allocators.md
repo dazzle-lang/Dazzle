@@ -584,7 +584,9 @@ if let &mut t = self.texture {
 }                              // dropped here, if that was the last owner
 ```
 
-That costs one count up and one down per `or` or `if let`: plain integers, not atomics.
+That costs one count up and one down per `or` or `if let`: plain integers, not atomics, in
+a program that runs nothing at the same time; in one that does, atomics, and there is no
+`Arc`: an `Rc` crosses into parallel code and is checked by type (§22.4).
 
 **A `Box`'s value is in the box**, its `@value` (`tie @value = m_ptr[*]`). A `Box` has no
 second owner to take, so a reference `or` or `if let` takes to its value is a view in
@@ -659,6 +661,9 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 - **A placement is checked like a reference** (§6.7): a region is a tie that dies when its
   scope ends, so a placement that would leave a value in memory that dies too soon fails the
   check, and the value goes to the heap. No placement changes what a program does.
+- **What code running at the same time receives** is placed as for code the compiler cannot
+  see: on the heap or in the worker's own region pool, never in a region another worker may
+  be growing (§22.6). `[DECIDED — D-0096]`
 - **A value's owned parts live where the value lives.** A constructor and `clone` build into
   wherever `self` is placed.
 - **A copy is a value of its own**, placed like any other, never where the value it copies

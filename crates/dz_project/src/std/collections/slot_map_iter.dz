@@ -18,7 +18,7 @@ impl<T> Iterate for SlotMapIter<T> {
         return m_index < m_map.len()
     }
 
-    fn get(&self) -> (Key<T>, &T) in self@items {
+    fn get(&mut self) -> (Key<T>, &T) in self@items {
         return (m_map.key_at(m_index), &m_map.values()[m_index])
     }
 

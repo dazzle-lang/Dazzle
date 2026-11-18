@@ -105,7 +105,7 @@ impl<T> Iterate for ListIterator<T> {
         }
     }
 
-    fn get(&self) -> &T {
+    fn get(&mut self) -> &T {
         unsafe {
             return m_list.at(m_at) or unreachable
         }

@@ -16,7 +16,7 @@ impl<T> Iterate for Query<T> {
         return row < pool.len()
     }
 
-    fn get(&self) -> (Key<Entity>, &mut T) in self@items {
+    fn get(&mut self) -> (Key<Entity>, &mut T) in self@items {
         let entity = pool.entity_at(row)
         let value = pool.get_mut(entity) or unreachable
         return (entity, value)
@@ -67,7 +67,7 @@ impl<A, B> Iterate for Query2<A, B> {
         return row < second.len()
     }
 
-    fn get(&self) -> (Key<Entity>, &mut A, &mut B) in self@items {
+    fn get(&mut self) -> (Key<Entity>, &mut A, &mut B) in self@items {
         let entity = if scan_first {
             first.entity_at(row)
         } else {

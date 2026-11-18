@@ -149,6 +149,12 @@ defines = ["JPH_PROFILE_ENABLED=0"]
   keeps  = ["ma_device_init"]       # the audio thread keeps the device it is given
   ```
 
+- **`thread_safe`** vouches that the library's functions may be called from any thread, at
+  the same time. Without it, every function the library declares is `#[main_thread]`
+  (§22.5), as raylib's and SDL's must be: they draw through a context only the main thread
+  has. `thread_safe = true` for the whole library; `thread_safe = ["f", "g"]` for the
+  functions listed, named as `keeps` names them. `[DECIDED — D-0096]`
+
 - **A system header is imported only when it is asked for.** `raylib.h` includes
   `stdlib.h`, and importing raylib does not import the C library with it: declarations in
   a system header are passed over. A recipe that names a system header itself —

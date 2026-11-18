@@ -687,7 +687,7 @@ impl Iterate for Upto {
         return i < n
     }
 
-    fn get(&self) -> i32 {
+    fn get(&mut self) -> i32 {
         return i
     }
 
@@ -1848,7 +1848,7 @@ fn a_reference_passed_on() -> i32 {
 // §8.5: an associated type named off a bound — `T::Item`, `C::Iter::Item` — in a signature,
 // in a `for` over a generic iterator and a generic container, and in an adapter's `Item`,
 // which each instance reads as the implementation's choice.
-fn first_item<view T: Iterate>(it: &T) -> T::Item {
+fn first_item<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
@@ -1872,7 +1872,7 @@ impl<view I: Iterate> Iterate for Flagged<I> {
         return inner.valid()
     }
 
-    fn get(&self) -> (I::Item, bool) {
+    fn get(&mut self) -> (I::Item, bool) {
         return (inner.get(), true)
     }
 
@@ -1917,9 +1917,10 @@ fn walked(r: &Roster) -> i32 {
 }
 
 fn projections(xs: &List<i32>) -> i32 {
-    let a: &i32 = first_item(&xs.iter())
-    let flagged = Flagged<SliceIter<i32>>{ inner: xs.iter() }
-    let pair: (&i32, bool) = first_item(&flagged)
+    let mut it = xs.iter()
+    let a: &i32 = first_item(&mut it)
+    let mut flagged = Flagged<SliceIter<i32>>{ inner: xs.iter() }
+    let pair: (&i32, bool) = first_item(&mut flagged)
     return a + pair.0 + count_items(xs, ignore_int)
 }
 
@@ -2564,4 +2565,40 @@ fn recording(objects: &[]^Recorder) -> i32 {
         sum += unsafe { o.total() }
     }
     return sum
+}
+
+// `&` is read-only all the way down (spec §5.2, D-0096); through `&mut`, a view's `&mut`
+// field is written, and its `&mut self` methods called, and through `&` it is read.
+pub view struct ViewTally {
+    pub(module) count: &mut i32
+    pub(module) seen: &mut List<i32>
+
+    tie @count = count
+    tie @seen = seen@items
+
+    pub fn bump(&mut self) {
+        count += 1
+    }
+
+    pub fn note(&mut self) kills self@seen {
+        seen.push(1)
+    }
+
+    pub fn read(&self) -> i32 {
+        return count + seen.len() as i32
+    }
+}
+
+fn bump_through(t: &mut ViewTally) -> i32 kills t@seen {
+    t.count += 1
+    t.note()
+    return t.read()
+}
+
+fn tallied() -> i32 {
+    let mut n = 0
+    let mut xs = List<i32>()
+    let mut t = ViewTally{ count: &mut n, seen: &mut xs }
+    t.bump()
+    return bump_through(&mut t)
 }
