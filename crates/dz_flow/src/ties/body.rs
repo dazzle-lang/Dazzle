@@ -316,6 +316,11 @@ struct Regions {
     /// For a site placed in the home of a container the body was lent (D-0097), the input
     /// the container is under: the one place the value may go.
     home_input: Vec<Option<LocalId>>,
+    /// For a site placed in the owner arena of a container in a local of the body (T-0120),
+    /// that local: the one container the value may be stored into. No block releases it, so
+    /// it may be made on every pass of a loop, but it may not be assigned anywhere: the
+    /// arena is reset when the container is cleared.
+    arena_of: Vec<Option<LocalId>>,
     /// The local containers lent to a call whose `sends` hands something to them: the
     /// callee may build into the container's own region (D-0097), so what is taken back out
     /// of it may be in that region too.
@@ -535,17 +540,25 @@ pub fn analyse_homes(body: &Body, table: &TypeTable, res: &Resolution) -> HomesF
 /// it would go — a field of `self` or of a parameter, a by-value argument, a value made
 /// on every pass of a loop — it is refused as a region would be.
 ///
+/// Each of `homes` is a site in the home of a container the body was lent, and each of
+/// `arenas` one in the owner arena of a local's container (T-0120): outside every region of
+/// the body, so its end does not release them, and each may go only into its own
+/// container; an arena's value may not be assigned anywhere either. Their refusals follow
+/// the sites', homes first.
+///
 /// Each of `params` is a by-value parameter claimed to stay in the call
 /// ([`crate::placement::Staying`]): its value is taken to be in a region of the caller's,
 /// which outlives the body but which the body may not return, store or pass on. Their
 /// refusals follow the sites'. A by-value argument to a parameter of another function
 /// that `staying` says stays in the call is not refused: it is gone when the call returns.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyse_regions(
     body: &Body,
     table: &TypeTable,
     res: &Resolution,
     sites: &[(ExprId, BlockId, bool)],
     homes: &[(ExprId, LocalId)],
+    arenas: &[(ExprId, LocalId)],
     params: &[LocalId],
     staying: &Staying,
 ) -> Vec<Option<RegionRefusal>> {
@@ -553,9 +566,10 @@ pub(crate) fn analyse_regions(
         sites: sites.iter().map(|(call, block, _)| (*call, *block)).collect(),
         results: sites.iter().map(|(_, _, result)| *result).collect(),
         by_call: sites.iter().enumerate().map(|(i, (call, _, _))| (*call, i)).collect(),
-        refused: vec![None; sites.len() + homes.len() + params.len()],
+        refused: vec![None; sites.len() + homes.len() + arenas.len() + params.len()],
         params: vec![false; sites.len()],
         home_input: vec![None; sites.len()],
+        arena_of: vec![None; sites.len()],
         stored: HashSet::new(),
         module: Some(crate::placement::owner_module(table, res, &body.owner)),
         ..Regions::default()
@@ -579,6 +593,18 @@ pub(crate) fn analyse_regions(
         regions.results.push(false);
         regions.params.push(true);
         regions.home_input.push(Some(*input));
+        regions.arena_of.push(None);
+    }
+    // A site in the owner arena of a local's container (T-0120): outside every region of
+    // the body too, since the arena belongs to the container's owner. It may go only into
+    // that container; the proposer has seen that nothing uses the container in between.
+    for (call, container) in arenas {
+        regions.by_call.insert(*call, regions.sites.len());
+        regions.sites.push((*call, body.root));
+        regions.results.push(false);
+        regions.params.push(true);
+        regions.home_input.push(None);
+        regions.arena_of.push(Some(*container));
     }
     for local in params {
         regions.param_sites.push((*local, regions.sites.len()));
@@ -587,6 +613,7 @@ pub(crate) fn analyse_regions(
         regions.results.push(false);
         regions.params.push(true);
         regions.home_input.push(None);
+        regions.arena_of.push(None);
     }
     let Some(mut regions) = analyse(body, table, res, Some(regions), None, Some(staying)).1 else {
         return Vec::new();
@@ -1929,9 +1956,15 @@ impl Analysis<'_> {
         let refused: Vec<usize> = owned
             .iter()
             .copied()
-            .filter(|site| match (declared, regions.active.get(&regions.sites[*site].1)) {
-                (Some(at), Some(frame)) => at < *frame,
-                _ => true,
+            .filter(|site| {
+                // A value in an owner arena belongs in that one container (T-0120).
+                if let Some(c) = regions.arena_of.get(*site).copied().flatten() {
+                    return c != container;
+                }
+                match (declared, regions.active.get(&regions.sites[*site].1)) {
+                    (Some(at), Some(frame)) => at < *frame,
+                    _ => true,
+                }
             })
             .collect();
         for site in &owned {
@@ -2097,6 +2130,12 @@ impl Analysis<'_> {
             value.owned.push(site);
             return value;
         }
+        // An owner arena is reset when its container is cleared, which frees what each
+        // pass made whether or not the container kept it.
+        if regions.arena_of.get(site).copied().flatten().is_some() {
+            value.owned.push(site);
+            return value;
+        }
         let block = regions.sites[site].1;
         let span = self.body.expr(call).span;
         match regions.active.get(&block).copied() {
@@ -2150,6 +2189,11 @@ impl Analysis<'_> {
             .iter()
             .copied()
             .filter(|site| {
+                // A value in an owner arena may go only into its container: assigned
+                // anywhere, it could outlive the next reset (T-0120).
+                if regions.arena_of.get(*site).copied().flatten().is_some() {
+                    return true;
+                }
                 if into_self && regions.results[*site] {
                     return false;
                 }

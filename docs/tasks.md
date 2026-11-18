@@ -344,9 +344,8 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0255](tasks/T-0255-what-fwrapv-fno-finite-loops-fno.md)** What -fwrapv, -fno-finite-loops and -fno-strict-aliasing promise, under cl.exe · design, codegen
 - **[T-0256](tasks/T-0256-msvc-in-ci-warning-clean-at.md)** MSVC in CI, warning-clean at /W4 · feature, tooling
 
-## M22 — Placement finished (7 open)
+## M22 — Placement finished (6 open)
 
-- **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
 - **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
 - **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership

@@ -1,0 +1,8 @@
+50 frames, 264811 bytes drawn
+  frame 49 unit 0 (1 points)
+  frame 49 unit 1 (2 points)
+  frame 49 unit 3 (4 points)
+  frame 49 unit 0 (1 points)
+  frame 49 unit 1 (2 points)
+  after the move (0 points)
+51 frames

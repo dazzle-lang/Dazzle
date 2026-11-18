@@ -1152,6 +1152,205 @@ fn std_containers_store_what_they_are_given() {
     }
 }
 
+/// A value stored into a private `List` that its struct empties only all at once is built
+/// in the arena the struct keeps for it, reset when the list is cleared (spec §14.6,
+/// T-0120): on every pass of a loop, and on only some, since the reset frees what was not
+/// stored as well. Anything that could take an element out, or clear the list while a value
+/// meant for it is still outside, keeps the heap.
+#[test]
+fn a_value_stored_into_a_list_emptied_all_at_once_goes_to_its_owners_arena() {
+    let a = analyse(
+        r#"
+struct Command {
+    pub label: String
+    pub depth: i32 = 0
+}
+
+// Emptied only all at once: an arena.
+struct Renderer {
+    m_commands: List<Command>
+    pub drawn: i64 = 0
+
+    tie @commands = m_commands@items, m_commands[*]
+
+    Renderer() {}
+
+    pub fn begin(&mut self) kills self@commands {
+        m_commands.clear()
+    }
+
+    pub fn submit(&mut self, c: Command) kills self@commands sends c to self {
+        m_commands.push(c)
+    }
+
+    pub fn flush(&mut self) {
+        for &c in m_commands {
+            drawn += c.label.byte_len() as i64
+        }
+    }
+}
+
+// An element can be taken out.
+struct Popper {
+    m_items: List<String>
+
+    tie @items = m_items@items, m_items[*]
+
+    Popper() {}
+
+    pub fn add(&mut self, s: String) kills self@items sends s to self {
+        m_items.push(s)
+    }
+
+    pub fn drop_last(&mut self) kills self@items {
+        let _ = m_items.pop()
+    }
+}
+
+// Cleared by the method given the value, which may be in the arena.
+struct Eager {
+    m_items: List<String>
+
+    tie @items = m_items@items, m_items[*]
+
+    Eager() {}
+
+    pub fn replace(&mut self, s: String) kills self@items sends s to self {
+        m_items.clear()
+        m_items.push(s)
+    }
+}
+
+// Public: anything may reach it.
+struct Open {
+    pub items: List<String>
+}
+
+fn every_pass(n: i32) -> i64 {
+    let mut r = Renderer()
+    for _ in 0..n {
+        r.begin()
+        for i in 0..10 {
+            let label = format!("unit {}", i)
+            r.submit(Command{ label: label, depth: i })
+        }
+        r.flush()
+    }
+    return r.drawn
+}
+
+fn some_passes(n: i32) -> i64 {
+    let mut r = Renderer()
+    for i in 0..n {
+        r.begin()
+        let label = String::from("maybe")
+        if i % 2 == 0 {
+            r.submit(Command{ label: label })
+        }
+    }
+    r.flush()
+    return r.drawn
+}
+
+fn used_between(n: i32) -> i64 {
+    let mut r = Renderer()
+    for _ in 0..n {
+        let label = String::from("early")
+        r.begin()
+        r.submit(Command{ label: label })
+    }
+    return r.drawn
+}
+
+fn begin_on(r: &mut Renderer) kills r@commands {
+    r.begin()
+}
+
+fn lent(n: i32) -> i64 {
+    let mut r = Renderer()
+    for _ in 0..n {
+        begin_on(&mut r)
+        r.submit(Command{ label: String::from("lent") })
+    }
+    return r.drawn
+}
+
+fn popped(n: i32) {
+    let mut p = Popper()
+    for _ in 0..n {
+        p.add(String::from("popped"))
+        p.drop_last()
+    }
+}
+
+fn eager(n: i32) {
+    let mut e = Eager()
+    for _ in 0..n {
+        e.replace(String::from("eager"))
+    }
+}
+
+fn open(n: i32) -> usize {
+    let mut o = Open{ items: List<String>() }
+    for _ in 0..n {
+        o.items.clear()
+        o.items.push(String::from("open"))
+    }
+    return o.items.len()
+}
+
+fn main() {
+    popped(1)
+    eager(1)
+    println!("{} {} {} {} {}", every_pass(1), some_passes(1), used_between(1), lent(1), open(1))
+}
+"#,
+    );
+    let p = a.placements.as_ref().unwrap();
+    let res = a.resolution.as_ref().unwrap();
+    // Each struct is the type of a local somewhere.
+    let ty = |name: &str| {
+        a.hir
+            .as_ref()
+            .unwrap()
+            .bodies()
+            .flat_map(|(_, b)| b.locals.iter())
+            .find_map(|l| match &l.ty {
+                dz_hir::ty::Ty::Named { sym, .. } if res.symbol(*sym).name == name => Some(*sym),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no `{name}`"))
+    };
+    let kept: Vec<&str> = p.arenas().of(ty("Renderer")).iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(kept, ["m_commands"], "cleared only all at once");
+    for (name, why) in [
+        ("Popper", "an element is popped"),
+        ("Eager", "cleared by the method given the value"),
+        ("Open", "public"),
+    ] {
+        assert!(p.arenas().of(ty(name)).is_empty(), "`{name}` keeps no arena: {why}");
+    }
+
+    let arena = "arena: `r`'s for `m_commands`, reset when it is cleared";
+    let last = |f: &str| decisions(&a, p, f).pop().unwrap();
+    assert_eq!(last("every_pass"), format!("String: {arena}"), "`format!`'s text, every pass");
+    assert_eq!(last("some_passes"), format!("String::from: {arena}"), "stored on some passes");
+    // `begin` between building the value and storing it would reset the arena under it.
+    assert_eq!(
+        last("used_between"),
+        "String::from: heap: stored in `r`, used before it is: clearing it there would reset \
+         the arena it keeps"
+    );
+    assert_eq!(
+        last("lent"),
+        "String::from: heap: stored in `r`, lent as `&mut`: whoever borrows it may clear it \
+         and reset the arena it keeps"
+    );
+    for f in ["popped", "eager", "open"] {
+        assert!(last(f).contains("heap: "), "{f}: no arena to go to: {}", last(f));
+    }
+}
+
 /// A value stored into a container is built where the container lives, and the region
 /// check follows it back out: popped and kept elsewhere, or lent out with the container as
 /// `&mut`, it keeps the heap. On every pass of a loop it goes there only when the container

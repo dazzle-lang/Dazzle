@@ -30,6 +30,7 @@ use dz_hir::{self as hir, BlockId, ExprId, Hir, LocalId, StmtId};
 use dz_resolve::Resolution;
 use dz_span::{FileId, SourceMap, Span};
 
+pub mod arenas;
 pub mod placement;
 pub mod release;
 pub(crate) mod storing;

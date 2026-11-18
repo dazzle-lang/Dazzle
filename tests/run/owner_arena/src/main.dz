@@ -1,0 +1,84 @@
+// Owner arenas (spec §14.6, T-0120): a draw list emptied all at once every frame, whose
+// labels and trails are built in the arena its renderer keeps, reset when the list is
+// cleared. `dz placements` puts them there; this pins that the program still prints what
+// it would with everything on the heap (`DZ_REGIONS=0`).
+
+struct Point {
+    pub x: i32 = 0
+    pub y: i32 = 0
+}
+
+struct Command {
+    pub label: String
+    pub trail: List<Point>
+}
+
+/// The draw list, emptied by `begin` and refilled every frame.
+struct Renderer {
+    m_commands: List<Command>
+    pub frames: i32 = 0
+    pub bytes:  i64 = 0
+
+    tie @commands = m_commands@items, m_commands[*]
+
+    Renderer() {}
+
+    pub fn begin(&mut self) kills self@commands {
+        m_commands.clear()
+        frames += 1
+    }
+
+    pub fn submit(&mut self, c: Command) kills self@commands sends c to self {
+        m_commands.push(c)
+    }
+
+    pub fn flush(&mut self) {
+        for &c in m_commands {
+            bytes += c.label.byte_len() as i64
+            for &p in c.trail {
+                bytes += (p.x + p.y) as i64
+            }
+        }
+    }
+
+    pub fn show_first(&self, n: usize) {
+        let mut shown: usize = 0
+        for &c in m_commands {
+            if shown == n {
+                return
+            }
+            println!("  {} ({} points)", c.label, c.trail.len())
+            shown += 1
+        }
+    }
+}
+
+fn main() {
+    let mut r = Renderer()
+    for frame in 0..50 {
+        r.begin()
+        for i in 0..100 {
+            let mut trail = List<Point>(4)
+            for k in 0..i % 4 + 1 {
+                trail.push(Point{ x: k, y: frame })
+            }
+            let label = format!("frame {} unit {}", frame, i)
+            // Only some are drawn. The rest are dropped here, and the next reset frees
+            // their memory with the rest.
+            if (i + frame) % 3 != 0 {
+                r.submit(Command{ label: label, trail: trail })
+            }
+        }
+        r.flush()
+    }
+    println!("{} frames, {} bytes drawn", r.frames, r.bytes)
+    r.show_first(3)
+
+    // Moved while it holds a frame: its arena goes with it, and what is in it still reads.
+    let mut moved = r
+    moved.show_first(2)
+    moved.begin()
+    moved.submit(Command{ label: String::from("after the move"), trail: List<Point>() })
+    moved.show_first(2)
+    println!("{} frames", moved.frames)
+}

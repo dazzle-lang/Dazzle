@@ -655,7 +655,7 @@ explicit allocator parameter (D-0010, §14.1) and `Allocators::Temp` in user cod
 |---|---|
 | never leaves its scope | that scope's **region**, released in one step when the scope ends |
 | is returned | **wherever the caller wants the result**, passed to the function out of sight |
-| is the contents of a container emptied only all at once | an **arena that container owns**, reset when it is cleared (not yet: T-0120) |
+| is the contents of a container emptied only all at once | an **arena that container owns**, reset when it is cleared (so far a private `List` field: T-0120) |
 | anything else | **the heap** |
 
 - **A placement is checked like a reference** (§6.7): a region is a tie that dies when its
@@ -749,6 +749,7 @@ container is placed.
 
 Regions and result placement are on in every build; `DZ_REGIONS=0` builds the same
 program with every value on the heap, which prints the same and is there to compare
-against. Not yet implemented: owner arenas (T-0120) and a `virtual` method's result
-(T-0141) are still to come, as are skipped drops for a value lent as `&mut` or built in a
-generic body (T-0147).
+against. Owner arenas cover so far a private `List` of owning values that its struct only
+reads, pushes to and clears, filled by a caller in the struct's own module through a local
+(T-0120). Not yet implemented: a `virtual` method's result (T-0141) is still to come, as
+are skipped drops for a value lent as `&mut` or built in a generic body (T-0147).

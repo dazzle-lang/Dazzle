@@ -14011,6 +14011,665 @@ body fn drop_value_as -> void
               cast: ^mut RcBlock<T>
                 local _0 block: ^mut u8
               int 0: usize
+body const OWNER_HEADER -> void
+  block
+    int 16: usize
+body const OWNER_CHUNK -> void
+  block
+    int 4096: usize
+body const OWNER_LARGE -> void
+  block
+    int 16384: usize
+body field-default OwnerArena.0 -> void
+  block
+    null: ^mut Allocator
+body field-default OwnerArena.1 -> void
+  block
+    null: ^mut u8
+body field-default OwnerArena.2 -> void
+  block
+    null: ^mut u8
+body field-default OwnerArena.3 -> void
+  block
+    int 0: usize
+body field-default OwnerArena.4 -> void
+  block
+    int 0: usize
+body method OwnerArena::make -> ^mut OwnerArena
+  param _0 parent: ^mut Allocator
+  block
+    let _1 from: ^mut Allocator
+      local _0 parent: ^mut Allocator
+    if: void
+      binary ==: bool
+        local _1 from: ^mut Allocator
+        null: ^mut Allocator
+      block
+        assign =
+          local _1 from: ^mut Allocator
+          const Allocators::Global: &mut Allocator
+    let _2 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            local _1 from: ^mut Allocator
+            builtin panic: !
+              str "an owner arena needs an allocator": &str
+    let _3 p: ^mut OwnerArena
+      block-value: ^mut OwnerArena
+        block
+          cast: ^mut OwnerArena
+            call-method Allocator::alloc: ^mut u8
+              local _2 a: &mut Allocator
+              type-query OwnerArena::size: usize
+              type-query OwnerArena::align: usize
+    block-value: void
+      block
+        builtin construct: void
+          index: OwnerArena
+            local _3 p: ^mut OwnerArena
+            int 0: usize
+          struct-lit OwnerArena: OwnerArena
+            #0
+              local _1 from: ^mut Allocator
+            #1 (default)
+            #2 (default)
+            #3 (default)
+            #4 (default)
+    return: !
+      block-value: ^mut OwnerArena
+        block
+          local _3 p: ^mut OwnerArena
+body method OwnerArena::unmake -> void
+  param _0 p: ^mut OwnerArena
+  block
+    let _1 from: ^mut Allocator
+      block-value: ^mut Allocator
+        block
+          field #0: ^mut Allocator
+            index: OwnerArena
+              local _0 p: ^mut OwnerArena
+              int 0: usize
+    block-value: void
+      block
+        call-method OwnerArena::release: void
+          index: OwnerArena
+            local _0 p: ^mut OwnerArena
+            int 0: usize
+    let _2 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            local _1 from: ^mut Allocator
+            return: !
+    call-method Allocator::free: void
+      local _2 a: &mut Allocator
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _0 p: ^mut OwnerArena
+      type-query OwnerArena::size: usize
+      type-query OwnerArena::align: usize
+body method OwnerArena::release -> void
+  param _0 self: OwnerArena
+  block
+    let _1 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #0: ^mut Allocator
+              local _0 self: OwnerArena
+            return: !
+    let _2 chunk: ^mut u8
+      field #1: ^mut u8
+        local _0 self: OwnerArena
+    while
+      binary !=: bool
+        local _2 chunk: ^mut u8
+        null: ^mut u8
+      block
+        block-value: void
+          block
+            let _3 next: ^mut u8
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _2 chunk: ^mut u8
+                int 0: usize
+            let _4 cap: usize
+              index: usize
+                cast: ^mut usize
+                  local _2 chunk: ^mut u8
+                int 1: usize
+            error
+            call-method Allocator::free: void
+              local _1 a: &mut Allocator
+              local _2 chunk: ^mut u8
+              local _4 cap: usize
+              int 16: usize
+            assign =
+              local _2 chunk: ^mut u8
+              local _3 next: ^mut u8
+    assign =
+      field #1: ^mut u8
+        local _0 self: OwnerArena
+      null: ^mut u8
+    assign =
+      field #2: ^mut u8
+        local _0 self: OwnerArena
+      null: ^mut u8
+body method OwnerArena::reset -> void
+  param _0 self: OwnerArena
+  block
+    error
+    if: void
+      binary !=: bool
+        field #1: ^mut u8
+          local _0 self: OwnerArena
+        null: ^mut u8
+      block
+        call-method OwnerArena::enter: void
+          local _0 self: OwnerArena
+          field #1: ^mut u8
+            local _0 self: OwnerArena
+body method OwnerArena::enter -> void
+  param _0 self: OwnerArena
+  param _1 chunk: ^mut u8
+  block
+    assign =
+      field #2: ^mut u8
+        local _0 self: OwnerArena
+      local _1 chunk: ^mut u8
+    assign =
+      field #4: usize
+        local _0 self: OwnerArena
+      block-value: usize
+        block
+          index: usize
+            cast: ^mut usize
+              local _1 chunk: ^mut u8
+            int 1: usize
+    assign =
+      field #3: usize
+        local _0 self: OwnerArena
+      const OWNER_HEADER: usize
+body method OwnerArena::next_chunk -> void
+  param _0 self: OwnerArena
+  param _1 size: usize
+  param _2 align: usize
+  block
+    let _3 wanted: usize
+      binary +: usize
+        binary +: usize
+          const OWNER_HEADER: usize
+          local _2 align: usize
+        local _1 size: usize
+    if: void
+      binary !=: bool
+        field #2: ^mut u8
+          local _0 self: OwnerArena
+        null: ^mut u8
+      block
+        let _4 next: ^mut u8
+          block-value: ^mut u8
+            block
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  field #2: ^mut u8
+                    local _0 self: OwnerArena
+                int 0: usize
+        if: void
+          binary &&: bool
+            binary !=: bool
+              local _4 next: ^mut u8
+              null: ^mut u8
+            binary >=: bool
+              block-value: usize
+                block
+                  index: usize
+                    cast: ^mut usize
+                      local _4 next: ^mut u8
+                    int 1: usize
+              local _3 wanted: usize
+          block
+            call-method OwnerArena::enter: void
+              local _0 self: OwnerArena
+              local _4 next: ^mut u8
+            return: !
+    let _5 cap: usize
+      if: usize
+        binary >: bool
+          binary *: usize
+            field #4: usize
+              local _0 self: OwnerArena
+            int 2: usize
+          const OWNER_CHUNK: usize
+        block
+          binary *: usize
+            field #4: usize
+              local _0 self: OwnerArena
+            int 2: usize
+        block
+          block-value: usize
+            block
+              const OWNER_CHUNK: usize
+    if: void
+      binary >: bool
+        local _3 wanted: usize
+        local _5 cap: usize
+      block
+        assign =
+          local _5 cap: usize
+          local _3 wanted: usize
+    let _6 a: &mut Allocator
+      block-value: &mut Allocator
+        block
+          or: &mut Allocator
+            field #0: ^mut Allocator
+              local _0 self: OwnerArena
+            builtin panic: !
+              str "an owner arena with no allocator": &str
+    let _7 chunk: ^mut u8
+      call-method Allocator::alloc: ^mut u8
+        local _6 a: &mut Allocator
+        local _5 cap: usize
+        int 16: usize
+    block-value: void
+      block
+        assign =
+          index: usize
+            cast: ^mut usize
+              local _7 chunk: ^mut u8
+            int 1: usize
+          local _5 cap: usize
+        if: void
+          binary ==: bool
+            field #2: ^mut u8
+              local _0 self: OwnerArena
+            null: ^mut u8
+          block
+            assign =
+              index: ^mut u8
+                cast: ^mut ^mut u8
+                  local _7 chunk: ^mut u8
+                int 0: usize
+              null: ^mut u8
+            assign =
+              field #1: ^mut u8
+                local _0 self: OwnerArena
+              local _7 chunk: ^mut u8
+          block
+            block-value: void
+              block
+                assign =
+                  index: ^mut u8
+                    cast: ^mut ^mut u8
+                      local _7 chunk: ^mut u8
+                    int 0: usize
+                  index: ^mut u8
+                    cast: ^mut ^mut u8
+                      field #2: ^mut u8
+                        local _0 self: OwnerArena
+                    int 0: usize
+                assign =
+                  index: ^mut u8
+                    cast: ^mut ^mut u8
+                      field #2: ^mut u8
+                        local _0 self: OwnerArena
+                    int 0: usize
+                  local _7 chunk: ^mut u8
+    call-method OwnerArena::enter: void
+      local _0 self: OwnerArena
+      local _7 chunk: ^mut u8
+body method OwnerArena::aligned -> usize
+  param _0 self: OwnerArena
+  param _1 align: usize
+  block
+    let _2 base: usize
+      cast: usize
+        field #2: ^mut u8
+          local _0 self: OwnerArena
+    let _3 at: usize
+      binary +: usize
+        local _2 base: usize
+        field #3: usize
+          local _0 self: OwnerArena
+    return: !
+      binary -: usize
+        binary *: usize
+          binary /: usize
+            binary -: usize
+              binary +: usize
+                local _3 at: usize
+                local _1 align: usize
+              int 1: usize
+            local _1 align: usize
+          local _1 align: usize
+        local _2 base: usize
+body method OwnerArena::is_large -> bool
+  param _0 size: usize
+  param _1 align: usize
+  block
+    return: !
+      binary &&: bool
+        binary >=: bool
+          local _0 size: usize
+          const OWNER_LARGE: usize
+        binary <=: bool
+          local _1 align: usize
+          const OWNER_HEADER: usize
+body method OwnerArena::alloc_slow -> ^mut u8
+  param _0 self: OwnerArena
+  param _1 size: usize
+  param _2 align: usize
+  block
+    if: void
+      call-assoc OwnerArena::is_large: bool
+        local _1 size: usize
+        local _2 align: usize
+      block
+        return: !
+          block-value: ^mut u8
+            block
+              call c_malloc: ^mut u8
+                local _1 size: usize
+    let _3 start: usize
+      if: usize
+        binary ==: bool
+          field #2: ^mut u8
+            local _0 self: OwnerArena
+          null: ^mut u8
+        block
+          field #4: usize
+            local _0 self: OwnerArena
+        block
+          block-value: usize
+            block
+              call-method OwnerArena::aligned: usize
+                local _0 self: OwnerArena
+                local _2 align: usize
+    if: void
+      binary ||: bool
+        binary ==: bool
+          field #2: ^mut u8
+            local _0 self: OwnerArena
+          null: ^mut u8
+        binary >: bool
+          binary +: usize
+            local _3 start: usize
+            local _1 size: usize
+          field #4: usize
+            local _0 self: OwnerArena
+      block
+        call-method OwnerArena::next_chunk: void
+          local _0 self: OwnerArena
+          local _1 size: usize
+          local _2 align: usize
+        assign =
+          local _3 start: usize
+          call-method OwnerArena::aligned: usize
+            local _0 self: OwnerArena
+            local _2 align: usize
+    assign =
+      field #3: usize
+        local _0 self: OwnerArena
+      binary +: usize
+        local _3 start: usize
+        local _1 size: usize
+    let _4 p: ^mut u8
+      block-value: &mut u8
+        block
+          ref mut: &mut u8
+            index: u8
+              field #2: ^mut u8
+                local _0 self: OwnerArena
+              local _3 start: usize
+    return: !
+      block-value: ^mut u8
+        block
+          local _4 p: ^mut u8
+body impl#114 method alloc -> ^mut u8
+  param _0 self: OwnerArena
+  param _1 size: usize
+  param _2 align: usize
+  param _3 _loc: SourceLocation
+  block
+    if: void
+      binary &&: bool
+        binary <: bool
+          local _1 size: usize
+          const OWNER_LARGE: usize
+        binary !=: bool
+          field #2: ^mut u8
+            local _0 self: OwnerArena
+          null: ^mut u8
+      block
+        let _4 start: usize
+          call-method OwnerArena::aligned: usize
+            local _0 self: OwnerArena
+            local _2 align: usize
+        if: void
+          binary <=: bool
+            binary +: usize
+              local _4 start: usize
+              local _1 size: usize
+            field #4: usize
+              local _0 self: OwnerArena
+          block
+            assign =
+              field #3: usize
+                local _0 self: OwnerArena
+              binary +: usize
+                local _4 start: usize
+                local _1 size: usize
+            let _5 p: ^mut u8
+              block-value: &mut u8
+                block
+                  ref mut: &mut u8
+                    index: u8
+                      field #2: ^mut u8
+                        local _0 self: OwnerArena
+                      local _4 start: usize
+            return: !
+              block-value: ^mut u8
+                block
+                  local _5 p: ^mut u8
+    return: !
+      call-method OwnerArena::alloc_slow: ^mut u8
+        local _0 self: OwnerArena
+        local _1 size: usize
+        local _2 align: usize
+body impl#114 method realloc -> ^mut u8
+  param _0 self: OwnerArena
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  param _5 loc: SourceLocation
+  block
+    if: void
+      call-method Allocator::resize_in_place: bool
+        local _0 self: OwnerArena
+        local _1 p: ^mut u8
+        local _2 old_size: usize
+        local _3 new_size: usize
+        local _4 align: usize
+      block
+        return: !
+          local _1 p: ^mut u8
+    let _6 q: ^mut u8
+      call-method Allocator::alloc: ^mut u8
+        local _0 self: OwnerArena
+        local _3 new_size: usize
+        local _4 align: usize
+        local _5 loc: SourceLocation
+    if: void
+      binary !=: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        let _7 kept: usize
+          if: usize
+            binary <: bool
+              local _2 old_size: usize
+              local _3 new_size: usize
+            block
+              local _2 old_size: usize
+            block
+              block-value: usize
+                block
+                  local _3 new_size: usize
+        block-value: void
+          block
+            builtin memcpy: void
+              local _6 q: ^mut u8
+              local _1 p: ^mut u8
+              local _7 kept: usize
+        call-method Allocator::free: void
+          local _0 self: OwnerArena
+          local _1 p: ^mut u8
+          local _2 old_size: usize
+          local _4 align: usize
+          local _5 loc: SourceLocation
+    return: !
+      local _6 q: ^mut u8
+body impl#114 method free -> void
+  param _0 self: OwnerArena
+  param _1 p: ^mut u8
+  param _2 size: usize
+  param _3 align: usize
+  param _4 loc: SourceLocation
+  block
+    if: void
+      binary ==: bool
+        local _1 p: ^mut u8
+        null: ^mut u8
+      block
+        return: !
+    if: void
+      call-assoc OwnerArena::is_large: bool
+        local _2 size: usize
+        local _3 align: usize
+      block
+        error
+        call c_free: void
+          local _1 p: ^mut u8
+        return: !
+    error
+    if: void
+      binary &&: bool
+        binary !=: bool
+          field #2: ^mut u8
+            local _0 self: OwnerArena
+          null: ^mut u8
+        binary >=: bool
+          cast: usize
+            local _1 p: ^mut u8
+          cast: usize
+            field #2: ^mut u8
+              local _0 self: OwnerArena
+      block
+        let _5 offset: usize
+          binary -: usize
+            cast: usize
+              local _1 p: ^mut u8
+            cast: usize
+              field #2: ^mut u8
+                local _0 self: OwnerArena
+        if: void
+          binary &&: bool
+            binary <: bool
+              local _5 offset: usize
+              field #4: usize
+                local _0 self: OwnerArena
+            binary ==: bool
+              binary +: usize
+                local _5 offset: usize
+                local _2 size: usize
+              field #3: usize
+                local _0 self: OwnerArena
+          block
+            assign =
+              field #3: usize
+                local _0 self: OwnerArena
+              local _5 offset: usize
+    let _: _
+      field #2: u32
+        local _4 loc: SourceLocation
+body impl#114 method resize_in_place -> bool
+  param _0 self: OwnerArena
+  param _1 p: ^mut u8
+  param _2 old_size: usize
+  param _3 new_size: usize
+  param _4 align: usize
+  block
+    if: void
+      binary ||: bool
+        binary ||: bool
+          binary ==: bool
+            local _1 p: ^mut u8
+            null: ^mut u8
+          binary ==: bool
+            field #2: ^mut u8
+              local _0 self: OwnerArena
+            null: ^mut u8
+        binary <: bool
+          cast: usize
+            local _1 p: ^mut u8
+          cast: usize
+            field #2: ^mut u8
+              local _0 self: OwnerArena
+      block
+        return: !
+          bool false: bool
+    if: void
+      binary ||: bool
+        call-assoc OwnerArena::is_large: bool
+          local _2 old_size: usize
+          local _4 align: usize
+        call-assoc OwnerArena::is_large: bool
+          local _3 new_size: usize
+          local _4 align: usize
+      block
+        return: !
+          bool false: bool
+    let _5 offset: usize
+      binary -: usize
+        cast: usize
+          local _1 p: ^mut u8
+        cast: usize
+          field #2: ^mut u8
+            local _0 self: OwnerArena
+    if: void
+      binary ||: bool
+        binary !=: bool
+          binary +: usize
+            local _5 offset: usize
+            local _2 old_size: usize
+          field #3: usize
+            local _0 self: OwnerArena
+        binary >: bool
+          binary +: usize
+            local _5 offset: usize
+            local _3 new_size: usize
+          field #4: usize
+            local _0 self: OwnerArena
+      block
+        return: !
+          bool false: bool
+    error
+    assign =
+      field #3: usize
+        local _0 self: OwnerArena
+      binary +: usize
+        local _5 offset: usize
+        local _3 new_size: usize
+    return: !
+      bool true: bool
+body impl#114 method scoped -> bool
+  param _0 self: OwnerArena
+  block
+    return: !
+      bool true: bool
 body const SCOPE_HEADER -> void
   block
     int 16: usize
@@ -14311,7 +14970,7 @@ body method ScopeArena::release_large -> void
     error
     call c_free: void
       local _0 block: ^mut u8
-body impl#114 method alloc -> ^mut u8
+body impl#115 method alloc -> ^mut u8
   param _0 self: ScopeArena
   param _1 size: usize
   param _2 align: usize
@@ -14362,7 +15021,7 @@ body impl#114 method alloc -> ^mut u8
         local _0 self: ScopeArena
         local _1 size: usize
         local _2 align: usize
-body impl#114 method realloc -> ^mut u8
+body impl#115 method realloc -> ^mut u8
   param _0 self: ScopeArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -14416,7 +15075,7 @@ body impl#114 method realloc -> ^mut u8
           local _5 loc: SourceLocation
     return: !
       local _6 q: ^mut u8
-body impl#114 method free -> void
+body impl#115 method free -> void
   param _0 self: ScopeArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -14474,7 +15133,7 @@ body impl#114 method free -> void
     let _: _
       field #2: u32
         local _4 loc: SourceLocation
-body impl#114 method resize_in_place -> bool
+body impl#115 method resize_in_place -> bool
   param _0 self: ScopeArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -14544,7 +15203,7 @@ body impl#114 method resize_in_place -> bool
         local _3 new_size: usize
     return: !
       bool true: bool
-body impl#114 method scoped -> bool
+body impl#115 method scoped -> bool
   param _0 self: ScopeArena
   block
     return: !
@@ -14922,7 +15581,7 @@ body method TempArena::owns -> bool
                 int 0: usize
     return: !
       bool false: bool
-body impl#117 method alloc -> ^mut u8
+body impl#118 method alloc -> ^mut u8
   param _0 self: TempArena
   param _1 size: usize
   param _2 align: usize
@@ -14972,7 +15631,7 @@ body impl#117 method alloc -> ^mut u8
       block-value: ^mut u8
         block
           local _5 p: ^mut u8
-body impl#117 method realloc -> ^mut u8
+body impl#118 method realloc -> ^mut u8
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -15020,7 +15679,7 @@ body impl#117 method realloc -> ^mut u8
               local _7 kept: usize
     return: !
       local _6 q: ^mut u8
-body impl#117 method free -> void
+body impl#118 method free -> void
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 size: usize
@@ -15028,7 +15687,7 @@ body impl#117 method free -> void
   param _4 loc: SourceLocation
   block
     error
-body impl#117 method resize_in_place -> bool
+body impl#118 method resize_in_place -> bool
   param _0 self: TempArena
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -15114,7 +15773,7 @@ body drop TempArena -> void
 body field-default Unguarded.0 -> void
   block
     null: ^mut T
-body impl#119 method is_null -> bool
+body impl#120 method is_null -> bool
   param _0 self: Unguarded<T>
   block
     return: !
@@ -15122,12 +15781,12 @@ body impl#119 method is_null -> bool
         field #0: ^mut T
           local _0 self: Unguarded<T>
         null: ^mut T
-body impl#119 method guard -> Unguarded<T>
+body impl#120 method guard -> Unguarded<T>
   param _0 self: Unguarded<T>
   block
     return: !
       local _0 self: Unguarded<T>
-body impl#119 method ptr -> ^mut T
+body impl#120 method ptr -> ^mut T
   param _0 self: Unguarded<T>
   block
     return: !
@@ -15234,7 +15893,7 @@ body copy Weak -> void
       field #1: usize
         local _2 h: &mut RcHeader
       int 1: usize
-body impl#122 method is_null -> bool
+body impl#123 method is_null -> bool
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -15250,7 +15909,7 @@ body impl#122 method is_null -> bool
         field #0: usize
           local _1 h: &mut RcHeader
         int 0: usize
-body impl#122 method guard -> Rc<T>
+body impl#123 method guard -> Rc<T>
   param _0 self: Weak<T>
   block
     let _1 r: Rc<T>
@@ -15287,7 +15946,7 @@ body impl#122 method guard -> Rc<T>
         local _0 self: Weak<T>
     return: !
       local _1 r: Rc<T>
-body impl#122 method ptr -> ^mut T
+body impl#123 method ptr -> ^mut T
   param _0 self: Weak<T>
   block
     let _1 h: &mut RcHeader
@@ -15610,7 +16269,7 @@ body method FieldInfo::tag_value -> ^str
           int 1: usize
     return: !
       none: ^str
-body impl#123 method eq -> bool
+body impl#124 method eq -> bool
   param _0 self: TypeId
   param _1 rhs: &TypeId
   block
@@ -15620,7 +16279,7 @@ body impl#123 method eq -> bool
           local _0 self: TypeId
         field #0: u32
           local _1 rhs: &TypeId
-body impl#124 method hash -> u64
+body impl#125 method hash -> u64
   param _0 self: TypeId
   block
     return: !
@@ -15644,7 +16303,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#125 method valid -> bool
+body impl#126 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -15654,7 +16313,7 @@ body impl#125 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: Chars
-body impl#125 method get -> char
+body impl#126 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -15666,7 +16325,7 @@ body impl#125 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#125 method advance -> void
+body impl#126 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -15871,7 +16530,7 @@ body fn is_utf8_boundary -> bool
               local _1 at: usize
           int 192: u32
         int 128: u32
-body impl#126 method join -> String
+body impl#127 method join -> String
   param _0 self: &[]&str
   param _1 separator: &str
   block
@@ -15898,7 +16557,7 @@ body impl#126 method join -> String
             local _3 i: usize
     return: !
       local _2 out: String
-body impl#127 method join -> String
+body impl#128 method join -> String
   param _0 self: List<const &str>
   param _1 separator: &str
   block
@@ -15926,7 +16585,7 @@ body impl#127 method join -> String
               local _3 i: usize
     return: !
       local _2 out: String
-body impl#128 method join -> String
+body impl#129 method join -> String
   param _0 self: List<String>
   param _1 separator: &str
   block
@@ -16798,7 +17457,7 @@ body copy String -> void
       local _0 self: String
       call-method String::as_str: &str
         local _1 other: &String
-body impl#131 method eq -> bool
+body impl#132 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -16808,7 +17467,7 @@ body impl#131 method eq -> bool
           local _0 self: String
         call-method String::as_str: &str
           local _1 rhs: &String
-body impl#132 method cmp -> Ordering
+body impl#133 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -16820,32 +17479,32 @@ body impl#132 method cmp -> Ordering
         cast: &[]u8
           call-method String::as_str: &str
             local _1 rhs: &String
-body impl#133 method iter -> Chars
+body impl#134 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#134 method convert -> &cstr
+body impl#135 method convert -> &cstr
   param _0 self: String
   block
     return: !
       call-method String::as_cstr: &cstr
         local _0 self: String
-body impl#135 method convert -> &str
+body impl#136 method convert -> &str
   param _0 self: String
   block
     return: !
       call-method String::as_str: &str
         local _0 self: String
-body impl#136 method hash -> u64
+body impl#137 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: &str
           local _0 self: String
-body impl#137 method format -> void
+body impl#138 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
@@ -17948,12 +18607,12 @@ body fn cut_bytes_failed -> const &str
               local _7 arg·: SourceLocation
     return: !
       str "": const &str
-body impl#138 method text -> &str
+body impl#139 method text -> &str
   param _0 self: &str
   block
     return: !
       local _0 self: &str
-body impl#139 method text -> &str
+body impl#140 method text -> &str
   param _0 self: String
   block
     return: !
@@ -18070,14 +18729,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: &str
                   local _0 self: Split
-body impl#140 method valid -> bool
+body impl#141 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#140 method get -> &str
+body impl#141 method get -> &str
   param _0 self: Split
   block
     return: !
@@ -18088,7 +18747,7 @@ body impl#140 method get -> &str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#140 method advance -> void
+body impl#141 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -18162,7 +18821,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: &str
                   local _0 self: Lines
-body impl#141 method valid -> bool
+body impl#142 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -18172,7 +18831,7 @@ body impl#141 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: Lines
-body impl#141 method get -> &str
+body impl#142 method get -> &str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -18205,7 +18864,7 @@ body impl#141 method get -> &str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#141 method advance -> void
+body impl#142 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -18281,7 +18940,7 @@ body method SplitWhitespace::find_word -> void
       field #2: usize
         local _0 self: SplitWhitespace
       local _3 i: usize
-body impl#142 method valid -> bool
+body impl#143 method valid -> bool
   param _0 self: SplitWhitespace
   block
     return: !
@@ -18291,7 +18950,7 @@ body impl#142 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: SplitWhitespace
-body impl#142 method get -> &str
+body impl#143 method get -> &str
   param _0 self: SplitWhitespace
   block
     return: !
@@ -18302,7 +18961,7 @@ body impl#142 method get -> &str
           local _0 self: SplitWhitespace
         field #2: usize
           local _0 self: SplitWhitespace
-body impl#142 method advance -> void
+body impl#143 method advance -> void
   param _0 self: SplitWhitespace
   block
     call-method SplitWhitespace::find_word: void
@@ -18938,7 +19597,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#143 method add -> Duration
+body impl#144 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -18950,7 +19609,7 @@ body impl#143 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#144 method sub -> Duration
+body impl#145 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -18962,7 +19621,7 @@ body impl#144 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#145 method eq -> bool
+body impl#146 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -18972,7 +19631,7 @@ body impl#145 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#146 method cmp -> Ordering
+body impl#147 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -18983,7 +19642,7 @@ body impl#146 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#147 method hash -> u64
+body impl#148 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -19019,7 +19678,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#148 method sub -> Duration
+body impl#149 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -19027,7 +19686,7 @@ body impl#148 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#149 method add -> Instant
+body impl#150 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -19039,7 +19698,7 @@ body impl#149 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#150 method eq -> bool
+body impl#151 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -19049,7 +19708,7 @@ body impl#150 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#151 method cmp -> Ordering
+body impl#152 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -19910,12 +20569,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#155 method describe -> const &str
+body impl#156 method describe -> const &str
   param _0 self: Crate
   block
     return: !
       str "crate": const &str
-body impl#156 method weight -> i32
+body impl#157 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -20059,7 +20718,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#157 method eq -> bool
+body impl#158 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -20069,7 +20728,7 @@ body impl#157 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#158 method cmp -> Ordering
+body impl#159 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -20187,7 +20846,7 @@ body fn comparing_writable_with_read_only -> bool
         binary ==: bool
           local _5 w: ^mut i32
           local _6 r: ^i32
-body impl#159 method add -> Vec2
+body impl#160 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -20205,7 +20864,7 @@ body impl#159 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#160 method mul -> Vec2
+body impl#161 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -20529,7 +21188,7 @@ body fn widths -> void
         call-method Formatter::finish: void
           local _15 fmt·: Formatter
           str "\n": &str
-body impl#161 method valid -> bool
+body impl#162 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -20538,13 +21197,13 @@ body impl#161 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#161 method get -> i32
+body impl#162 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#161 method advance -> void
+body impl#162 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -20797,7 +21456,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#163 method mul -> Scale
+body impl#164 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -20808,7 +21467,7 @@ body impl#163 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#164 method mul -> f32
+body impl#165 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -20850,7 +21509,7 @@ body method Label::shout -> const &str
     return: !
       call-method Label::label: const &str
         local _0 self: Label
-body impl#165 method label -> const &str
+body impl#166 method label -> const &str
   param _0 self: f32
   block
     return: !
@@ -20861,7 +21520,7 @@ body fn labels -> const &str
     return: !
       call-method Label::shout: const &str
         local _0 x: f32
-body impl#166 method label -> const &str
+body impl#167 method label -> const &str
   param _0 self: Wrap<T>
   block
     return: !
@@ -20874,7 +21533,7 @@ body fn wrapped -> const &str
     return: !
       call-method Label::label: const &str
         local _0 w: Wrap<f32>
-body impl#167 method shout -> const &str
+body impl#168 method shout -> const &str
   param _0 self: f32
   block
     return: !
@@ -21400,7 +22059,7 @@ body fn shares_an_abstract -> usize
         cast: usize
           call-method Nullable::is_null: bool
             local _2 watch: Weak<Drawable>
-body impl#170 method measure -> i32
+body impl#171 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -21418,7 +22077,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#171 method measure -> i32
+body impl#172 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -21760,7 +22419,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#172 method eq -> bool
+body impl#173 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -21776,7 +22435,7 @@ body impl#172 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#173 method hash -> u64
+body impl#174 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -21787,7 +22446,7 @@ body impl#173 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#174 method eq -> bool
+body impl#175 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -21797,7 +22456,7 @@ body impl#174 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#175 method hash -> u64
+body impl#176 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -21879,7 +22538,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#176 method neg -> Heading
+body impl#177 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -21888,7 +22547,7 @@ body impl#176 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#177 method eq -> bool
+body impl#178 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -21932,7 +22591,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#178 method named -> &str
+body impl#179 method named -> &str
   param _0 self: Heading
   block
     return: !
@@ -22036,7 +22695,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": &str
-body impl#179 method format -> void
+body impl#180 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -23387,14 +24046,14 @@ body fn count_items -> i32
           int 1: i32
     return: !
       local _2 n: i32
-body impl#180 method valid -> bool
+body impl#181 method valid -> bool
   param _0 self: Flagged<I>
   block
     return: !
       call-method Iterate::valid: bool
         field #0: I
           local _0 self: Flagged<I>
-body impl#180 method get -> (I::Item, bool)
+body impl#181 method get -> (I::Item, bool)
   param _0 self: Flagged<I>
   block
     return: !
@@ -23403,7 +24062,7 @@ body impl#180 method get -> (I::Item, bool)
           field #0: I
             local _0 self: Flagged<I>
         bool true: bool
-body impl#180 method advance -> void
+body impl#181 method advance -> void
   param _0 self: Flagged<I>
   block
     call-method Iterate::advance: void
@@ -23434,7 +24093,7 @@ body fn seen_all -> i32
     return: !
       field #1: i32
         local _0 c: &mut Cursor<I>
-body impl#181 method steps -> SliceIter<String>
+body impl#182 method steps -> SliceIter<String>
   param _0 self: Roster
   block
     return: !
@@ -23484,13 +24143,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#182 method mul -> Scale
+body impl#183 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#183 method convert -> Grams
+body impl#184 method convert -> Grams
   param _0 self: f32
   block
     return: !
@@ -23762,7 +24421,7 @@ body drop Bookshelf -> void
   param _0 self: Bookshelf
   block
     (empty)
-body impl#185 method index -> &String
+body impl#186 method index -> &String
   param _0 self: Bookshelf
   param _1 i: usize
   block
@@ -23773,7 +24432,7 @@ body impl#185 method index -> &String
             field #0: List<String>
               local _0 self: Bookshelf
             local _1 i: usize
-body impl#186 method cut -> &[]String
+body impl#187 method cut -> &[]String
   param _0 self: Bookshelf
   param _1 from: usize
   param _2 to: usize?
@@ -23872,7 +24531,7 @@ body drop Rack -> void
   param _0 self: Rack
   block
     (empty)
-body impl#188 method iter -> SliceIter<i32>
+body impl#189 method iter -> SliceIter<i32>
   param _0 self: Rack
   block
     return: !
@@ -24295,7 +24954,7 @@ body fn dispatch -> void
           local _2 out: &mut List<String>
           move: String
             local _1 v: String
-body impl#189 method lay -> void
+body impl#190 method lay -> void
   param _0 self: Mailbox
   param _1 letter: String
   block
@@ -24303,7 +24962,7 @@ body impl#189 method lay -> void
       local _0 self: Mailbox
       move: String
         local _1 letter: String
-body impl#189 method lift -> String?
+body impl#190 method lift -> String?
   param _0 self: Mailbox
   block
     return: !
@@ -24312,7 +24971,7 @@ body impl#189 method lift -> String?
 body field-default Blank.0 -> void
   block
     int 0: i32
-body impl#190 method lay -> void
+body impl#191 method lay -> void
   param _0 self: Blank
   param _1 letter: String
   block
@@ -24322,7 +24981,7 @@ body impl#190 method lay -> void
       cast: i32
         call-method String::byte_len: usize
           local _1 letter: String
-body impl#190 method lift -> String?
+body impl#191 method lift -> String?
   param _0 self: Blank
   block
     assign -=
@@ -24425,7 +25084,7 @@ body fn pass_letters -> void
 body field-default Counting.0 -> void
   block
     int 0: usize
-body impl#191 method alloc -> ^mut u8
+body impl#192 method alloc -> ^mut u8
   param _0 self: Counting
   param _1 size: usize
   param _2 align: usize
@@ -24443,7 +25102,7 @@ body impl#191 method alloc -> ^mut u8
             local _1 size: usize
             local _2 align: usize
             local _3 loc: SourceLocation
-body impl#191 method realloc -> ^mut u8
+body impl#192 method realloc -> ^mut u8
   param _0 self: Counting
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -24461,7 +25120,7 @@ body impl#191 method realloc -> ^mut u8
             local _3 new_size: usize
             local _4 align: usize
             local _5 loc: SourceLocation
-body impl#191 method free -> void
+body impl#192 method free -> void
   param _0 self: Counting
   param _1 p: ^mut u8
   param _2 size: usize
@@ -24583,7 +25242,7 @@ body method Recorder::record_twice -> void
 body field-default Tape.0 -> void
   block
     int 0: i32
-body impl#192 method record -> void
+body impl#193 method record -> void
   param _0 self: Tape
   param _1 value: V
   block
@@ -24591,7 +25250,7 @@ body impl#192 method record -> void
       field #0: i32
         local _0 self: Tape
       int 1: i32
-body impl#192 method total -> i32
+body impl#193 method total -> i32
   param _0 self: Tape
   block
     return: !

@@ -260,10 +260,14 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   the program's own C++ is compiled again. Writing it found one compiler bug: `&a < b` with
   `b` a `&T` and `T` a number emitted the left `&` as a pointer, which no C++ compiler took.
 - **`frame`** (added 2026-11-18, T-0120) is the program owner arenas need: a draw list
-  emptied all at once every frame, holding values that own memory. Both halves put every
-  label and trail on the heap today. Not measured yet; how to measure what an arena would
-  gain, with the generated C++ patched by hand, is in
-  [T-0120](../../docs/tasks/T-0120-owner-arenas-for-containers-cleared-all.md).
+  emptied all at once every frame, holding values that own memory. With every label and
+  trail on the heap, as both halves had them, Dazzle's was 1.04× its C++ half on clang++ and
+  1.19× on g++ (Debian clang 19 and GCC 14, 2026-11-18). The compiler now builds them in an
+  arena the renderer keeps, reset when its list is cleared, and it is **0.76× and 0.96×**,
+  at the same peak memory. The C++ half could do the same only if asked
+  (`std::pmr::monotonic_buffer_resource`); Dazzle chooses it with nothing written. Skipping
+  the elements' drops on reset, measured by hand, would be a further 4–6%
+  ([T-0120](../../docs/tasks/T-0120-owner-arenas-for-containers-cleared-all.md)).
 - **Build time: 1.7–2.9 s for Dazzle against 0.3–0.5 s for C++.** Dazzle's own phases,
   from reading the manifests to emitting the C++, take about 35 ms of it. Importing
   `stdlib.h` with libclang, which the standard library does for every program, takes

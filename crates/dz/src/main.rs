@@ -396,6 +396,11 @@ fn cmd_placements(
                         v["placement"] = "home".into();
                         v["container"] = name.as_str().into();
                     }
+                    dz_flow::placement::Decision::Arena { name, field_name, .. } => {
+                        v["placement"] = "arena".into();
+                        v["owner"] = name.as_str().into();
+                        v["field"] = field_name.as_str().into();
+                    }
                     dz_flow::placement::Decision::Heap { why, at } => {
                         v["placement"] = "heap".into();
                         v["why"] = why.as_str().into();
@@ -423,12 +428,17 @@ fn cmd_placements(
         .iter()
         .filter(|(_, s)| matches!(s.decision, dz_flow::placement::Decision::Home { .. }))
         .count();
+    let arenas = sites
+        .iter()
+        .filter(|(_, s)| matches!(s.decision, dz_flow::placement::Decision::Arena { .. }))
+        .count();
     for (file, s) in &sites {
         let (name, line, column) = place(file, s.span.start);
         println!("{name}:{line}:{column}: {}  {}", s.callee, s.label());
     }
     let homes =
         if homes == 0 { String::new() } else { format!(", {homes} in a lent container's home") };
+    let homes = if arenas == 0 { homes } else { format!("{homes}, {arenas} in an owner arena") };
     println!(
         "{} allocation{}, {regions} in a region{homes}",
         sites.len(),

@@ -2695,6 +2695,7 @@ const WARNING_CLEAN: &[&str] = &[
     "ref_fields",
     "region_arena",
     "regions",
+    "owner_arena",
     "inline",
     "moves",
     "names",

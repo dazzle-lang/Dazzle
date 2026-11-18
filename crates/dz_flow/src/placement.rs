@@ -73,9 +73,17 @@ pub struct Placements {
     results: HashSet<BodyOwner>,
     /// The by-value parameters that stay in the call ([`Staying`]).
     staying: Staying,
+    /// The fields whose owner keeps an arena for them (T-0120).
+    arenas: crate::arenas::OwnerArenas,
 }
 
 impl Placements {
+    /// The fields whose owner keeps an arena for them, reset when they are cleared
+    /// (spec §14.6, T-0120).
+    pub fn arenas(&self) -> &crate::arenas::OwnerArenas {
+        &self.arenas
+    }
+
     pub fn body(&self, owner: &BodyOwner) -> Option<&BodyPlacement> {
         self.bodies.get(owner)
     }
@@ -496,13 +504,15 @@ fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Prop
             bodies.insert(body.owner.clone(), body);
         }
     }
+    // Whether a parameter stays in the call does not depend on owner arenas.
+    let no_arenas = crate::arenas::OwnerArenas::default();
     loop {
         let before = Staying { params: claims.clone(), ..Staying::default() };
         for (owner, (_, params)) in &mut claims {
             let body = bodies[owner];
             let offset = body.params.len() - owner_sig(table, owner).map_or(0, |s| s.params.len());
             if proposer == Proposer::Rules {
-                let cx = Cx::new(table, res, body, false, &before);
+                let cx = Cx::new(table, res, body, false, &before, &no_arenas);
                 params
                     .retain(|i| matches!(cx.escape_of(body.params[i + offset], 0), Escape::Stays));
             }
@@ -510,7 +520,7 @@ fn staying_params(hir: &Hir, table: &TypeTable, res: &Resolution, proposer: Prop
                 continue;
             }
             let locals: Vec<LocalId> = params.iter().map(|i| body.params[i + offset]).collect();
-            let refused = analyse_regions(body, table, res, &[], &[], &locals, &before);
+            let refused = analyse_regions(body, table, res, &[], &[], &[], &locals, &before);
             let mut kept = refused.iter().map(Option::is_none);
             params.retain(|_| kept.next().unwrap_or(false));
         }
@@ -636,7 +646,10 @@ impl BodyPlacement {
             .iter()
             .filter_map(|s| match s.decision {
                 Decision::Region { block, .. } => Some(block),
-                Decision::Result { .. } | Decision::Home { .. } | Decision::Heap { .. } => None,
+                Decision::Result { .. }
+                | Decision::Home { .. }
+                | Decision::Arena { .. }
+                | Decision::Heap { .. } => None,
             })
             .collect();
         blocks.sort_by_key(|b| b.0);
@@ -649,7 +662,7 @@ impl BodyPlacement {
     pub fn region_for(&self, call: ExprId) -> Option<(usize, BlockId)> {
         match self.placed(call)? {
             (arg, Placed::Region(block)) => Some((arg, block)),
-            (_, Placed::Result | Placed::Home(_)) => None,
+            (_, Placed::Result | Placed::Home(_) | Placed::Arena { .. }) => None,
         }
     }
 
@@ -661,6 +674,7 @@ impl BodyPlacement {
             Decision::Region { block, .. } => Some((s.arg, Placed::Region(block))),
             Decision::Result { .. } => Some((s.arg, Placed::Result)),
             Decision::Home { container, .. } => Some((s.arg, Placed::Home(container))),
+            Decision::Arena { owner, field, .. } => Some((s.arg, Placed::Arena { owner, field })),
             Decision::Heap { .. } => None,
         })
     }
@@ -717,6 +731,10 @@ pub enum Decision {
     /// (D-0097, T-0200 stage 4): the value is handed to it by a call whose `sends` says so.
     /// `container` is the receiver, and `name` names it for a reader.
     Home { container: ExprId, name: String },
+    /// In the arena the value `owner` keeps for its field `field` (by index), reset when
+    /// that field is cleared (T-0120): the value is stored into it. `name` names the owner
+    /// and `field_name` the field, for a reader.
+    Arena { owner: ExprId, field: usize, name: String, field_name: String },
     /// On the heap, and why; `at` is the use that decided it, where there is one.
     Heap { why: String, at: Option<Span> },
 }
@@ -730,6 +748,9 @@ impl Decision {
             Decision::Region { scope, .. } => format!("region: {scope}"),
             Decision::Result { function } => format!("result: where {function}'s caller keeps it"),
             Decision::Home { name, .. } => format!("home: where `{name}` lives"),
+            Decision::Arena { name, field_name, .. } => {
+                format!("arena: `{name}`'s for `{field_name}`, reset when it is cleared")
+            }
             Decision::Heap { why, .. } => format!("heap: {why}"),
         }
     }
@@ -744,6 +765,8 @@ pub enum Placed {
     Result,
     /// The allocator a container keeps, reached from this expression by [`home_path`].
     Home(ExprId),
+    /// The arena the value `owner` keeps for its field `field`, by index (T-0120).
+    Arena { owner: ExprId, field: usize },
 }
 
 /// Which proposals the region check is given.
@@ -772,14 +795,17 @@ pub fn place_with(
     let results = result_functions(hir, table, res);
     let mut staying = staying_params(hir, table, res, proposer);
     staying.stored = crate::storing::storing_params(hir, table, res, &staying);
+    let arenas = crate::arenas::owner_arenas(hir, table, res);
     let mut out = Placements::default();
     for (_, body) in hir.bodies() {
-        if let Some(placed) = place_body(hir, table, res, &results, &staying, body, proposer) {
+        let cx = Inputs { hir, table, res, results: &results, staying: &staying, arenas: &arenas };
+        if let Some(placed) = place_body(&cx, body, proposer) {
             out.bodies.insert(body.owner.clone(), placed);
         }
     }
     out.results = results;
     out.staying = staying;
+    out.arenas = arenas;
     crate::release::skipped_drops(hir, table, res, &mut out);
     out
 }
@@ -793,6 +819,19 @@ enum Target {
     Result,
     /// The home of the container `recv`, under the input `input` (D-0097).
     Home { recv: ExprId, input: LocalId },
+    /// The arena the local `container`, the receiver `recv` of the call that stores the
+    /// value, keeps for its field `field` (T-0120).
+    Arena { container: LocalId, recv: ExprId, field: usize },
+}
+
+/// What placing a body reads besides the body itself.
+struct Inputs<'a> {
+    hir: &'a Hir,
+    table: &'a TypeTable,
+    res: &'a Resolution,
+    results: &'a HashSet<BodyOwner>,
+    staying: &'a Staying,
+    arenas: &'a crate::arenas::OwnerArenas,
 }
 
 /// The fields from a value of type `ty` to an allocator it keeps, `m_allocator` last: how
@@ -852,15 +891,8 @@ struct Callable {
     name: String,
 }
 
-fn place_body(
-    hir: &Hir,
-    table: &TypeTable,
-    res: &Resolution,
-    results: &HashSet<BodyOwner>,
-    staying: &Staying,
-    body: &Body,
-    proposer: Proposer,
-) -> Option<BodyPlacement> {
+fn place_body(inputs: &Inputs, body: &Body, proposer: Proposer) -> Option<BodyPlacement> {
+    let Inputs { hir, table, res, results, staying, arenas } = *inputs;
     let mut found = Vec::new();
     let mut copies = Vec::new();
     for i in 0..body.exprs.len() {
@@ -874,7 +906,7 @@ fn place_body(
     if found.is_empty() && copies.is_empty() {
         return None;
     }
-    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying);
+    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying, arenas);
     // A copy is a site when it is taken by value somewhere a placement can follow it
     // (T-0140): what it builds is its own, wherever the value it copies lives.
     for e in copies {
@@ -903,7 +935,7 @@ fn place_body(
         .filter_map(|(e, _, d)| match d {
             Ok(Target::Block(b)) => Some((*e, *b, false)),
             Ok(Target::Result) => Some((*e, body.root, true)),
-            Ok(Target::Home { .. }) | Err(_) => None,
+            Ok(Target::Home { .. } | Target::Arena { .. }) | Err(_) => None,
         })
         .collect();
     // A home is the caller's, outside every region of the body: the check is told which
@@ -915,15 +947,25 @@ fn place_body(
             _ => None,
         })
         .collect();
-    let refusals = if proposals.is_empty() && homes.is_empty() {
+    // An owner arena is its container's owner's: the check lets the value go only into
+    // that container (T-0120).
+    let in_arenas: Vec<(ExprId, LocalId)> = decided
+        .iter()
+        .filter_map(|(e, _, d)| match d {
+            Ok(Target::Arena { container, .. }) => Some((*e, *container)),
+            _ => None,
+        })
+        .collect();
+    let refusals = if proposals.is_empty() && homes.is_empty() && in_arenas.is_empty() {
         Vec::new()
     } else {
-        analyse_regions(body, table, res, &proposals, &homes, &[], staying)
+        analyse_regions(body, table, res, &proposals, &homes, &in_arenas, &[], staying)
     };
     let refused: HashMap<ExprId, RegionRefusal> = proposals
         .iter()
         .map(|(e, _, _)| *e)
         .chain(homes.iter().map(|(e, _)| *e))
+        .chain(in_arenas.iter().map(|(e, _)| *e))
         .zip(refusals)
         .filter_map(|(e, r)| r.map(|r| (e, r)))
         .collect();
@@ -943,6 +985,12 @@ fn place_body(
                     Target::Home { recv, .. } => Decision::Home {
                         container: recv,
                         name: place_name(res, body, Some(table), recv),
+                    },
+                    Target::Arena { recv, field, .. } => Decision::Arena {
+                        owner: recv,
+                        field,
+                        name: place_name(res, body, Some(table), recv),
+                        field_name: cx.field_name(recv, field),
                     },
                 },
             },
@@ -1105,6 +1153,8 @@ struct Cx<'a> {
     staying: &'a Staying,
     /// The body's module, which a call must share with its callee to rely on [`Staying`].
     module: ModuleId,
+    /// The fields whose owner keeps an arena for them (T-0120).
+    arenas: &'a crate::arenas::OwnerArenas,
 }
 
 /// What the uses of a local do with it.
@@ -1116,8 +1166,8 @@ enum Escape {
     /// It is stored into the container in local `container`, by a method that stores the
     /// argument (T-0145), and stays otherwise. `direct` when it is the argument itself or a
     /// part of it, never held by a `let` on the way; `kept` when the method keeps it on
-    /// every call.
-    Into { container: LocalId, direct: bool, kept: bool },
+    /// every call. `call` is the call that stores it, as its argument `arg`.
+    Into { container: LocalId, direct: bool, kept: bool, call: ExprId, arg: usize },
     /// It is handed, by a call whose `sends` says so, to the container `recv`, which is
     /// under the input `input`: a container this body was lent (D-0097). `direct` as for
     /// [`Escape::Into`].
@@ -1136,6 +1186,7 @@ impl<'a> Cx<'a> {
         body: &'a Body,
         returns_result: bool,
         staying: &'a Staying,
+        arenas: &'a crate::arenas::OwnerArenas,
     ) -> Self {
         let mut cx = Cx {
             table,
@@ -1143,6 +1194,7 @@ impl<'a> Cx<'a> {
             body,
             returns_result,
             staying,
+            arenas,
             module: owner_module(table, res, &body.owner),
             up: HashMap::new(),
             expr_block: HashMap::new(),
@@ -1445,8 +1497,9 @@ impl<'a> Cx<'a> {
         // The value `e` makes, a copy site's included.
         match self.fate_as(e, 0, false) {
             Escape::Returned => Ok(Target::Result),
-            Escape::Into { container, direct, kept } => {
-                self.stored_target(container, block, direct, kept)
+            Escape::Into { container, direct, kept, call, arg } => {
+                let arena = self.arena_target(container, call, arg, block, e);
+                self.or_arena(arena, self.stored_target(container, block, direct, kept))
             }
             Escape::IntoHome { recv, input, direct } => self.home_target(recv, input, direct),
             Escape::Held(y) => self.held_target(y, block, e),
@@ -1476,9 +1529,10 @@ impl<'a> Cx<'a> {
             Escape::Returned => Ok(Target::Result),
             // Held by a `let` first: stored directly only when the store is as sure as a
             // call's argument is.
-            Escape::Into { container, kept, .. } => {
+            Escape::Into { container, kept, call, arg, .. } => {
+                let arena = self.arena_target(container, call, arg, block, top);
                 let direct = self.surely_stored(top, container);
-                self.stored_target(container, block, direct, kept)
+                self.or_arena(arena, self.stored_target(container, block, direct, kept))
             }
             Escape::IntoHome { recv, input, .. } => {
                 let direct = self.surely_stored_into(top, recv);
@@ -1552,14 +1606,14 @@ impl<'a> Cx<'a> {
             match self.fate(u, depth) {
                 Escape::Stays => {}
                 Escape::Returned => returned = true,
-                Escape::Into { container, direct, kept } => match into {
+                Escape::Into { container, direct, kept, call, arg } => match into {
                     // Stored into two containers, or into one twice: on different paths, or
                     // one a copy. Neither is followed.
                     Some(_) => {
                         let span = Some(self.body.expr(u).span);
                         return Escape::Leaves(("stored in two places".to_owned(), span));
                     }
-                    None => into = Some(Escape::Into { container, direct, kept }),
+                    None => into = Some(Escape::Into { container, direct, kept, call, arg }),
                 },
                 Escape::IntoHome { recv, input, direct } => match into {
                     Some(_) => {
@@ -1846,7 +1900,7 @@ impl<'a> Cx<'a> {
         }
         let outer = match target {
             Target::Block(b) => b,
-            Target::Result | Target::Home { .. } => self.body.root,
+            Target::Result | Target::Home { .. } | Target::Arena { .. } => self.body.root,
         };
         match self.loop_between(site, outer) {
             None => Err((format!("made before `{name}`'s block"), None)),
@@ -1891,7 +1945,89 @@ impl<'a> Cx<'a> {
         } || crate::storing::adds_new(self.body, self.res, call);
         let Callee::Method { recv, .. } = callee else { return None };
         let container = self.receiver_local(*recv)?;
-        Some(Escape::Into { container, direct: depth == 0, kept })
+        Some(Escape::Into { container, direct: depth == 0, kept, call, arg: i })
+    }
+
+    /// A value stored into a container whose owner keeps an arena for it (T-0120): built
+    /// there, whether it is stored on every pass or only on some, since resetting the
+    /// arena frees what was not kept as well. `top` is the value, made in `block`.
+    ///
+    /// Only when the call is on the owner itself, a local of this body whose struct is this
+    /// module's (whose own bodies decided the arena), and nothing could clear the container
+    /// while the value is outside it: the owner is never lent `&mut`, and no use of it but
+    /// the storing call lies between where the value is made and the end of its block. A
+    /// reset there would free the value under it.
+    fn arena_target(
+        &self,
+        container: LocalId,
+        call: ExprId,
+        arg: usize,
+        block: BlockId,
+        top: ExprId,
+    ) -> Option<Proposal> {
+        let hir::ExprKind::Call { callee: Callee::Method { recv, name, .. }, .. } =
+            &self.body.expr(call).kind
+        else {
+            return None;
+        };
+        let recv = *recv;
+        if !matches!(self.body.expr(recv).kind, hir::ExprKind::Local(l) if l == container) {
+            return None;
+        }
+        let Ty::Named { sym, .. } = &self.body.local(container).ty else { return None };
+        if self.res.symbol(*sym).module != self.module {
+            return None;
+        }
+        let field = self.arenas.stored_by(*sym, name, arg)?;
+        let owner = self.body.local(container).name.clone();
+        let (start, end) = (self.body.expr(top).span.start, self.body.block(block).span.end);
+        for i in 0..self.body.exprs.len() as u32 {
+            let e = ExprId(i);
+            match self.body.expr(e).kind {
+                hir::ExprKind::Local(l) if l == container && e != recv => {
+                    let span = self.body.expr(e).span;
+                    if span.start >= start && span.start < end {
+                        let why = format!(
+                            "stored in `{owner}`, used before it is: clearing it there would \
+                             reset the arena it keeps"
+                        );
+                        return Some(Err((why, Some(span))));
+                    }
+                }
+                hir::ExprKind::Ref { mutable: true, place, .. }
+                    if self.receiver_local(place) == Some(container) =>
+                {
+                    let why = format!(
+                        "stored in `{owner}`, lent as `&mut`: whoever borrows it may clear it \
+                         and reset the arena it keeps"
+                    );
+                    return Some(Err((why, Some(self.body.expr(e).span))));
+                }
+                _ => {}
+            }
+        }
+        Some(Ok(Target::Arena { container, recv, field: field.index }))
+    }
+
+    /// The owner arena's proposal when there is one, else `fallback`: what the container's
+    /// own place gives. An arena refused by the caller's use of the owner gives its reason
+    /// only where the fallback keeps the heap too, so it never costs a value its region.
+    fn or_arena(&self, arena: Option<Proposal>, fallback: Proposal) -> Proposal {
+        match (arena, fallback) {
+            (Some(Ok(target)), _) => Ok(target),
+            (Some(Err(why)), Err(_)) => Err(why),
+            (_, fallback) => fallback,
+        }
+    }
+
+    /// The name of field `index` of the struct `owner` is.
+    fn field_name(&self, owner: ExprId, index: usize) -> String {
+        let Ty::Named { sym, .. } = self.body.ty(owner).peeled_refs() else { return String::new() };
+        self.table
+            .struct_sig(*sym)
+            .and_then(|s| s.fields.get(index))
+            .map(|f| f.name.clone())
+            .unwrap_or_default()
     }
 
     /// Whether what is stored into `container` can leave it for somewhere a region cannot

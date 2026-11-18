@@ -53,6 +53,49 @@ struct copy_tag {};
 // for a variant literal to build its payload in place, every field at once (T-0231).
 struct no_payload {};
 
+// --- owner arenas (spec §14.6, T-0120) ------------------------------------
+//
+// The arena a struct keeps, out of sight, for a field emptied only all at once: `A` is
+// `std`'s `OwnerArena`. It is declared just before that field, so it is destroyed after the
+// field's elements, which free into it. It is made the first time a value is placed in it,
+// in memory from the field's own allocator, and never moves, since the values in it keep
+// its address. A move takes it along, as the elements go along; a copy starts with none,
+// since a copy's elements are built elsewhere.
+template <class A>
+struct ArenaSlot {
+    A* p = nullptr;
+    ArenaSlot() = default;
+    ArenaSlot(const ArenaSlot&) noexcept {}
+    ArenaSlot& operator=(const ArenaSlot&) noexcept { return *this; }
+    ArenaSlot(ArenaSlot&& o) noexcept : p(o.p) { o.p = nullptr; }
+    // Swapped, not dropped: the elements this one held are destroyed after it, by the
+    // field's own move, and they free into the arena they came from, which the source now
+    // holds until it is destroyed itself.
+    ArenaSlot& operator=(ArenaSlot&& o) noexcept {
+        A* had = p;
+        p = o.p;
+        o.p = had;
+        return *this;
+    }
+    ~ArenaSlot() {
+        if (p != nullptr) {
+            A::unmake(p);
+        }
+    }
+    template <class Parent>
+    DZ_INLINE A* get(Parent parent) {
+        if (p == nullptr) {
+            p = A::make(parent);
+        }
+        return p;
+    }
+    DZ_INLINE void reset() {
+        if (p != nullptr) {
+            p->reset();
+        }
+    }
+};
+
 // --- source locations (spec §12.7) ----------------------------------------
 
 struct SourceLocation {

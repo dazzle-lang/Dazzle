@@ -2748,8 +2748,16 @@ impl<'a> Emitter<'a> {
         // it declared them already, so only the rest are written here.
         let fields = self.field_list(sym);
         let declared_in = self.declaring_types(sym);
+        let arenas = self.arena_fields(sym);
+        let owner_arena = self.res.lookup(self.res.prelude, "OwnerArena").map(|a| self.qualify(a));
         let mut defaults: Vec<String> = Vec::new();
         for (index, (fname, fty)) in fields.iter().enumerate() {
+            // A field emptied only all at once has its owner arena just before it, so the
+            // arena is destroyed after the elements, which free into it (T-0120).
+            if let (true, Some(a)) = (arenas.contains(&index), &owner_arena) {
+                let slot = arena_slot_name(fname);
+                let _ = writeln!(self.header, "    ::dz::rt::ArenaSlot<{a}> {slot}{{}};");
+            }
             if index < inherited {
                 // The base declared this one, with its own `= expr`. `defaults` still
                 // needs it, because the move constructor resets every field it stole and
@@ -3221,12 +3229,18 @@ impl<'a> Emitter<'a> {
     /// the source back at its defaults so running its `drop` is safe and does nothing.
     fn move_members(&mut self, name: &str, sym: SymbolId) {
         let fields = self.field_list(sym);
+        let arenas = self.arena_fields(sym);
         self.line(&format!("{}{name}::{name}({name}&& other) {{", self.def_prefix));
         self.indent += 1;
         // Every field is moved, never copied: a copyable field such as a `String` or a `List`
         // would otherwise be copied in full and then reset, on every move. Moving a plain
-        // value is copying it, so this is the same for a number or a pointer.
-        for (f, _) in &fields {
+        // value is copying it, so this is the same for a number or a pointer. An owner
+        // arena goes with its field's elements, which are in it (T-0120).
+        for (index, (f, _)) in fields.iter().enumerate() {
+            if arenas.contains(&index) {
+                let slot = arena_slot_name(f);
+                self.line(&format!("{slot} = static_cast<decltype({slot})&&>(other.{slot});"));
+            }
             self.line(&format!("{f} = static_cast<decltype({f})&&>(other.{f});"));
         }
         self.line("other.reset_to_defaults__();");
@@ -3884,7 +3898,40 @@ impl<'a> Emitter<'a> {
                 }
                 out
             }
+            // The arena `owner` keeps for the field, made the first time from the allocator
+            // the field's own list keeps: where the owner lives (T-0120).
+            Placed::Arena { owner, field } => {
+                let Ty::Named { sym, .. } = self.cur().ty(owner).peeled_refs().clone() else {
+                    return self.heap_placement();
+                };
+                let Some((fname, _)) = self.field_list(sym).get(field).cloned() else {
+                    return self.heap_placement();
+                };
+                let o = self.expr(owner);
+                format!(
+                    "::dz::rt::obj({o}).{}.get(::dz::rt::obj(::dz::rt::obj({o}).{fname}).m_allocator)",
+                    arena_slot_name(&fname)
+                )
+            }
         }
+    }
+
+    /// When `recv`, the receiver of a `clear`, is a field of `self` that its struct keeps
+    /// an owner arena for (T-0120): that arena's slot, as C++, to reset.
+    fn arena_cleared(&mut self, recv: ExprId) -> Option<String> {
+        let placements = self.placements?;
+        let body = self.cur();
+        let field = placements.arenas().field_of_self(body, recv)?;
+        let hir::ExprKind::Field { base, .. } = body.expr(recv).kind else { return None };
+        let base = self.expr(base);
+        Some(format!("::dz::rt::obj({base}).{}", arena_slot_name(&sanitize(&field.name))))
+    }
+
+    /// The fields of `sym` its owner keeps an arena for (T-0120), by index.
+    fn arena_fields(&self, sym: SymbolId) -> Vec<usize> {
+        self.placements
+            .map(|p| p.arenas().of(sym).iter().map(|f| f.index).collect())
+            .unwrap_or_default()
     }
 
     /// A default argument, written at a call. `span` is the call's: a `#location` default,
@@ -5932,7 +5979,20 @@ impl<'a> Emitter<'a> {
 
             hir::ExprKind::Call { callee, args } => {
                 let placed = self.placement.and_then(|p| p.placed(e));
-                self.call(e, callee, args, body.ty(e).clone(), node.span, placed)
+                let text = self.call(e, callee, args, body.ty(e).clone(), node.span, placed);
+                // Clearing a field its owner keeps an arena for resets the arena, after the
+                // elements are dropped: nothing else in it is alive (T-0120).
+                match callee {
+                    hir::Callee::Method { recv, name, .. }
+                        if name == "clear" && args.is_empty() =>
+                    {
+                        match self.arena_cleared(*recv) {
+                            Some(slot) => format!("({text}, {slot}.reset())"),
+                            None => text,
+                        }
+                    }
+                    _ => text,
+                }
             }
             hir::ExprKind::Move(inner) => {
                 /// Something `take` can reset: a local, or a field of one.
@@ -8372,6 +8432,12 @@ fn params_named(body: &hir::Body) -> Namer<'_> {
 /// spellings in step. Applied unconditionally, including to imported names: a C++ header
 /// cannot declare something named after a C++ keyword (or, portably, after a standard
 /// macro), so there is nothing to special-case.
+/// The C++ member holding the owner arena kept for the field `field` (already sanitized),
+/// out of sight of Dazzle code (T-0120).
+fn arena_slot_name(field: &str) -> String {
+    format!("_dz_arena_{field}")
+}
+
 fn sanitize(name: &str) -> String {
     // A local a macro's hygiene renamed is `next·1`, a spelling no Dazzle source can write
     // and so no user name can collide with (spec §12.4). C++ gets `next__m1`: a double
