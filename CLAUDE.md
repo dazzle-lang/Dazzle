@@ -15,7 +15,8 @@ diverged branch), stop and tell the user rather than stashing, rebasing or resol
 Where it stands: 0.2 is released (2026-11-17, at r143; 0.1 was 2026-11-04). M0–M8, M10, M11, M14 and M15 are done; most of M9 (`dz lsp` and the VS
 Code extension) was pulled forward; what 0.2 was is in the `## Now` section of
 `docs/tasks/README.md`. **0.3 is planned** (2026-11-18), at the top of that section: threads
-(M19), working with an agent (M20), MSVC (M21), doc tests and editor speed.
+(M19), working with an agent (M20), MSVC (M21), placement finished (M22), doc tests and
+editor speed.
 **`docs/tasks.md` is the backlog** — what is next, and every open task by milestone.
 Spec §19 is the roadmap.
 
@@ -38,7 +39,7 @@ Each is a folder of small files, so read the one you need rather than all of it.
   one `D-NNNN` file each. `D-00NN` is what older text cites as `18.NN`.
 - **`docs/tasks.md`** — **the backlog: read it first.** What is next, then every open task,
   one line each, grouped by milestone. **When asked what there is to work on, answer from
-  it**: the 0.3 plan first (M19, M20, M21), then the other milestones. It is generated from
+  it**: the 0.3 plan first (M19, M20, M21, M22), then the other milestones. It is generated from
   `docs/tasks/`, so it is always current: **never edit it by hand.**
 - **`docs/tasks/`** — open and done work, one `T-NNNN` file each with a `milestone`, `status`,
   `kind` and `area` header; deferrals are `kind: deferral`. Add a task with `python

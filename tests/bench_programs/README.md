@@ -2,7 +2,7 @@
 
 `tests/bench` compares Dazzle and C++ one construct at a time: an indexed load, a
 destructor, a virtual call. That shows the constructs compile to the same thing. It does not
-show what a *program* costs. These do: seven programs a C++ programmer would recognise as
+show what a *program* costs. These do: eight programs a C++ programmer would recognise as
 real work, each written twice, idiomatically, and timed end to end (T-0090). Every run
 recorded is kept in [`HISTORY.md`](HISTORY.md), so a change that makes Dazzle's side slower
 shows as a ratio that moved (T-0075).
@@ -12,6 +12,7 @@ shows as a ratio that moved (T-0075).
 | `ecs` | a battle of 600 units in two teams for 100 steps, on an entity-component-system library of its own: each step moves every unit, pushes apart those that overlap, lets each strike the nearest enemy in reach or close in on it, and replaces the dead. In Rust too, three ways (below) | a generic `World` holding any component type, found by `typeid_of`, in a `Box` of an abstract base; sparse sets; systems as function values; a query inside a query over the same storages, writing both entities; a write to another unit's component while walking positions; despawning and spawning after the loops |
 | `astar` | 200 A* searches across a 400×400 grid with 30% walls | a generic binary heap bounded by `Ord`; `HashMap` keyed by a struct with its own `Hash`; two maps, a heap and a path allocated and dropped per search; bounds-checked grid reads; optionals |
 | `generics` | runs one generic driver for six key types, from `i64` to `Pair<String, u16>`: 200,000 keys added to an ordered map, 200,000 lookups, and 200,000 more keys sorted, counted and searched (T-0075) | the program's own generic code instantiated six times over: an AVL tree map in one `List`, bounded by `Ord` and two traits of the program's; a quicksort, a binary search and a count of distinct elements; a `Pair<A, B>` whose `Eq`, `Ord` and `Digest` come from its parts'; keys and values made through function values. The C++ half is the same code as templates |
+| `frame` | a game's frame loop: 10,000 units wander a world a camera pans across, and for 600 frames a renderer rebuilds its draw list, one command per unit in view, each with a formatted label and a trail of two to eight points, then folds it into a checksum (T-0120) | a container that lives for the whole program, a private `List<Command>`, emptied and refilled every frame with values that own memory (a `String` and a `List<Point>` each), so about 6 million allocations that live one frame; `format!`; a type's own tie and `kills`/`sends` clauses |
 | `expr` | generates 100,000 `let` statements (8 MB of text), tokenizes them, parses each into a tree and evaluates it; about one in eight fails on purpose | `String` building, `str` views as tokens and map keys, a tagged union of `Box`es (a tree that frees itself), recursion, `!->` errors propagated with `or return` |
 | `json` | generates 100,000 records as a JSON document (17 MB), parses it into a tree, turns the tree into a `List<Record>`, and writes the records back out compactly (13 MB) | a parser over bytes reporting through `!->`, a recursive tagged union of `String`s and `List`s built and freed, `parse_f64` and float formatting, copying text out of the tree, and a writer written once against reflection's type table (the C++ half writes `to_json` by hand) |
 | `raytrace` | renders the ray tracer of `examples/stb`, without the PNG, at 960×540 with 16 rays a pixel: spheres, a checkered floor, soft shadows and mirrors | `f32` arithmetic through `std::math`'s `Vec3` and its operator traits, small structs passed and returned by value, `sqrt`, `pow`, `exp`, `sin` and `cos`, tagged unions switched on in the inner loop, `Hit?` returned from every intersection test, recursion |
@@ -258,6 +259,11 @@ What the first runs showed (2026-10-24, Ryzen 7 H 255, clang 23 and GCC 16, `-O2
   Dazzle is ahead, 0.21 s against 0.38 in debug and 0.65 against 0.88 in release, since only
   the program's own C++ is compiled again. Writing it found one compiler bug: `&a < b` with
   `b` a `&T` and `T` a number emitted the left `&` as a pointer, which no C++ compiler took.
+- **`frame`** (added 2026-11-18, T-0120) is the program owner arenas need: a draw list
+  emptied all at once every frame, holding values that own memory. Both halves put every
+  label and trail on the heap today. Not measured yet; how to measure what an arena would
+  gain, with the generated C++ patched by hand, is in
+  [T-0120](../../docs/tasks/T-0120-owner-arenas-for-containers-cleared-all.md).
 - **Build time: 1.7–2.9 s for Dazzle against 0.3–0.5 s for C++.** Dazzle's own phases,
   from reading the manifests to emitting the C++, take about 35 ms of it. Importing
   `stdlib.h` with libclang, which the standard library does for every program, takes

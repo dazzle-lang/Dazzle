@@ -1,7 +1,7 @@
 ---
 id: T-0141
 title: `virtual` and `override` methods take no result placement
-milestone: none
+milestone: M22
 status: open
 kind: feature
 area: ownership

@@ -20,8 +20,8 @@ python tools/track.py check                      # headers, ids, milestones, §-
 
 ## Now
 
-**The 0.3 plan**, set by the user on 2026-11-18. Five parts; the first three are new roadmap
-milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
+**The 0.3 plan**, set by the user on 2026-11-18. Six parts; the first three and the last are
+new roadmap milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
 hot reload (M13), the web (M18) and a voxel game as the release's proof.
 
 1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
@@ -47,6 +47,14 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    every snippet in them compiles. A design task: its syntax is the user's call.
 5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).
    Agents and the LSP both run analysis constantly.
+6. **Placement finished (M22)**, added by the user the same day: what §14.6 still says is
+   not done, so that it no longer says "not yet". T-0120 (owner arenas for a container
+   cleared all at once; it needs a program whose container holds owning values cleared every
+   frame, to measure against the heap), T-0139 (frame regions, which also covers a field
+   replaced every frame), T-0141 (`virtual`/`override` result placement), T-0147 (more
+   skipped drops), T-0142 (by-value parameter placement across modules), T-0201 (a list in a
+   region grows in place), and T-0143 (a memory budget or no heap: a design task and a
+   language change, the user's to decide, which M17 then builds on).
 
 Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
 M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
@@ -246,7 +254,7 @@ from M12's open tasks. Later, by the roadmap: fetched packages (M16), hot reload
 the release workflow and installer (T-0076).
 
 **When asked what there is to work on**, answer from the 0.3 plan at the top of this
-section: M19, M20 and M21, then the rest of the plan. Other milestones' open tasks come after.
+section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' open tasks come after.
 
 ## A task file
 

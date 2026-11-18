@@ -9,8 +9,8 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 
 ## Now
 
-**The 0.3 plan**, set by the user on 2026-11-18. Five parts; the first three are new roadmap
-milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
+**The 0.3 plan**, set by the user on 2026-11-18. Six parts; the first three and the last are
+new roadmap milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
 hot reload (M13), the web (M18) and a voxel game as the release's proof.
 
 1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
@@ -36,6 +36,14 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    every snippet in them compiles. A design task: its syntax is the user's call.
 5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).
    Agents and the LSP both run analysis constantly.
+6. **Placement finished (M22)**, added by the user the same day: what §14.6 still says is
+   not done, so that it no longer says "not yet". T-0120 (owner arenas for a container
+   cleared all at once; it needs a program whose container holds owning values cleared every
+   frame, to measure against the heap), T-0139 (frame regions, which also covers a field
+   replaced every frame), T-0141 (`virtual`/`override` result placement), T-0147 (more
+   skipped drops), T-0142 (by-value parameter placement across modules), T-0201 (a list in a
+   region grows in place), and T-0143 (a memory budget or no heap: a design task and a
+   language change, the user's to decide, which M17 then builds on).
 
 Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
 M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
@@ -235,7 +243,7 @@ from M12's open tasks. Later, by the roadmap: fetched packages (M16), hot reload
 the release workflow and installer (T-0076).
 
 **When asked what there is to work on**, answer from the 0.3 plan at the top of this
-section: M19, M20 and M21, then the rest of the plan. Other milestones' open tasks come after.
+section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' open tasks come after.
 
 ## M7a — C interop: a vendored C library, built from source (2 open)
 
@@ -304,10 +312,6 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M17 — Freestanding targets: no heap, no operating system (1 open)
-
-- **[T-0143](tasks/T-0143-placement-under-memory-budget-or-with.md)** Placement under a memory budget, or with no heap · design, ownership
-
 ## M19 — Threads (8 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
@@ -340,7 +344,17 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 - **[T-0255](tasks/T-0255-what-fwrapv-fno-finite-loops-fno.md)** What -fwrapv, -fno-finite-loops and -fno-strict-aliasing promise, under cl.exe · design, codegen
 - **[T-0256](tasks/T-0256-msvc-in-ci-warning-clean-at.md)** MSVC in CI, warning-clean at /W4 · feature, tooling
 
-## none — not scheduled (21 open)
+## M22 — Placement finished (7 open)
+
+- **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
+- **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
+- **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
+- **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
+- **[T-0143](tasks/T-0143-placement-under-memory-budget-or-with.md)** Placement under a memory budget, or with no heap · design, ownership
+- **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method, or in a generic body · feature, ownership
+- **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
+
+## none — not scheduled (15 open)
 
 - **[T-0068](tasks/T-0068-named-arguments-at-call-site.md)** Named arguments at the call site · design, language
 - **[T-0069](tasks/T-0069-distinct-types.md)** Distinct types · design, language
@@ -348,17 +362,11 @@ section: M19, M20 and M21, then the rest of the plan. Other milestones' open tas
 - **[T-0083](tasks/T-0083-build-static-lib-shared-lib-outputs.md)** Build static-lib and shared-lib outputs · feature, codegen
 - **[T-0091](tasks/T-0091-static-cannot-hold-struct-with-array.md)** A static cannot hold a struct with an array field that has no default · design, language
 - **[T-0093](tasks/T-0093-recipe-for-library-several-single-headers.md)** A recipe for a library of several single headers is not documented · feature, llm-tooling
-- **[T-0120](tasks/T-0120-owner-arenas-for-containers-cleared-all.md)** Owner arenas for containers cleared all at once · deferral, ownership
 - **[T-0137](tasks/T-0137-kills-clause-must-be-exact-so.md)** A `kills` clause must be exact, so a change in a body ripples up every caller · design, ownership
 - **[T-0138](tasks/T-0138-game-ten-thousand-lines-test-ties.md)** A game of ten thousand lines, to test ties and placement at scale · feature, language
-- **[T-0139](tasks/T-0139-frame-regions-one-region-per-pass.md)** Frame regions: one region per pass of an update loop · design, ownership
-- **[T-0141](tasks/T-0141-virtual-override-methods-take-no-result.md)** `virtual` and `override` methods take no result placement · feature, ownership
-- **[T-0142](tasks/T-0142-by-value-parameter-placement-inferred-only.md)** A by-value parameter's placement is inferred only within its module · feature, ownership
-- **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method, or in a generic body · feature, ownership
 - **[T-0148](tasks/T-0148-say-in-source-that-drop-only.md)** Say in the source that a drop only frees, checked by the compiler · design, ownership
 - **[T-0159](tasks/T-0159-delete-allocators-global-allocators-temp-temparena.md)** "Delete Allocators::Global, Allocators::Temp and TempArena: nothing outside std names an allocator" · feature, stdlib
 - **[T-0162](tasks/T-0162-entry-point-function-no-dazzle-code.md)** "#[entry_point]: a function no Dazzle code calls, which names no static's kills" · feature, ownership
-- **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 - **[T-0204](tasks/T-0204-dz-fix-adds-home-owned-result.md)** "`dz fix` adds a home to an owned result's `in` clause already written" · feature, tooling
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling

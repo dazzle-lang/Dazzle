@@ -1,7 +1,7 @@
 ---
 id: T-0139
 title: Frame regions: one region per pass of an update loop
-milestone: none
+milestone: M22
 status: open
 kind: design
 area: ownership

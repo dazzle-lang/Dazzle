@@ -1,0 +1,178 @@
+// A game's frame loop with a draw list: the Dazzle half of a whole-program benchmark
+// (tests/bench_programs/README.md). `main.cpp` beside this folder is the same program in
+// C++, and both must print the same checksum.
+//
+// 10,000 units wander a 4000-unit-wide world; a camera half as wide pans across it. Every
+// frame moves the units, then rebuilds the renderer's draw list: one command for each unit
+// in view, holding a label (`"skeleton-1234 87/100"`) and the trail behind the unit, a
+// `List` of two to eight points. The list is emptied all at once at the start of the next
+// frame, and "drawing" it folds every label byte and point into a checksum.
+//
+// What it exercises: a container that lives for the whole program, holding values that own
+// memory, refilled and emptied every frame. That is the case owner arenas are for (spec
+// §14.6, T-0120): today every label and trail is built on the heap and freed by `clear`, one
+// at a time, every frame. It names no allocator: the compiler places its memory.
+//
+// Usage: frame [frames]
+
+/// SplitMix64, written out so the C++ half makes exactly the same units.
+struct Rng {
+    m_state: u64 = 0
+
+    Rng(seed: u64) {
+        m_state = seed
+    }
+
+    pub fn next(&mut self) -> u64 {
+        m_state += 0x9E3779B97F4A7C15
+        let mut z = m_state
+        z = (z ^^ z >> 30) * 0xBF58476D1CE4E5B9
+        z = (z ^^ z >> 27) * 0x94D049BB133111EB
+        return z ^^ z >> 31
+    }
+
+    pub fn below(&mut self, n: u64) -> u64 {
+        return self.next() % n
+    }
+}
+
+const UNITS: i32 = 10000
+
+const WORLD: i32 = 4000
+
+const VIEW: i32 = 2000
+
+const KINDS: [6]&str = ["orc", "archer", "knight", "goblin", "wizard", "skeleton"]
+
+struct Point {
+    pub x: i32 = 0
+    pub y: i32 = 0
+}
+
+struct Unit {
+    pub name: String
+    pub x:    i32 = 0
+    pub y:    i32 = 0
+    pub vx:   i32 = 0
+    pub vy:   i32 = 0
+    pub hp:   i32 = 100
+}
+
+/// A speed of -5 to 5 that is never 0, so every unit moves.
+fn speed(rng: &mut Rng) -> i32 {
+    let v = rng.below(10) as i32 - 5
+    return if v >= 0 {
+        v + 1
+    } else {
+        v
+    }
+}
+
+/// One thing to draw: both its label and its trail own memory.
+struct Command {
+    pub label: String
+    pub trail: List<Point>
+    pub depth: i32 = 0
+}
+
+/// The draw list, rebuilt every frame and emptied all at once by `begin`.
+struct Renderer {
+    m_commands:   List<Command>
+    pub checksum: u64 = 1469598103934665603
+    pub drawn:    i64 = 0
+
+    /// The draw list and the commands in it.
+    tie @commands = m_commands@items, m_commands[*]
+
+    Renderer() {}
+
+    pub fn begin(&mut self) kills self@commands {
+        m_commands.clear()
+    }
+
+    pub fn submit(&mut self, c: Command) kills self@commands sends c to self {
+        m_commands.push(c)
+    }
+
+    /// Fold every command into the checksum, as drawing would read it.
+    pub fn flush(&mut self) {
+        for &c in m_commands {
+            for b in c.label.as_str() as &[]u8 {
+                checksum = (checksum ^^ b as u64) * 1099511628211
+            }
+            checksum = (checksum ^^ c.depth as u64) * 1099511628211
+            for &p in c.trail {
+                checksum = (checksum ^^ (p.x + 100000) as u64) * 1099511628211
+                checksum = (checksum ^^ (p.y + 100000) as u64) * 1099511628211
+            }
+        }
+        drawn += m_commands.len() as i64
+    }
+}
+
+/// Move a unit one step, turning back at the edges of the world.
+fn step(u: &mut Unit) {
+    u.x += u.vx
+    if u.x < 0 || u.x >= WORLD {
+        u.vx = -u.vx
+        u.x += 2 * u.vx
+    }
+    u.y += u.vy
+    if u.y < 0 || u.y >= WORLD {
+        u.vy = -u.vy
+        u.y += 2 * u.vy
+    }
+}
+
+fn main() {
+    let args = Process::args()
+    let frames = if args.len() > 1 {
+        args[1].parse_i64() or 600
+    } else {
+        600
+    }
+
+    let mut rng = Rng(1234)
+    let mut units = List<Unit>(UNITS as usize)
+    for i in 0..UNITS {
+        let name = format!("{}-{}", KINDS[(i % 6) as usize], i)
+        let x = rng.below(WORLD as u64) as i32
+        let y = rng.below(WORLD as u64) as i32
+        let vx = speed(&mut rng)
+        let vy = speed(&mut rng)
+        units.push(Unit{ name: name, x: x, y: y, vx: vx, vy: vy })
+    }
+
+    let mut renderer = Renderer()
+    for frame in 0..frames {
+        for i in 0..units.len() {
+            step(&mut units[i])
+            if (frame + i as i64) % 13 == 0 {
+                units[i].hp -= 7
+                if units[i].hp <= 0 {
+                    units[i].hp = 100
+                }
+            }
+        }
+
+        let left = (frame * 3 % (WORLD - VIEW) as i64) as i32
+        renderer.begin()
+        for i in 0..units.len() {
+            let u = &units[i]
+            if u.x < left || u.x >= left + VIEW {
+                continue
+            }
+            let length = 2 + i % 7
+            let mut trail = List<Point>(length)
+            for k in 0..length {
+                trail.push(Point{ x: u.x - k as i32 * u.vx, y: u.y - k as i32 * u.vy })
+            }
+            let label = format!("{} {}/100", u.name, u.hp)
+            renderer.submit(Command{ label: label, trail: trail, depth: u.y })
+        }
+        renderer.flush()
+    }
+
+    println!("{} frames, {} units, {} commands drawn", frames, UNITS, renderer.drawn)
+    println!("checksum {}", renderer.checksum)
+}

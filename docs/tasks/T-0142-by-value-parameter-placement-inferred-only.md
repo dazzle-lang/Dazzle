@@ -1,7 +1,7 @@
 ---
 id: T-0142
 title: A by-value parameter's placement is inferred only within its module
-milestone: none
+milestone: M22
 status: open
 kind: feature
 area: ownership

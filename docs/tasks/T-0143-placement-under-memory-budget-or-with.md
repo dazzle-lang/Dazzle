@@ -1,7 +1,7 @@
 ---
 id: T-0143
 title: Placement under a memory budget, or with no heap
-milestone: M17
+milestone: M22
 status: open
 kind: design
 area: ownership

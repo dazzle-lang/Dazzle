@@ -1,7 +1,7 @@
 ---
 id: T-0147
 title: Skip more drops: a value lent as &mut, built by a trait method, or in a generic body
-milestone: none
+milestone: M22
 status: open
 kind: feature
 area: ownership
