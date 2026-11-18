@@ -489,6 +489,9 @@ pub const GENERIC_METHOD_THROUGH_OBJECT: &str = "DZ0589";
 /// is an imported C++ class with no constructor callable with no arguments: there is no
 /// default to build (spec §15.2, T-0230).
 pub const NO_DEFAULT_TO_BUILD: &str = "DZ0590";
+/// `mut` on a parameter that is a reference, `mut r: &mut T`: a reference is never pointed
+/// elsewhere, assigning to one writes through it, so `mut` would change nothing (spec §7.2).
+pub const MUT_REFERENCE_PARAM: &str = "DZ0591";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

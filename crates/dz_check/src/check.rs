@@ -2029,8 +2029,22 @@ impl<'a, 'c> Body<'a, 'c> {
                 c.id
             });
             self.hir.param_default(default);
-            // Parameters are immutable bindings; mutate through `&mut` or `^`.
-            self.bind(&ps.name, ty, false, LocalKind::Param, p.name.span);
+            // A parameter is read-only unless written `mut`, which lets the body write its
+            // own value: step an iterator, cut a `&str` shorter (spec §7.2). A reference is
+            // never pointed elsewhere, assigning to it writes through it, so `mut` on one
+            // would change nothing.
+            if p.is_mut && matches!(ty, Ty::Ref { .. }) {
+                let n = self.cx.name_of(&ty);
+                self.cx.error_help(
+                    codes::MUT_REFERENCE_PARAM,
+                    p.span,
+                    format!("`{}` is a reference, so `mut` changes nothing", p.name.name),
+                    format!("`mut` on a `{n}`"),
+                    "a reference is never pointed elsewhere: assigning to it writes through it, \
+                     and `&mut` in its type is what makes that possible; remove `mut` (spec §7.2)",
+                );
+            }
+            self.bind(&ps.name, ty, p.is_mut, LocalKind::Param, p.name.span);
         }
         // A constructor's `: Base(…)`, checked here because C++ runs it before the body
         // and its arguments see the constructor's parameters — which are in scope exactly
@@ -3097,9 +3111,29 @@ impl<'a, 'c> Body<'a, 'c> {
         }
     }
 
+    /// The help for writing a parameter that is not `mut`: the fix is in the signature, not
+    /// in a `let mut` (spec §7.2).
+    fn param_write_help(&self, name: &str) -> Option<String> {
+        let local = self.local(name)?;
+        let Slot::Local(id) = local.slot else { return None };
+        // A reference or pointer is made writable by its type, and `self` by `&mut self`;
+        // only a parameter taken by value is made writable by `mut`.
+        let by_value = name != "self"
+            && !matches!(local.ty, Ty::Ref { .. } | Ty::Ptr { .. } | Ty::OwnPtr { .. });
+        (by_value && self.hir.local_kind(id) == LocalKind::Param && !local.mutable).then(|| {
+            format!(
+                "a parameter is written only when it is `mut`: declare it as `mut {name}` in \
+                 the signature (spec §7.2)"
+            )
+        })
+    }
+
     /// The help for writing through a `for` or `case` binding that was not bound to write:
     /// the fix is in the binding, not in a `let mut` (spec §10.3, §10.4).
     fn binding_write_help(&self, name: &str) -> Option<String> {
+        if let Some(help) = self.param_write_help(name) {
+            return Some(help);
+        }
         let local = self.local(name)?;
         let Slot::Local(id) = local.slot else { return None };
         if self.hir.local_kind(id) != LocalKind::Binding {
@@ -6708,7 +6742,13 @@ impl<'a, 'c> Body<'a, 'c> {
             }
         };
         if !ok {
-            let help = match self.read_only_view_help(base) {
+            let param = match &base.kind {
+                ExprKind::Path(p) if p.segments.len() == 1 => {
+                    self.param_write_help(&p.segments[0].name.name)
+                }
+                _ => None,
+            };
+            let help = match self.read_only_view_help(base).or(param) {
                 Some(h) => h,
                 None => help
                     .unwrap_or(

@@ -1856,3 +1856,35 @@ like any other: build each element with a constructor and add it, `push` or `ins
 the class a default constructor in C++.
 
 No example: it takes a vendored C++ library (`tests/run/cppinterop`'s `Anchored` is one).
+
+## DZ0591
+
+`mut` before a parameter's name lets the body write the parameter, which is the function's
+own: `fn drain<view T: Iterate>(mut it: T)` may step `it`, and `mut rest: &str` may cut it
+shorter (spec §7.2). A reference is different. It is never pointed at anything else:
+assigning to a `&mut T` writes through it, into what it refers to, with or without `mut`,
+and a `&T` cannot be written at all. So `mut` on one would change nothing, and is refused
+rather than read as a promise it does not keep. What makes a reference writable is its
+type, `&mut T`.
+
+```dz
+fn reset(mut n: &mut i32) {
+    n = 0
+}
+
+fn main() {
+    let mut x = 5
+    reset(&mut x)
+}
+```
+
+```dz
+fn reset(n: &mut i32) {
+    n = 0
+}
+
+fn main() {
+    let mut x = 5
+    reset(&mut x)
+}
+```

@@ -188,6 +188,8 @@ fn sum(xs: ..i32) -> i32
       int 0
 fn tell(prefix: str, things: ..&Describe)
   block
+fn drain<view T: Iterate>(mut it: T, mut left: i32)
+  block
 fn note(fmt: str, args: ..&Format, level: i32 = ..., loc: SourceLocation = ...)
   param-default level
     int 0

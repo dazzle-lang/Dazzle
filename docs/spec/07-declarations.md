@@ -26,6 +26,13 @@ fn spawn(w: &mut World, pos: Vec3, hp: i32 = 100) -> EntityId { ... }
 ```
 
 - The return type is omitted for `void`.
+- **A parameter is read-only unless it is written `mut`**, as a `let` is: `fn drain<view T:
+  Iterate>(mut it: T)` may step `it`, `fn countdown(mut n: i32)` count `n` down, and `mut
+  rest: &str` cut `rest` shorter. A parameter taken by value is the function's own, so
+  writing it changes nothing a caller sees: `mut` is not part of the function's type, and
+  a call reads the same either way. **A reference parameter takes no `mut`** (`DZ0591`): a
+  reference is never pointed elsewhere, assigning to one writes through it (§5.2), and its
+  type, `&mut T`, is what makes that possible. `[DECIDED — r145]`
 - A fallible function is marked by `!->` in place of `->`; the marker sits on the arrow
   rather than on the return type so that it lands at a fixed column near the left edge,
   which is the same argument §9.5 makes for a leading propagation keyword.

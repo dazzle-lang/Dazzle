@@ -241,7 +241,8 @@ impl<'a> Dumper<'a> {
             .iter()
             .map(|p| {
                 format!(
-                    "{}: {}{}{}{}",
+                    "{}{}: {}{}{}{}",
+                    if p.is_mut { "mut " } else { "" },
                     p.name.name,
                     if p.variadic { ".." } else { "" },
                     type_str(&p.ty),

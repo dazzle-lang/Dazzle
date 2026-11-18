@@ -167,6 +167,9 @@ fn sum(xs: ..i32) -> i32 {
 
 fn tell(prefix: str, things: ..&Describe) {}
 
+// A parameter the body may write (spec §7.2).
+fn drain<view T: Iterate>(mut it: T, mut left: i32) {}
+
 // Parameters after a variadic one, passed by name (spec §7.2).
 fn note(fmt: str, args: ..&Format, level: i32 = 0, loc: SourceLocation = #location) {}
 

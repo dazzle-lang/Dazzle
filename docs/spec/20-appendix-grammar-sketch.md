@@ -32,7 +32,8 @@ send_list     = send { "," send } | "(" send { "," send } ")" ;
 send          = tie_path "to" tie_path ;   (* "to" is a word, not a keyword *)
 in_list       = tie_path | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
-param         = [ "&" | "&mut" ] "self" | ident ":" type [ "in" tie_path ] [ "=" expr ] ;
+param         = [ "&" | "&mut" ] "self"
+              | [ "mut" ] ident ":" type [ "in" tie_path ] [ "=" expr ] ;   (* §7.2 *)
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 generics      = "<" gparam { "," gparam } ">" ;
 gparam        = [ "view" | "ref" ] ident [ ":" bound { "+" bound } ] ;

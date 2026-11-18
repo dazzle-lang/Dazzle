@@ -170,9 +170,8 @@ fn first_item<view T: Iterate>(it: &mut T) -> T::Item {
     return it.get()
 }
 
-fn taken<view T: Iterate>(it: T) -> T::Item {
-    let mut walk = it
-    return walk.get()
+fn taken<view T: Iterate>(mut it: T) -> T::Item {
+    return it.get()
 }
 
 fn kept_items(xs: &List<i32>) -> i32 {

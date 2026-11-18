@@ -2602,3 +2602,34 @@ fn tallied() -> i32 {
     t.bump()
     return bump_through(&mut t)
 }
+
+// A `mut` parameter is the body's to write (spec §7.2): an iterator steps itself, a number
+// counts down, a `&str` is cut shorter, an owned value changes before it is returned.
+fn stepped_count<view T: Iterate>(mut it: T) -> i32 {
+    let mut n = 0
+    while it.valid() {
+        n += 1
+        it.advance()
+    }
+    return n
+}
+
+fn halved(mut n: i32) -> i32 {
+    n /= 2
+    return n
+}
+
+fn rest_of(mut text: &str) -> usize {
+    text = text.cut_bytes(1, text.byte_len)
+    return text.byte_len
+}
+
+fn exclaimed(mut s: String) -> String in s@home {
+    s.push_str("!")
+    return s
+}
+
+fn mut_parameters(xs: &List<i32>) -> usize {
+    let s = exclaimed(String("hi"))
+    return (stepped_count(xs.iter()) + halved(8)) as usize + rest_of("abc") + s.byte_len()
+}

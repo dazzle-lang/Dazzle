@@ -1,0 +1,14 @@
+// expect: DZ0591
+//
+// `mut` lets the body write a parameter that is its own (spec §7.2). A reference is never
+// pointed elsewhere, assigning to it writes through it, so `mut` on one changes nothing and
+// is refused.
+
+fn reset(mut n: &mut i32) {
+    n = 0
+}
+
+fn main() {
+    let mut x = 5
+    reset(&mut x)
+}

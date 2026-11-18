@@ -97,7 +97,7 @@ error[DZ0507]: `bump` needs a mutable receiver
 75 │     c.bump()
    │     ^ this is not mutable
    │
-   = help: the method takes `&mut self` — bind with `let mut`, or take `&mut` here (spec §7.3)
+   = help: a parameter is written only when it is `mut`: declare it as `mut c` in the signature (spec §7.2)
 
 error[DZ0507]: cannot assign to `total`
    ┌─ typeerrors/src/errors.dz:80:5
@@ -2228,3 +2228,19 @@ error[DZ0507]: cannot assign to memory behind a read-only reference
      │     ^^^^^^^ not mutable
      │
      = help: `count` is a `&mut` reached through a `&`, so it reads as `&`: nothing reachable through a `&` is written. Take `&mut self`, or a `&mut`, to write through it (spec §5.2)
+
+error[DZ0507]: `advance` needs a mutable receiver
+     ┌─ typeerrors/src/errors.dz:1813:5
+     │
+1813 │     it.advance()
+     │     ^^ this is not mutable
+     │
+     = help: a parameter is written only when it is `mut`: declare it as `mut it` in the signature (spec §7.2)
+
+error[DZ0591]: `n` is a reference, so `mut` changes nothing
+     ┌─ typeerrors/src/errors.dz:1817:23
+     │
+1817 │ fn mut_on_a_reference(mut n: &mut i32) {
+     │                       ^^^^^^^^^^^^^^^ `mut` on a `&mut i32`
+     │
+     = help: a reference is never pointed elsewhere: assigning to it writes through it, and `&mut` in its type is what makes that possible; remove `mut` (spec §7.2)

@@ -24696,3 +24696,69 @@ body fn tallied -> i32
       call bump_through: i32
         ref mut: &mut ViewTally
           local _2 t: ViewTally
+body fn stepped_count -> i32
+  param _0 it: T
+  block
+    let _1 n: i32
+      int 0: i32
+    while
+      call-method Iterate::valid: bool
+        local _0 it: T
+      block
+        assign +=
+          local _1 n: i32
+          int 1: i32
+        call-method Iterate::advance: void
+          local _0 it: T
+    return: !
+      local _1 n: i32
+body fn halved -> i32
+  param _0 n: i32
+  block
+    assign /=
+      local _0 n: i32
+      int 2: i32
+    return: !
+      local _0 n: i32
+body fn rest_of -> usize
+  param _0 text: &str
+  block
+    assign =
+      local _0 text: &str
+      call-method Text::cut_bytes: &str
+        local _0 text: &str
+        int 1: usize
+        len: usize
+          local _0 text: &str
+    return: !
+      len: usize
+        local _0 text: &str
+body fn exclaimed -> String
+  param _0 s: String
+  block
+    call-method String::push_str: void
+      local _0 s: String
+      str "!": &str
+    return: !
+      local _0 s: String
+body fn mut_parameters -> usize
+  param _0 xs: &List<i32>
+  block
+    let _1 s: String
+      call exclaimed: String
+        call-ctor String#0: String
+          str "hi": &str
+    return: !
+      binary +: usize
+        binary +: usize
+          cast: usize
+            binary +: i32
+              call stepped_count: i32
+                call-method Iterable::iter: SliceIter<i32>
+                  local _0 xs: &List<i32>
+              call halved: i32
+                int 8: i32
+          call rest_of: usize
+            str "abc": &str
+        call-method String::byte_len: usize
+          local _1 s: String

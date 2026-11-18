@@ -250,6 +250,8 @@ pub struct SelfParam {
 #[derive(Clone, Debug)]
 pub struct Param {
     pub span: Span,
+    /// `mut it: T`: the body may write the parameter, which is its own (spec §7.2).
+    pub is_mut: bool,
     pub name: Ident,
     pub ty: Type,
     /// Trailing default argument, evaluated at the call site (spec §7.2).

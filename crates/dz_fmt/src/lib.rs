@@ -720,7 +720,12 @@ impl<'a> Printer<'a> {
                 .as_ref()
                 .map(|t| format!(" in {}", dump::tie_path_str(t)))
                 .unwrap_or_default();
-            params.push(format!("{}: {dots}{}{tie}{default}", p.name.name, self.ty(&p.ty)));
+            let mutable = if p.is_mut { "mut " } else { "" };
+            params.push(format!(
+                "{mutable}{}: {dots}{}{tie}{default}",
+                p.name.name,
+                self.ty(&p.ty)
+            ));
         }
         // Fallibility is part of the signature, spelled on the arrow (spec §9.1): dropping
         // the `!` would change what the function means, not how it looks.

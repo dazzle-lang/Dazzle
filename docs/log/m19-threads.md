@@ -2,6 +2,31 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `mut` parameters (r145; 2026-11-18)
+
+What deep `&` cost (below): an iterator taken by value could not step itself, since a
+parameter was never writable. The user chose Rust's answer, `mut it: T`.
+
+- **Parser** (`parse_params` in `dz_parse/src/item.rs`): an optional `mut` before a
+  parameter's name, kept as `Param::is_mut`. `mut self` is read and refused with the message
+  `self` by value always had. The AST dump and the formatter print it.
+- **Checker** (the parameter loop of `function` in `dz_check/src/check.rs`): the parameter
+  binds writable when `mut`; on a reference (`Ty::Ref`) it is `DZ0591`, new, since assigning
+  to a reference writes through it with or without `mut`. A `&str`, a slice, a raw pointer
+  and a view struct by value are re-pointed or changed in place, so they take `mut`.
+- **The help for writing a parameter that is not `mut`** now points at the signature
+  (`param_write_help`), for a parameter taken by value only: a reference is made writable by
+  `&mut` in its type and `self` by `&mut self`, so neither is told to add `mut`.
+- **C++**: nothing new. An owning by-value parameter was already moved into a local at the
+  top of the body (M5), and a plain one is a C++ value parameter, which C++ lets the body
+  write. Checked on clang++ and g++ with an iterator, an `i32`, a `&str` and a `String`.
+
+Tests: `tests/errors/mut_on_a_reference_parameter.dz`; `typeerrors` gains a by-value
+iterator stepped without `mut` (`DZ0507`) and `mut` on a `&mut i32` (`DZ0591`), `typed` the
+four kinds accepted; the parse and fmt corpora a `mut` parameter, the fmt one written with
+two spaces, which the formatter makes one; `dz explain DZ0591`. `tests/flow/clean.dz`'s
+`taken` loses its `let mut walk = it`.
+
 ## Deep `&`, and `Iterate::get` takes `&mut self` (T-0258, r144; 2026-11-18)
 
 The first piece of M19 that is code. Trying to break D-0096 (T-0245) found that `&` was
@@ -38,7 +63,7 @@ loop changed.
 (§6.7, §8.5), `dz explain DZ0560`, the feature matrix and four corpus programs. **An
 iterator taken by value as a parameter cannot step itself**, since a parameter is not
 writable and Dazzle has no `mut` parameters: `fn taken<view T: Iterate>(it: T)` moves it
-into a `let mut walk = it` first, which is the user's to weigh.
+into a `let mut walk = it` first; r145 answers it with `mut` parameters (above).
 
 **Tests.** `tests/workspace/typeerrors` has the three mistakes (writing through the field in
 a `&self` method, calling a `&mut self` method on it, writing through it from a `&` parameter),

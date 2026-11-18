@@ -673,7 +673,11 @@ impl<'a> Parser<'a> {
                         "move this to the front of the parameter list",
                     );
                 }
-            } else if self.at(TokenKind::SelfValue) {
+            } else if self.at(TokenKind::SelfValue)
+                || (self.at(TokenKind::Mut) && self.peek_at(1) == TokenKind::SelfValue)
+            {
+                // `mut self` is a by-value receiver, which Dazzle has none of either.
+                self.eat(TokenKind::Mut);
                 let t = self.bump();
                 self.error_help(
                     codes::EXPECTED_TOKEN,
@@ -686,6 +690,8 @@ impl<'a> Parser<'a> {
                     self_param = Some(SelfParam { span: t.span, is_mut: false });
                 }
             } else {
+                // `mut it: T`: the parameter is writable in the body (spec §7.2).
+                let is_mut = self.eat(TokenKind::Mut);
                 let Some(name) = self.parse_ident() else {
                     // Not a parameter at all: stop rather than reporting a missing `:`,
                     // a missing type and a missing `)` for the same character.
@@ -700,6 +706,7 @@ impl<'a> Parser<'a> {
                 let default = if self.eat(TokenKind::Eq) { Some(self.parse_expr()) } else { None };
                 params.push(Param {
                     span: self.span_from(p_start),
+                    is_mut,
                     name,
                     ty,
                     default,

@@ -1806,3 +1806,14 @@ pub view struct ViewTally {
 fn bump_through(t: &ViewTally) {
     t.count += 1
 }
+
+// A parameter is written only when it is `mut` (spec §7.2): DZ0507 without it. And `mut` on
+// a reference, which is never pointed elsewhere, changes nothing: DZ0591.
+fn steps_without_mut<view T: Iterate>(it: T) -> i32 {
+    it.advance()
+    return 0
+}
+
+fn mut_on_a_reference(mut n: &mut i32) {
+    n = 0
+}
