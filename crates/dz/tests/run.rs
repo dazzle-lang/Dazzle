@@ -54,15 +54,32 @@ fn projects() -> Vec<(String, PathBuf)> {
     out
 }
 
-fn have_compiler() -> bool {
-    if let Ok(cxx) = std::env::var("DZ_CXX") {
-        if !cxx.is_empty() {
-            return true;
+fn is_cl(cxx: &str) -> bool {
+    Path::new(cxx).file_stem().is_some_and(|name| name.eq_ignore_ascii_case("cl"))
+}
+
+fn selected_compiler() -> Option<String> {
+    static CXX: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    CXX.get_or_init(|| {
+        if let Some(cxx) = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()) {
+            return Some(cxx);
         }
-    }
-    ["clang++", "g++", "c++"]
-        .iter()
-        .any(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
+        if let Some(cxx) = ["clang++", "g++", "c++"].into_iter().find(
+            |c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()),
+        ) {
+            return Some(cxx.to_owned());
+        }
+        #[cfg(windows)]
+        if find_msvc_tools::find_tool(std::env::consts::ARCH, "cl.exe").is_some() {
+            return Some("cl".to_owned());
+        }
+        None
+    })
+    .clone()
+}
+
+fn have_compiler() -> bool {
+    selected_compiler().is_some()
 }
 
 /// A project with a recipe that names its CMake build (spec §15.1, D-0090).
@@ -511,11 +528,47 @@ fn overflow_wraps_and_unreachable_is_assumed_only_in_unsafe() {
         let cpp = std::fs::read_to_string(dir.join("build/cpp/overflow.cpp")).unwrap();
         let assumed = if mode == "--debug" { 0 } else { 2 };
         assert_eq!(
-            cpp.matches("__builtin_unreachable()").count(),
+            cpp.matches("DZ_UNREACHABLE()").count(),
             assumed,
             "{mode}: `or unreachable` lowering\n{cpp}"
         );
         assert!(cpp.contains("::dz::rt::unreachable("), "{mode}: safe `or unreachable`\n{cpp}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `+`, `-` and `*` wrap without leaning on `-fwrapv`, which `cl.exe` does not have (T-0255):
+/// signed and narrow operands are computed in the unsigned type. `x * 2 / 2` is the fold
+/// `cl /O2` made when it was not; `u16 * u16` overflowed `int`, which C++ promotes both to.
+/// And a loop with no effect is run as written (D-0094, T-0133): it starts with
+/// `DZ_LOOP_ALIVE()`, a barrier under `cl.exe`, where a loop that calls something does not.
+#[test]
+fn arithmetic_wraps_and_empty_loops_are_kept_without_compiler_flags() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let dir = scratch(
+        "dz_wrap_portable",
+        "[module]\nname = \"wrap\"\nsources = [\"src/**/*.dz\"]\n",
+        "struct Counter {\n    pub n: i32\n}\n\nfn half_of_double(x: i32) -> i32 {\n    return x * 2 / 2\n}\n\nfn negate(x: i32) -> i32 {\n    return -x\n}\n\nfn top() -> u16 {\n    return 65535\n}\n\nfn spin(x: i32) -> i32 {\n    while x < 10 {}\n    return x\n}\n\nfn main() {\n    let max: i32 = 2147483647\n    let min: i32 = -2147483648\n    let w = top()\n    let mut c = Counter { n: max }\n    c.n += 1\n    let mut m = max\n    m *= 2\n    println!(\"{} {} {} {} {}\", half_of_double(max), negate(min), w * w, c.n, m)\n    println!(\"{}\", spin(10))\n    loop {\n        println!(\"once\")\n        break\n    }\n}\n",
+    );
+    for mode in ["--debug", "--release"] {
+        let out = Command::new(dz())
+            .args(["run", dir.to_str().unwrap(), mode])
+            .output()
+            .expect("failed to run dz");
+        assert!(out.status.success(), "{mode}: {}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(
+            normalise(&String::from_utf8_lossy(&out.stdout)),
+            "-1 -2147483648 1 -2147483648 -2\n10\nonce",
+            "{mode}"
+        );
+        let cpp = std::fs::read_to_string(dir.join("build/cpp/wrap.cpp")).unwrap();
+        assert!(cpp.contains("static_cast<uint32_t>(x) * 2u"), "{mode}\n{cpp}");
+        assert!(cpp.contains("::dz::rt::num::wrapping_add_assign<int32_t>("), "{mode}\n{cpp}");
+        assert!(cpp.contains("m = static_cast<int32_t>("), "{mode}\n{cpp}");
+        assert_eq!(cpp.matches("DZ_LOOP_ALIVE()").count(), 1, "only `spin`'s loop\n{cpp}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1218,7 +1271,7 @@ fn a_second_project_reuses_the_compiled_standard_library() {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.extension().is_some_and(|x| x == "o") {
+                } else if path.extension().is_some_and(|x| x == "o" || x == "obj") {
                     found.push((path.clone(), entry.metadata().unwrap().modified().unwrap()));
                 }
             }
@@ -1618,6 +1671,7 @@ fn inline_forces_every_call_in_an_optimised_build() {
         for mode in ["--release", "--debug"] {
             let out = Command::new(dz())
                 .args(["run", mode, "--cxx", cxx, dir.to_str().unwrap()])
+                .env_remove("DZ_CXXFLAGS")
                 .output()
                 .unwrap();
             let stderr = String::from_utf8_lossy(&out.stderr);
@@ -2011,17 +2065,11 @@ fn the_release_smoke_program_compiles() {
 /// noticed the next time someone publishes numbers.
 #[test]
 fn whole_program_benchmarks_agree_with_their_cpp_halves() {
-    if !have_compiler() {
+    let Some(cxx) = selected_compiler() else {
         eprintln!("skipping: no C++ compiler available");
         return;
-    }
-    let cxx = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()).unwrap_or_else(|| {
-        ["clang++", "g++", "c++"]
-            .into_iter()
-            .find(|c| matches!(Command::new(c).arg("--version").output(), Ok(o) if o.status.success()))
-            .unwrap()
-            .to_owned()
-    });
+    };
+    let msvc = is_cl(&cxx);
     let root = repo_root().join("tests/bench_programs");
     let mut programs: Vec<PathBuf> = std::fs::read_dir(&root)
         .unwrap()
@@ -2048,7 +2096,10 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
         // `-ffp-contract=off`, without which one compiler may fuse `a * b + c` in one half
         // and not the other, where the target has a fused multiply-add (T-0174).
         let flags_text = std::fs::read_to_string(dir.join("cxx_flags.txt")).unwrap_or_default();
-        let flags: Vec<&str> = flags_text.split_whitespace().collect();
+        let flags: Vec<&str> = flags_text
+            .split_whitespace()
+            .map(|flag| if msvc && flag == "-ffp-contract=off" { "/fp:precise" } else { flag })
+            .collect();
         let mut build = Command::new(dz());
         build.args(["build", dir.to_str().unwrap()]);
         if !flags.is_empty() {
@@ -2081,17 +2132,28 @@ fn whole_program_benchmarks_agree_with_their_cpp_halves() {
         // Only the result is checked here, so the C++ half gets no more flags than it needs:
         // `-fno-exceptions` breaks the MSVC standard library a Windows clang++ uses unless
         // it is configured for it. The timings, which do use it, are tools/bench_programs.py.
-        let compiled = Command::new(&cxx)
-            .args(["-std=c++17", "-O1"])
-            .args(&flags)
-            .arg(dir.join("main.cpp"))
-            .arg("-o")
-            .arg(&cpp_exe)
-            .output()
-            .unwrap();
+        let mut compiler = Command::new(&cxx);
+        if msvc {
+            #[cfg(windows)]
+            if let Some(tool) = find_msvc_tools::find_tool(std::env::consts::ARCH, "cl.exe") {
+                if Path::new(&cxx).components().count() == 1 {
+                    compiler = tool.to_command();
+                } else {
+                    compiler.envs(tool.env().into_iter().map(|(k, v)| (k, v)));
+                }
+            }
+            compiler
+                .args(["/nologo", "/std:c++17", "/O1", "/EHsc"])
+                .arg(format!("/Fe{}", cpp_exe.display()));
+        } else {
+            compiler.args(["-std=c++17", "-O1", "-o"]).arg(&cpp_exe);
+        }
+        let compiled =
+            compiler.current_dir(&scratch).args(&flags).arg(dir.join("main.cpp")).output().unwrap();
         assert!(
             compiled.status.success(),
-            "{name}/main.cpp: {}",
+            "{name}/main.cpp: {}{}",
+            String::from_utf8_lossy(&compiled.stdout),
             String::from_utf8_lossy(&compiled.stderr)
         );
         let cpp = checksum(
@@ -2163,7 +2225,7 @@ fn the_cpp_compiler_can_be_chosen_at_four_levels() {
         // CI sets it for the whole job to pin the matrix entry — so leaving it in the
         // environment made the manifest levels unobservable and the test passed only on a
         // machine that happened not to set it.
-        c.env_remove("DZ_CXX");
+        c.env_remove("DZ_CXX").env_remove("DZ_CXXFLAGS");
         let out = c.output().expect("failed to run dz");
         let text = format!(
             "{}{}",
@@ -2504,6 +2566,14 @@ fn a_module_being_edited_compiles_from_its_own_header_precompiled() {
     std::fs::write(dir.join("src/main.dz"), program(2)).unwrap();
     assert_eq!(run(), "2");
     let built = module_headers();
+    if selected_compiler().is_some_and(|cxx| is_cl(&cxx)) {
+        // MSVC currently rebuilds directly from the real headers.
+        assert!(built.is_empty());
+        std::fs::write(dir.join("src/main.dz"), program(3)).unwrap();
+        assert_eq!(run(), "3");
+        std::fs::remove_dir_all(dir).unwrap();
+        return;
+    }
     assert_eq!(built.len(), 1, "the edited module's header is precompiled");
     assert!(built[0].join("std.h.gch").exists());
 
@@ -2917,7 +2987,7 @@ fn a_vendored_library_is_compiled_once_and_again_when_a_header_changes() {
                 .unwrap()
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "o"))
+                .filter(|p| p.extension().is_some_and(|x| x == "o" || x == "obj"))
                 .map(|p| {
                     let t = std::fs::metadata(&p).unwrap().modified().unwrap();
                     (p, t)

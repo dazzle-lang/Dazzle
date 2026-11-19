@@ -820,12 +820,13 @@ different C library, built from source and called with no bindings:
 ## Compatibility
 
 - **Platforms:** Windows, Linux and macOS. CI builds and tests on all three for every change.
-- **C++ compilers:** clang++ and g++. The generated code is C++17, compiled with
-  `-fno-exceptions -fno-rtti` and expected to be warning-clean under `-Wall -Wextra` on both;
-  clang++ 19 and 21 and g++ 13 and 14 are verified. On Windows that means clang++ or MinGW g++. MSVC's
-  `cl.exe` is not supported, since `dz` passes GCC-style flags. `dz` uses the first of
-  `clang++`, `g++` and `c++` it finds; choose another with `--cxx`, the `DZ_CXX` environment
-  variable, or `[build] cxx` in the manifest.
+- **C++ compilers:** clang++ and g++ build the generated C++17 with `-fno-exceptions
+  -fno-rtti -Wall -Wextra`. Verified versions include clang++ 19 and 21 and g++ 13 and 14.
+  On Windows, the development version also supports MSVC's `cl.exe`. Its CI job uses
+  `/W4 /WX`. Select MSVC with `dz build --cxx cl`,
+  `DZ_CXX=cl` or `[build] cxx = "cl"` in the manifest. From an ordinary shell, `dz` locates
+  the Visual Studio C++ tools and Windows SDK. Automatic selection tries `clang++`, `g++`
+  and `c++` first, then MSVC on Windows.
 - **C and C++ libraries:** C, and C++ through namespaces, classes, methods, overloaded
   functions and methods, default arguments, references and named template instances.
   Variadic C functions and inheritance between imported C++ classes are not imported yet;

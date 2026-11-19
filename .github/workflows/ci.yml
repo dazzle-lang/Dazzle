@@ -86,11 +86,21 @@ jobs:
           - name: windows
             os: windows-latest
             cxx: clang++
+          # MSVC's `cl.exe` (M21, T-0256). `dz` finds the installed Visual Studio toolset, so the job
+          # needs no Developer Prompt. `/WX` makes every warning at `/W4` an error in every
+          # program the suite builds, at the optimisation level it is built with: invariant 7
+          # on a third compiler.
+          - name: msvc
+            os: windows-latest
+            cxx: cl
+            cxxflags: /WX
 
     env:
       # Which C++ compiler `dz` drives. Without it `dz` picks the first of clang++, g++,
       # c++ that it finds, and the matrix would not know which one it tested.
       DZ_CXX: ${{ matrix.cxx }}
+      # Extra flags for the generated code, after `dz`'s own: `/WX` on the msvc row.
+      DZ_CXXFLAGS: ${{ matrix.cxxflags }}
 
     steps:
       # raylib and RGFW are submodules under `examples/vendor/`, and `every_example_builds`
@@ -163,7 +173,7 @@ jobs:
           fi
 
       - name: Locate libclang (windows)
-        if: matrix.name == 'windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $dir = "C:\Program Files\LLVM\bin"
@@ -176,7 +186,7 @@ jobs:
       # on Windows Ninja too: CMake's default generator there ignores the compiler `dz` gives
       # it.
       - name: Ninja (windows)
-        if: matrix.name == 'windows'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
@@ -189,14 +199,22 @@ jobs:
         shell: bash
         run: |
           rustc -vV
-          "$DZ_CXX" --version
+          # Report the installed Visual Studio version from an ordinary shell.
+          if [ "$DZ_CXX" = cl ]; then
+            "/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest \
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+              -property catalog_productDisplayVersion
+          else
+            "$DZ_CXX" --version
+          fi
+          echo "DZ_CXXFLAGS=${DZ_CXXFLAGS:-<unset>}"
           echo "LIBCLANG_PATH=${LIBCLANG_PATH:-<unset>}"
           cmake --version | head -1
           ninja --version || echo "no ninja"
           # Without libclang every `import cpp` test reports DZ0703 and *skips*, which
           # reads as a pass. Stop here instead, so a missing dependency is a red job
           # rather than a quietly reduced test suite.
-          if [ -z "${LIBCLANG_PATH:-}" ] && [ "${{ matrix.name }}" != "windows" ]; then
+          if [ -z "${LIBCLANG_PATH:-}" ] && [ "${{ runner.os }}" != "Windows" ]; then
             echo "::error::LIBCLANG_PATH is unset; the interop tests would silently skip"
             exit 1
           fi
@@ -225,7 +243,13 @@ jobs:
         run: cargo +${{ env.LINT_TOOLCHAIN }} fmt --all -- --check
 
       - name: Test
+        if: matrix.name != 'msvc'
         run: cargo test --workspace
+
+      # Exercise generated C++, cache invalidation and the language feature matrix under cl.
+      - name: Test (msvc)
+        if: matrix.name == 'msvc'
+        run: cargo test -p dz --test run --test incremental --test matrix
 
       # Invariant 7: generated C++ must compile warning-clean on more than one compiler.
       # `run.rs` builds with whichever it is given, so on the platform that has both, it runs

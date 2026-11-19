@@ -2771,8 +2771,27 @@ impl<'a> Emitter<'a> {
             }
             let ty = self.member_ty(fty);
             match self.field_default(sym, index) {
+                // A default that is one braced literal of the field's own type is written
+                // `x{…}`, which means what `x = T{…}` does. MSVC 14.50 crashes (C1001) on
+                // `Array<Vec4, 4> cols = Array<Vec4, 4>{{Vec4{}, …}}` once such a struct is
+                // built as a temporary, `Mat4{}.inverse()`, where 14.38 and every other
+                // compiler accept it (T-0253).
                 Some(d) => {
-                    let _ = writeln!(self.header, "    {ty} {fname} = {d};");
+                    let is_array_literal = self
+                        .find_body(&BodyOwner::FieldDefault { owner: sym, index })
+                        .is_some_and(|body| {
+                            body_value(body).is_some_and(|e| {
+                                matches!(body.expr(e).kind, hir::ExprKind::ArrayLit(_))
+                            })
+                        });
+                    if let Some(braces) = d
+                        .strip_prefix(&ty)
+                        .filter(|rest| is_array_literal && rest.starts_with("{{"))
+                    {
+                        let _ = writeln!(self.header, "    {ty} {fname}{braces};");
+                    } else {
+                        let _ = writeln!(self.header, "    {ty} {fname} = {d};");
+                    }
                     defaults.push(d);
                 }
                 None => {
@@ -5016,6 +5035,15 @@ impl<'a> Emitter<'a> {
                     AssignOp::Rem => Some(BinaryOp::Rem),
                     _ => None,
                 };
+                // `a += b` wraps as `a + b` does (T-0255): `a` once, as `wrapping_add_assign`'s
+                // reference, or written twice where it is a plain name.
+                let wrapping = match op {
+                    AssignOp::Add => Some(BinaryOp::Add),
+                    AssignOp::Sub => Some(BinaryOp::Sub),
+                    AssignOp::Mul => Some(BinaryOp::Mul),
+                    _ => None,
+                }
+                .and_then(|b| Some((b, wrapping_op(b, target_ty.peeled_refs())?)));
                 match binary.and_then(|b| self.defined_op(b, target_ty.peeled_refs(), *value)) {
                     Some(helper) => {
                         let ty = self.cpp_ty(target_ty.peeled_refs());
@@ -5024,7 +5052,24 @@ impl<'a> Emitter<'a> {
                             "::dz::rt::num::{helper}_assign<{ty}>({t}, {v}, {loc});"
                         ));
                     }
-                    None => self.line(&format!("{t} {} {v};", op.as_str())),
+                    None => match wrapping {
+                        Some((b, (ty, wide))) if is_identifier(&t) => {
+                            let k = literal_value(self.cur(), *value);
+                            let (a, v) = (as_unsigned(&t, None, wide), as_unsigned(&v, k, wide));
+                            self.line(&format!("{t} = static_cast<{ty}>({a} {} {v});", b.as_str()));
+                        }
+                        Some((b, (ty, _))) => {
+                            let name = match b {
+                                BinaryOp::Add => "add",
+                                BinaryOp::Sub => "sub",
+                                _ => "mul",
+                            };
+                            self.line(&format!(
+                                "::dz::rt::num::wrapping_{name}_assign<{ty}>({t}, {v});"
+                            ));
+                        }
+                        None => self.line(&format!("{t} {} {v};", op.as_str())),
+                    },
                 }
             }
             hir::StmtKind::Expr(e) => self.stmt_expr(*e),
@@ -5049,6 +5094,10 @@ impl<'a> Emitter<'a> {
                     self.indent += 1;
                     self.write_captured(&pre);
                     self.line(&format!("if (!({cond_text})) {{ break; }}"));
+                }
+                let body = self.cur();
+                if !expr_effects(body, *cond) && !block_effects(body, *block) {
+                    self.line("DZ_LOOP_ALIVE();");
                 }
                 self.loop_body_into(*block, label);
                 self.indent -= 1;
@@ -5886,10 +5935,49 @@ impl<'a> Emitter<'a> {
             }
 
             hir::ExprKind::Unary { op, operand } => {
+                // `i32`'s and `i64`'s smallest values: C++ has no literal for either, since
+                // `2147483648` is too big for an `int` and is read as a wider or unsigned type
+                // before it is negated (MSVC's C4146, T-0256). One more than it, less one.
+                if let (UnaryOp::Neg, Ty::Int(i), Some(k)) =
+                    (op, body.ty(e), literal_value(body, *operand))
+                {
+                    let fits = if int_bits(*i) > 32 { i64::MAX as i128 } else { i32::MAX as i128 };
+                    if k == fits + 1 && i.is_signed() {
+                        let below = int_literal(k - 1, body.ty(e));
+                        return format!("(-{below} - 1)");
+                    }
+                }
                 let o = self.expr(*operand);
+                // `-x` overflows for `MIN`, so it is taken from zero in the unsigned type
+                // (T-0255). A literal cannot be `MIN`, and `-5` reads as written.
+                if let (UnaryOp::Neg, Ty::Int(i), false) =
+                    (op, body.ty(e), matches!(body.expr(*operand).kind, hir::ExprKind::Int(_)))
+                {
+                    if let Some(wide) = wrapping_unsigned(*i) {
+                        let t = int_name(*i);
+                        let zero = unsigned_literal(0, wide);
+                        return format!("static_cast<{t}>({zero} - static_cast<{wide}>({o}))");
+                    }
+                }
                 self.narrow_result(e, format!("{}({o})", unary_op(*op)))
             }
             hir::ExprKind::Binary { op, lhs, rhs } => {
+                // A float divided by a literal zero is an infinity or NaN (IEEE 754, spec
+                // §5.1), which `cl.exe` refuses to fold (C2124) where the others do: the
+                // division goes through a function, which it does not look into (T-0253).
+                if let (BinaryOp::Div, Ty::Float(f)) = (op, body.ty(e)) {
+                    if float_zero(body, *rhs) {
+                        let t = if *f == FloatTy::F32 { "float" } else { "double" };
+                        let v = self.ordered_operands(&[*lhs, *rhs], &[false, false]);
+                        return format!("::dz::rt::num::fdiv<{t}>({}, {})", v[0], v[1]);
+                    }
+                }
+                if let Some((t, wide)) = wrapping_op(*op, body.ty(e)) {
+                    let k = [literal_value(body, *lhs), literal_value(body, *rhs)];
+                    let v = self.ordered_operands(&[*lhs, *rhs], &[false, false]);
+                    let [a, b] = [0, 1].map(|n| as_unsigned(&v[n], k[n], wide));
+                    return format!("static_cast<{t}>({a} {} {b})", op.as_str());
+                }
                 if let Some(helper) = self.defined_op(*op, body.ty(e), *rhs) {
                     let t = self.cpp_ty(body.ty(e));
                     let v = self.ordered_operands(&[*lhs, *rhs], &[false, false]);
@@ -7734,7 +7822,7 @@ impl<'a> Emitter<'a> {
                     let loc = self.source_location(span);
                     self.line(&format!("::dz::rt::unreachable({loc});"));
                 } else {
-                    self.line("__builtin_unreachable();");
+                    self.line("DZ_UNREACHABLE();");
                 }
             }
         }
@@ -8248,6 +8336,127 @@ fn never_returns(body: &hir::Body) -> bool {
         hir::StmtKind::Expr(e) => matches!(body.ty(*e), Ty::Never),
         hir::StmtKind::While { forever, .. } => *forever,
         _ => false,
+    }
+}
+
+// --- loops with no effect (T-0255) ---------------------------------------------------
+//
+// C++ lets an optimiser assume that a loop which does nothing the program could see ends
+// ([intro.progress]), and Dazzle runs a loop as written (D-0094, T-0133): `while x < 10 {}`
+// with `x` unchanged hangs. GCC and Clang are told so with `-fno-finite-loops`. `cl.exe` has
+// no such flag, and at `/O2` deleted that loop and returned past it, so a `while` or `loop`
+// these find no effect in starts with `DZ_LOOP_ALIVE()`: a compiler barrier there, nothing
+// elsewhere. A barrier in every loop would keep `cl.exe` from vectorising ordinary ones.
+//
+// An effect is a call of any kind (a function, a method, a macro, `println`), or a store to
+// anything but a local of the function. Every other node is looked through. Where these are
+// unsure, they answer no effect: a barrier too many costs a little speed under `cl.exe`; one
+// too few is a loop that is not run.
+
+fn block_effects(body: &hir::Body, block: BlockId) -> bool {
+    body.block(block).stmts.iter().any(|s| stmt_effects(body, *s))
+}
+
+fn stmt_effects(body: &hir::Body, s: StmtId) -> bool {
+    let any = |e: &Option<ExprId>| e.is_some_and(|e| expr_effects(body, e));
+    match &body.stmt(s).kind {
+        hir::StmtKind::Let { init, .. } => any(init),
+        hir::StmtKind::LetTuple { init, .. } => expr_effects(body, *init),
+        hir::StmtKind::Assign { target, value, .. } => {
+            !local_place(body, *target) || expr_effects(body, *target) || expr_effects(body, *value)
+        }
+        hir::StmtKind::Expr(e) => expr_effects(body, *e),
+        hir::StmtKind::While { cond, body: b, .. } => {
+            expr_effects(body, *cond) || block_effects(body, *b)
+        }
+        // A counting loop over a range ends; any other subject is iterated through calls.
+        hir::StmtKind::For { subject, body: b, .. } => {
+            !matches!(body.expr(*subject).kind, hir::ExprKind::Range { .. })
+                || expr_effects(body, *subject)
+                || block_effects(body, *b)
+        }
+        hir::StmtKind::Defer(inner) => stmt_effects(body, *inner),
+        hir::StmtKind::Item(_) | hir::StmtKind::Error => false,
+    }
+}
+
+/// A local of the function, or a part of one, not reached through a reference or pointer.
+fn local_place(body: &hir::Body, e: ExprId) -> bool {
+    match &body.expr(e).kind {
+        hir::ExprKind::Local(l) => !matches!(body.local(*l).ty, Ty::Ref { .. }),
+        hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. } => {
+            local_place(body, *base)
+        }
+        _ => false,
+    }
+}
+
+fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
+    use hir::ExprKind as K;
+    let one = |e: ExprId| expr_effects(body, e);
+    let opt = |e: &Option<ExprId>| e.is_some_and(one);
+    let all = |es: &[ExprId]| es.iter().any(|e| one(*e));
+    let fields = |fs: &[Option<ExprId>]| fs.iter().any(opt);
+    let blk = |b: &Option<BlockId>| b.is_some_and(|b| block_effects(body, b));
+    match &body.expr(e).kind {
+        K::Call { .. } | K::Builtin { .. } | K::Formatted { .. } | K::Guarded { .. } => true,
+        K::Error
+        | K::Int(_)
+        | K::Float(_)
+        | K::Bool(_)
+        | K::Char(_)
+        | K::Str(_)
+        | K::Null
+        | K::NoneOpt
+        | K::Local(_)
+        | K::Const(_)
+        | K::Static(_)
+        | K::AssocConst { .. }
+        | K::FnItem { .. }
+        | K::EnumVariant { .. }
+        | K::Break(_)
+        | K::Continue(_)
+        | K::TypeQuery { .. }
+        | K::Reflect { .. }
+        | K::DefaultArg(_) => false,
+        K::Field { base, .. }
+        | K::TupleIndex { base, .. }
+        | K::Deref(base)
+        | K::Len(base)
+        | K::DataPtr(base)
+        | K::Move(base)
+        | K::Cast { operand: base, .. }
+        | K::Unary { operand: base, .. }
+        | K::Ref { place: base, .. } => one(*base),
+        K::Index { base, index } => one(*base) || one(*index),
+        K::SliceRange { base, start, end } => one(*base) || opt(start) || opt(end),
+        K::Binary { lhs, rhs, .. } => one(*lhs) || one(*rhs),
+        K::Range { start, end, .. } => opt(start) || opt(end),
+        K::StructLit { fields: fs, .. } | K::UnionVariant { payload: fs, .. } => fields(fs),
+        K::Tuple(es) | K::ArrayLit(es) | K::Intrinsic { args: es, .. } => all(es),
+        K::Return(v) => opt(v),
+        K::Block(b) => block_effects(body, *b),
+        K::If { cond, then, else_branch } => {
+            one(*cond) || block_effects(body, *then) || blk(else_branch)
+        }
+        K::IfLet { operand, then, else_branch, .. } => {
+            one(*operand) || block_effects(body, *then) || blk(else_branch)
+        }
+        K::Switch { subject, arms, default } => {
+            one(*subject)
+                || arms.iter().any(|a| all(&a.values) || block_effects(body, a.body))
+                || blk(default)
+        }
+        K::Or { operand, clause } => {
+            one(*operand)
+                || match clause {
+                    hir::OrClause::Value(v) => one(*v),
+                    hir::OrClause::Block { body: b, .. } => block_effects(body, *b),
+                    hir::OrClause::Ignore => false,
+                    // It panics, a call, in every build that checks it.
+                    hir::OrClause::Unreachable => true,
+                }
+        }
     }
 }
 
@@ -8840,6 +9049,65 @@ fn int_bits(i: IntTy) -> i128 {
         IntTy::I32 | IntTy::U32 | IntTy::Isize | IntTy::Usize => 32,
         IntTy::I64 | IntTy::U64 => 64,
     }
+}
+
+/// The unsigned type `+`, `-` and `*` on `i` are done in, or `None` where C++'s own operator
+/// already wraps (T-0255). Dazzle's arithmetic wraps (spec §5.1, 18.63); C++'s signed
+/// arithmetic is undefined on overflow, and an `i8`, `u8`, `i16` or `u16` is promoted to
+/// `int` first, where `u16 * u16` can overflow too. `-fwrapv` made that defined for GCC and
+/// Clang, but `cl.exe` has no such flag and at `/O2` folded `x * 2 / 2` to `x`. Done in the
+/// unsigned type, the result is the same instruction on every compiler.
+fn wrapping_unsigned(i: IntTy) -> Option<&'static str> {
+    match i {
+        IntTy::I8 | IntTy::U8 | IntTy::I16 | IntTy::U16 | IntTy::I32 => Some("uint32_t"),
+        IntTy::I64 => Some("uint64_t"),
+        IntTy::Isize => Some("size_t"),
+        IntTy::U32 | IntTy::U64 | IntTy::Usize => None,
+    }
+}
+
+/// For `+`, `-` or `*` on a type `wrapping_unsigned` routes: the type's C++ name, and the
+/// unsigned type to compute in.
+fn wrapping_op(op: BinaryOp, ty: &Ty) -> Option<(&'static str, &'static str)> {
+    let Ty::Int(i) = ty else { return None };
+    if !matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul) {
+        return None;
+    }
+    Some((int_name(*i), wrapping_unsigned(*i)?))
+}
+
+/// An operand in the unsigned type `wide`: a literal `k` that is not negative as one of that
+/// type's (`1u`), anything else cast.
+fn as_unsigned(text: &str, k: Option<i128>, wide: &str) -> String {
+    match k {
+        Some(k) if k >= 0 => unsigned_literal(k, wide),
+        _ => format!("static_cast<{wide}>({text})"),
+    }
+}
+
+fn unsigned_literal(k: i128, wide: &str) -> String {
+    match wide {
+        "uint32_t" => format!("{k}u"),
+        "uint64_t" => format!("{k}ull"),
+        _ => format!("static_cast<{wide}>({k})"),
+    }
+}
+
+/// A float literal that is zero, `0.0` or `-0.0`.
+fn float_zero(body: &hir::Body, e: ExprId) -> bool {
+    match &body.expr(e).kind {
+        hir::ExprKind::Float(v) => *v == 0.0,
+        hir::ExprKind::Int(0) => true,
+        hir::ExprKind::Unary { op: UnaryOp::Neg, operand } => float_zero(body, *operand),
+        _ => false,
+    }
+}
+
+/// A C++ name and nothing else, so that writing it twice evaluates nothing twice.
+fn is_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars.next().is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
 /// A literal, with the suffix its type needs so C++ does not narrow or wrap it.

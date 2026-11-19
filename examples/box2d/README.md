@@ -15,9 +15,9 @@ and Escape quits.
 
 ## What it shows
 
-- **A C library with 43 source files and no build system.** Box2D's recipe in
-  [`dazzle.toml`](dazzle.toml) is five lines: every `.c` under `src/`, compiled as C17, with
-  its headers in `include/`. `dz` compiles it once and then only what changed.
+- **A C library built by its own CMake project.** Box2D sets the instruction set for each
+  contact solver and installs the headers and static library used by Dazzle. The build needs
+  CMake and, on Windows, Ninja.
 - **C structs and handles as ordinary values.** `b2::b2WorldId` and `b2::b2BodyId` are
   Box2D's own handle structs; `b2::b2DefaultBodyDef()` returns a struct whose fields are set
   with `.`, as in C:
@@ -37,6 +37,6 @@ and Escape quits.
 
 ## Use it as a template
 
-Copy the folder, point both recipes' `root` at your copies of Box2D and sokol, and replace
+Copy the folder, point `cmake` at your Box2D tree and `root` at your sokol tree, and replace
 `src/main.dz`. The sokol half is explained line by line in
 [`examples/sokol`](../sokol/dazzle.toml).

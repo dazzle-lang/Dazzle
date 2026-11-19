@@ -39,10 +39,9 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    Rust and C++ habits); T-0252, an eval that measures it. T-0251 makes the website come from
    these same documents: until it is done, the website is separate and **every decision, new
    feature and roadmap change must be copied to it by hand**.
-3. **MSVC (M21).** `cl.exe` was never refused for a language reason; `dz` speaks only GCC's
-   command line. T-0253 (a toolchain with MSVC's flags), T-0254 (the runtime without GCC
-   builtins), T-0255 (what `-fwrapv` and the other two meaning-carrying flags become, for the
-   user to decide before T-0253 lands), T-0256 (a CI row, warning-clean at `/W4`).
+3. **MSVC (M21).** `dz build --cxx cl` uses Visual Studio from a regular shell. T-0253
+   covers the driver, T-0254 the runtime, T-0255 arithmetic and loop semantics, and T-0256
+   the Windows CI job. T-0260 tracks the remaining dependency on named return value optimisation.
 4. **Doc tests (T-0067)**, in M20: once the docs ship inside `dz` for agents to copy from,
    every snippet in them compiles. A design task: its syntax is the user's call.
 5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).

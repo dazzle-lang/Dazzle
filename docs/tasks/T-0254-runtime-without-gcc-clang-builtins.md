@@ -2,7 +2,7 @@
 id: T-0254
 title: The runtime without GCC and Clang builtins
 milestone: M21
-status: open
+status: done
 kind: feature
 area: codegen
 where: `crates/dz_cpp/src/runtime.rs` (`checked_add/sub/mul` ~727, the float-to-int cast ~762, saturating ops ~771, `count_ones`/`trailing_zeros`/`leading_zeros` ~797–807, `Random`'s range ~828, `blackbox` ~1098); `crates/dz_cpp/src/lib.rs` (`__builtin_unreachable` ~7677)

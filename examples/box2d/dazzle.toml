@@ -7,14 +7,11 @@ std = { open = true }
 b2  = { cpp = "box2d" }
 sk  = { cpp = "sokol" }
 
-# Box2D 3, a C physics engine: a git submodule in `examples/vendor/box2d`, pinned to its
-# v3.2.0 tag, which `git submodule update --init` fetches. Its CMake build comes down to this:
-# every `.c` under `src/`, compiled as C17, with its public headers in `include/`.
+# Upstream sets the instruction set per translation unit, including /arch:AVX2
+# on the wide contact solver alone when compiling with MSVC.
 [cpp.libs.box2d]
-root         = "../vendor/box2d"
-sources      = ["src/*.c"]
-include_dirs = ["include", "src"]
-flags        = ["-std=c17"]
+cmake   = "../vendor/box2d"
+options = { BOX2D_SAMPLES = false, BOX2D_UNIT_TESTS = false }
 import       = ["box2d/box2d.h"]
 # Vouches for Box2D: no function keeps a pointer it is given past the call. A body's
 # `userData` is kept, but it is a `void*`, which only `unsafe` makes (spec §15.2).

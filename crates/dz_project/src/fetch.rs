@@ -325,20 +325,38 @@ fn fetch(url: &str, pin: &Pin, commit: &str, dir: &Path) -> Result<(), FetchErro
         Ok(())
     })();
     match result {
-        Ok(()) => match std::fs::rename(&tmp, dir) {
+        Ok(()) => match install_checkout(&tmp, dir) {
             Ok(()) => Ok(()),
             // Another process put the same checkout there first: it is the same commit.
             Err(_) if dir.is_dir() => {
                 let _ = std::fs::remove_dir_all(&tmp);
                 Ok(())
             }
-            Err(e) => Err(FetchError::Git(e.to_string())),
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&tmp);
+                Err(FetchError::Git(e.to_string()))
+            }
         },
         Err(e) => {
             let _ = std::fs::remove_dir_all(&tmp);
             Err(e)
         }
     }
+}
+
+fn install_checkout(tmp: &Path, dir: &Path) -> std::io::Result<()> {
+    // A scanner can briefly hold a freshly checked-out file open on Windows.
+    // Retry the atomic rename without fetching the entire checkout again.
+    #[cfg(windows)]
+    for delay in [25, 50, 100, 200, 400, 800, 1600] {
+        match std::fs::rename(tmp, dir) {
+            Err(e) if e.raw_os_error() == Some(32) && !dir.is_dir() => {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+            }
+            result => return result,
+        }
+    }
+    std::fs::rename(tmp, dir)
 }
 
 #[cfg(test)]

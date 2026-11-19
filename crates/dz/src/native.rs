@@ -11,7 +11,7 @@
 //! analysis reads its installed headers (spec §15.1, D-0090).
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_project::{CmakeBuild, CppLib, Module, SourceLang, Workspace};
@@ -61,9 +61,10 @@ pub fn build_libraries(
     ws: &Workspace,
     cxx: &str,
     build_dir: &Path,
-    opt: &[&str],
+    opt: &[String],
     cpp_standard: &str,
 ) -> Result<Vec<PathBuf>, Diagnostics> {
+    use crate::toolchain::{define, include_dir, language, no_warnings};
     let mut diags = Diagnostics::new();
     let mut objects = Vec::new();
     let mut jobs = Vec::new();
@@ -103,37 +104,35 @@ pub fn build_libraries(
         for source in &sources {
             let mut args: Vec<String> = Vec::new();
             match dz_project::source_language(source) {
-                Some(SourceLang::C) => args.extend(["-x".to_owned(), "c".to_owned()]),
-                Some(SourceLang::Cpp) => {
-                    args.extend(["-x".to_owned(), "c++".to_owned(), format!("-std={cpp_standard}")])
-                }
+                Some(SourceLang::C) => args.extend(language(cxx, true, cpp_standard)),
+                Some(SourceLang::Cpp) => args.extend(language(cxx, false, cpp_standard)),
                 // The manifest refused anything else when it was read.
                 None => continue,
             }
-            args.extend(opt.iter().map(|s| (*s).to_owned()));
+            args.extend(opt.iter().cloned());
             // A library's warnings are not the project's to fix; invariant 7 is about the
             // code Dazzle generates.
-            args.push("-w".to_owned());
+            args.push(no_warnings(cxx));
             // The module's own `[cpp]` is for everything it builds, this library included:
             // a define that has to hold across the boundary — `JPH_PROFILE_ENABLED`, or a
             // single-header library's `RGFWDEF=` giving its declarations external linkage —
             // must reach the library's sources and the generated code alike (spec §15.1).
             // The library's own entries come after, so they win where the two disagree.
-            args.extend(module.cpp.defines.iter().map(|d| format!("-D{d}")));
-            args.extend(module.cpp.include_dirs.iter().map(|d| format!("-I{}", d.display())));
-            args.extend(lib.defines.iter().map(|d| format!("-D{d}")));
-            args.extend(lib.include_dirs.iter().map(|d| format!("-I{}", d.display())));
+            args.extend(module.cpp.defines.iter().map(|d| define(cxx, d)));
+            args.extend(module.cpp.include_dirs.iter().map(|d| include_dir(cxx, d)));
+            args.extend(lib.defines.iter().map(|d| define(cxx, d)));
+            args.extend(lib.include_dirs.iter().map(|d| include_dir(cxx, d)));
             // `uses`: the recipes whose headers this one includes — their include dirs,
             // after its own so its own headers win, and the defines every user of their
             // headers needs. Not their `defines`, which build only their sources (§15.1).
             for used in module.cpp.libs.iter().filter(|l| lib.uses.contains(&l.name)) {
-                args.extend(used.shared_defines.iter().map(|d| format!("-D{d}")));
-                args.extend(used.include_dirs.iter().map(|d| format!("-I{}", d.display())));
+                args.extend(used.shared_defines.iter().map(|d| define(cxx, d)));
+                args.extend(used.include_dirs.iter().map(|d| include_dir(cxx, d)));
             }
             // Last, so a recipe can override what `dz` chose — which is the point of the
             // key. `-x objective-c` after the `-x c` above is exactly that: the final `-x`
             // before the input is the one that applies (spec §15.1).
-            args.extend(lib.flags.iter().cloned());
+            args.extend(crate::toolchain::recipe_flags(cxx, &lib.flags));
 
             // The object's name carries everything its bytes depend on besides its inputs'
             // contents, so changing a flag compiles a new object rather than reusing one.
@@ -147,7 +146,8 @@ pub fn build_libraries(
             }
             let stem =
                 source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            let object = dir.join(format!("{stem}-{:016x}.o", fnv1a(&key)));
+            let ext = crate::toolchain::object_ext(cxx);
+            let object = dir.join(format!("{stem}-{:016x}.{ext}", fnv1a(&key)));
             objects.push(object.clone());
 
             if !up_to_date(&object) {
@@ -181,16 +181,14 @@ fn run_jobs(cxx: &str, jobs: Vec<Job<'_>>, diags: &mut Diagnostics) {
         while running.len() < limit {
             let Some(job) = pending.next() else { break };
             let depfile = job.object.with_extension("d");
-            let spawned = Command::new(cxx)
+            let one = crate::toolchain::compile_one(cxx, &job.source, &job.object, &depfile);
+            // `cl.exe` says what is wrong on standard output.
+            let stdout =
+                if crate::toolchain::is_msvc(cxx) { Stdio::piped() } else { Stdio::null() };
+            let spawned = crate::toolchain::command(cxx)
                 .args(&job.args)
-                .arg("-c")
-                .arg(&job.source)
-                .arg("-o")
-                .arg(&job.object)
-                .arg("-MD")
-                .arg("-MF")
-                .arg(&depfile)
-                .stdout(Stdio::null())
+                .args(one)
+                .stdout(stdout)
                 .stderr(Stdio::piped())
                 .spawn();
             match spawned {
@@ -211,7 +209,7 @@ fn run_jobs(cxx: &str, jobs: Vec<Job<'_>>, diags: &mut Diagnostics) {
                 // A failed compile may leave a stale object behind; the stamp is what says
                 // an object is good, and it is only written on success.
                 let _ = std::fs::remove_file(job.object.with_extension("stamp"));
-                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stderr = crate::toolchain::complaints(cxx, &out);
                 diags.push(
                     Diagnostic::error(
                         codes::CPP_LIBRARY_FAILED,
@@ -375,10 +373,10 @@ pub(crate) fn refreshed(mut inputs: Vec<Input>, hashed: &[usize]) -> Option<Vec<
 }
 
 /// Record what an object was compiled from: the source, and every header the compiler's
-/// depfile names.
+/// depfile names: a make rule, or `cl.exe`'s JSON (T-0253).
 pub(crate) fn write_stamp(source: &Path, object: &Path) {
     let mut inputs = std::fs::read_to_string(object.with_extension("d"))
-        .map(|d| depfile_inputs(&d))
+        .map(|d| crate::toolchain::json_dependencies(&d).unwrap_or_else(|| depfile_inputs(&d)))
         .unwrap_or_default();
     if !inputs.iter().any(|p| p == source) {
         inputs.insert(0, source.to_path_buf());
@@ -452,8 +450,10 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
         );
     };
 
+    // Under `cl.exe`'s environment, so CMake and Ninja use the same linker and SDK.
+    let found = crate::build::find_compiler(Some(ws), chosen);
     let runs = |tool: &str| {
-        Command::new(tool)
+        crate::toolchain::cmake_command(found.as_deref().unwrap_or(""), tool)
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -490,14 +490,14 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
         }
         return;
     }
-    let Some(cxx) = crate::build::find_compiler(Some(ws), chosen) else {
+    let Some(cxx) = found else {
         for (m, l, _) in &libs {
             fail(
                 diags,
                 m,
                 l,
                 "no C++ compiler found".to_owned(),
-                "install clang++ or g++, or name one with `--cxx` or `DZ_CXX`",
+                "install clang++, g++ or the Visual Studio C++ tools, or name one with `--cxx` or `DZ_CXX`",
             );
         }
         return;
@@ -547,7 +547,7 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
             (absolute(&build.build_dir()), absolute(&build.install_dir()));
         eprintln!("   building {} with CMake ({})", lib.name, build.config);
 
-        let mut configure = Command::new("cmake");
+        let mut configure = crate::toolchain::cmake_command(&cxx, "cmake");
         configure.arg("-S").arg(absolute(&build.source)).arg("-B").arg(&build_dir);
         if let Some(g) = generator {
             configure.args(["-G", g]);
@@ -574,9 +574,9 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
         for (k, v) in &build.options {
             configure.arg(format!("-D{k}={v}"));
         }
-        let mut build_cmd = Command::new("cmake");
+        let mut build_cmd = crate::toolchain::cmake_command(&cxx, "cmake");
         build_cmd.arg("--build").arg(&build_dir).args(["--config", build.config, "--parallel"]);
-        let mut install = Command::new("cmake");
+        let mut install = crate::toolchain::cmake_command(&cxx, "cmake");
         install.arg("--install").arg(&build_dir).args(["--config", build.config]);
 
         let _ = std::fs::remove_dir_all(&install_dir);
@@ -626,6 +626,10 @@ pub fn build_cmake_libraries(ws: &Workspace, chosen: Option<&str>, diags: &mut D
 /// version suffix (`x86_64-w64-mingw32-g++` → `x86_64-w64-mingw32-gcc`). `None` for a name
 /// that says neither, which leaves CMake to find one.
 fn c_compiler_for(cxx: &str) -> Option<String> {
+    // `cl.exe` compiles C too.
+    if crate::toolchain::is_msvc(cxx) {
+        return Some(cxx.to_owned());
+    }
     let path = Path::new(cxx);
     let file = path.file_name()?.to_str()?;
     let (stem, ext) = match file.strip_suffix(".exe") {

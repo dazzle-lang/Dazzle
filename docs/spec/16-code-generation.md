@@ -123,7 +123,11 @@ Dazzle could otherwise reach (§1.1):
   the type the pointer names, rather than letting the optimiser assume two types never
   share memory.
 
-The flags need clang 12 or GCC 10. A vendored C or C++ library is built without them, with
+On Windows, `cl.exe` builds the generated C++ with `/std:c++17`, `/GR-`, disabled
+standard library exceptions and `/W4`. Wrapping arithmetic uses unsigned intermediates.
+The emitter guards effect-free loops under MSVC. Optimised builds use `/GL` and `/LTCG`.
+
+The GCC-style flags need clang 12 or GCC 10. A vendored C or C++ library is built without them, with
 the semantics it was written for. What else the emitted C++ relies on, and how each case
 C++ leaves undefined is ruled out, is in the audit in `docs/testing.md`.
 
@@ -139,7 +143,7 @@ compiler as much as `clang++` or `g++`. Four places may name one, and the neares
 person running the build wins: `--cxx <compiler>` on the command line, `DZ_CXX` in the
 environment, `cxx` in the manifest's `[build]` table, and `cxx` in
 `[build.target.<os>]` for a single platform. With none of them `dz` uses the first of
-`clang++`, `g++`, `c++` on the path. A compiler named explicitly is **not** probed first:
+`clang++`, `g++`, `c++` on the path, then the native MSVC toolset on Windows. A compiler named explicitly is **not** probed first:
 if it is not there the build fails saying so, rather than quietly using another one.
 `[DECIDED]`
 

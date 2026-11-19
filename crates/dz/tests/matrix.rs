@@ -108,7 +108,7 @@ fn run_layout(layout: Layout) {
 
 #[test]
 fn every_construct_runs_wherever_it_is_written() {
-    if compilers().is_empty() {
+    if compilers().is_empty() && std::env::var("DZ_CXX").unwrap_or_default().is_empty() {
         eprintln!("skipping: no C++ compiler available");
         return;
     }

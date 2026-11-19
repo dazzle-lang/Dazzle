@@ -179,7 +179,7 @@ fn read_pc(path: &Path, dirs: &[PathBuf], seen: &mut HashSet<PathBuf>, usage: &m
         return;
     }
     let Ok(text) = std::fs::read_to_string(path) else { return };
-    let pc = parse_pc(&text);
+    let pc = parse_pc(&text, path.parent().unwrap_or(Path::new(".")));
     apply_cflags(&pc.cflags, usage);
     apply_libs(&pc.libs, usage);
     for name in pc.requires {
@@ -201,8 +201,11 @@ struct Pc {
     requires: Vec<String>,
 }
 
-fn parse_pc(text: &str) -> Pc {
-    let mut vars: Vec<(String, String)> = Vec::new();
+fn parse_pc(text: &str, pc_dir: &Path) -> Pc {
+    // Both prefix (the install directory) and pcfiledir can contain spaces.
+    // Keep their paths together when splitting flags, including in -I"${prefix}".
+    let mut vars = vec![("pcfiledir".to_owned(), "${pcfiledir}".to_owned())];
+    let mut prefix = String::new();
     let (mut cflags, mut libs, mut private, mut requires) =
         (String::new(), String::new(), String::new(), String::new());
     for raw in text.lines() {
@@ -213,8 +216,13 @@ fn parse_pc(text: &str) -> Pc {
         let colon = line.find(':');
         match (eq, colon) {
             (Some(e), c) if c.map_or(true, |c| e < c) => {
-                let value = expand(line[e + 1..].trim(), &vars);
-                vars.push((line[..e].trim().to_owned(), value));
+                let name = line[..e].trim();
+                let mut value = expand(line[e + 1..].trim(), &vars);
+                if name == "prefix" && !value.contains(['"', '\'']) && !value.contains("\\ ") {
+                    prefix = value;
+                    value = "${prefix}".to_owned();
+                }
+                vars.push((name.to_owned(), value));
             }
             (_, Some(c)) => {
                 let value = expand(line[c + 1..].trim(), &vars);
@@ -233,7 +241,15 @@ fn parse_pc(text: &str) -> Pc {
         }
     }
     push_words(&mut libs, &private);
-    Pc { cflags: split_args(&cflags), libs: split_args(&libs), requires: package_names(&requires) }
+    let args = |text: &str| {
+        split_args(text)
+            .into_iter()
+            .map(|a| {
+                a.replace("${prefix}", &prefix).replace("${pcfiledir}", &pc_dir.to_string_lossy())
+            })
+            .collect()
+    };
+    Pc { cflags: args(&cflags), libs: args(&libs), requires: package_names(&requires) }
 }
 
 fn push_words(into: &mut String, value: &str) {
@@ -386,6 +402,7 @@ mod tests {
              Libs: -L${libdir}  -lSDL3\n\
              Libs.private: -pthread -lm -Wl,-framework,Cocoa\n\
              Cflags: -I${includedir} -DSDL_STATIC \"-I/opt/with space\"\n",
+            Path::new("/opt/sdl/lib/pkgconfig"),
         );
         assert_eq!(pc.requires, ["zlib", "png"]);
         let mut usage = Usage::default();
@@ -406,8 +423,20 @@ mod tests {
 
     #[test]
     fn a_variable_may_hold_a_colon_and_a_field_an_equals_sign() {
-        let pc = parse_pc("prefix=C:/sdk\nCflags: -I${prefix}/include -DLEVEL=2\n");
+        let pc = parse_pc("prefix=C:/sdk\nCflags: -I${prefix}/include -DLEVEL=2\n", Path::new("."));
         assert_eq!(pc.cflags, ["-IC:/sdk/include", "-DLEVEL=2"]);
+    }
+
+    #[test]
+    fn relocatable_pkg_config_paths_can_contain_spaces() {
+        let pc = parse_pc(
+            "prefix=${pcfiledir}/../..\nCflags: -I${prefix}/include\nLibs: -L${prefix}/lib -lbox2d",
+            Path::new("my install/lib/pkgconfig"),
+        );
+        assert_eq!(pc.cflags, ["-Imy install/lib/pkgconfig/../../include"]);
+        assert_eq!(pc.libs, ["-Lmy install/lib/pkgconfig/../../lib", "-lbox2d"]);
+        let pc = parse_pc("prefix=C:/my install\nCflags: -I${prefix}/include", Path::new("."));
+        assert_eq!(pc.cflags, ["-IC:/my install/include"]);
     }
 
     #[test]

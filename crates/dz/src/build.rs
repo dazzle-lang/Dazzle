@@ -256,7 +256,8 @@ fn starts_generated(path: &Path) -> bool {
 /// The source stem of an object `object_path` names, `m003.inst` for
 /// `m003.inst-0123456789abcdef.o`; `None` for any other file.
 fn object_stem(name: &str) -> Option<&str> {
-    let (stem, hash) = name.strip_suffix(".o")?.rsplit_once('-')?;
+    let base = name.strip_suffix(".o").or_else(|| name.strip_suffix(".obj"))?;
+    let (stem, hash) = base.rsplit_once('-')?;
     (hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())).then_some(stem)
 }
 
@@ -298,18 +299,19 @@ pub(crate) fn with_embedded_lines(
 /// A name given explicitly is **not** probed: if it does not exist the compile fails
 /// saying so, which is better than silently using a different compiler than was asked for.
 pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<String> {
+    // `cl` is found where Visual Studio put it when it is not on the `PATH` (T-0253).
     if let Some(c) = chosen.filter(|c| !c.is_empty()) {
-        return Some(c.to_owned());
+        return Some(crate::toolchain::resolve(c));
     }
     if let Ok(cxx) = std::env::var("DZ_CXX") {
         if !cxx.is_empty() {
-            return Some(cxx);
+            return Some(crate::toolchain::resolve(&cxx));
         }
     }
     if let Some(ws) = ws {
         if let Some(cxx) = ws.module(ws.root).build.cxx.clone() {
             if !cxx.is_empty() {
-                return Some(cxx);
+                return Some(crate::toolchain::resolve(&cxx));
             }
         }
     }
@@ -317,6 +319,7 @@ pub fn find_compiler(ws: Option<&Workspace>, chosen: Option<&str>) -> Option<Str
         .into_iter()
         .find(|candidate| version_of(candidate).is_some())
         .map(str::to_owned)
+        .or_else(crate::toolchain::native_compiler)
 }
 
 /// Is `cxx` GCC? Told by what `--version` says rather than by its name: macOS's `g++` is
@@ -360,7 +363,7 @@ fn version_of(cxx: &str) -> Option<String> {
             }
         });
     let known = kept.unwrap_or_else(|| {
-        let asked = Command::new(cxx)
+        let asked = crate::toolchain::command(cxx)
             .arg("--version")
             .stdin(Stdio::null())
             .stderr(Stdio::null())
@@ -399,7 +402,7 @@ pub fn compile(
     let Some(cxx) = find_compiler(analysis.ws.as_ref(), cxx) else {
         diags.push(
             Diagnostic::error(codes::CPP_COMPILER_FAILED, "no C++ compiler found").with_help(
-                "install clang++ or g++, or name one: `--cxx <compiler>`, `DZ_CXX` in the \
+                "install clang++, g++ or the Visual Studio C++ tools, or name one: `--cxx <compiler>`, `DZ_CXX` in the \
                  environment, or `cxx` in the manifest's `[build]` table",
             ),
         );
@@ -448,39 +451,20 @@ pub fn compile(
 
     // Bounds checks are not a build setting: indexing an array or slice is safe code, and
     // stays checked in every build (spec §5.3). Unchecked access is `unsafe { xs.ptr[i] }`.
-    let opt: &[&str] = match module.build.optimize {
-        Optimize::Debug => &["-O0", "-g"],
-        Optimize::Release => &["-O2"],
-        Optimize::Shipping => &["-O3", "-DNDEBUG"],
-    };
+    let opt = crate::toolchain::optimisation(&cxx, module.build.optimize);
+    let msvc = crate::toolchain::is_msvc(&cxx);
 
     // Vendored libraries first: a failure there is the library's, and should be reported
     // as such before the generated code is even tried (spec §15.1).
     // `root`, not `bin_dir`: the object cache is `build/obj/`, a sibling of `bin/`.
     let started = std::time::Instant::now();
-    let objects = crate::native::build_libraries(ws, &cxx, root, opt, &module.build.cpp_standard)?;
+    let objects = crate::native::build_libraries(ws, &cxx, root, &opt, &module.build.cpp_standard)?;
     timings.lap("C and C++ libraries", started);
 
-    // spec §16.5 — nothing generated may need exceptions or RTTI. `-fwrapv`: integer
-    // arithmetic wraps in every build (spec §5.1, 18.63), where C++ leaves signed overflow
-    // undefined and an optimiser is free to assume it never happens. Only for Dazzle's own
-    // code; a vendored library keeps the semantics its authors wrote it against.
-    //
-    // Two more things C++ leaves undefined that safe Dazzle can reach (T-0133, D-0094).
-    // `-fno-finite-loops`: C++ lets the optimiser assume a loop with no side effects ends,
-    // and clang++ and g++ both deleted `while x < 10 {}` with `x` unchanged, returning past
-    // it; Dazzle runs the loop as written. `-fno-strict-aliasing`: a pointer cast inside
-    // `unsafe`, or in `std`'s trusted bodies, reads the bytes there as the type it names,
-    // rather than letting the optimiser assume two types never share memory. Neither moved
-    // the whole-program benchmarks beyond their noise.
-    let mut args: Vec<String> = vec![format!("-std={}", module.build.cpp_standard)];
-    args.extend(
-        ["-fno-exceptions", "-fno-rtti", "-fwrapv", "-Wall", "-Wextra"]
-            .into_iter()
-            .chain(["-fno-finite-loops", "-fno-strict-aliasing"])
-            .chain(opt.iter().copied())
-            .map(str::to_owned),
-    );
+    // What each flag promises is said where `toolchain` writes it (T-0253, T-0255).
+    let mut args = vec![crate::toolchain::standard(&cxx, &module.build.cpp_standard)];
+    args.extend(crate::toolchain::generated_code(&cxx));
+    args.extend(opt.iter().cloned());
     // g++ at -O2 inlines a function not declared `inline` only up to 15 instructions, against
     // 70 for one that is. Since T-0185 a generic instance's methods are ordinary functions
     // in one file, where they used to be `inline` in headers, and `astar` ran 12% slower on
@@ -488,7 +472,7 @@ pub fn compile(
     // programs run 6-17% faster than with either, for 0.1-0.17 s more per release build
     // (T-0190). clang++ weighs the two alike, and warns about the flag, so it is g++ alone,
     // told apart by what it says it is.
-    let gcc = is_gcc(&cxx);
+    let gcc = !msvc && is_gcc(&cxx);
     if gcc {
         if module.build.optimize != Optimize::Debug {
             args.extend(["--param".to_owned(), "max-inline-insns-auto=70".to_owned()]);
@@ -512,8 +496,8 @@ pub fn compile(
     // Every module's generated C++ gets the flags of everything the root reaches (spec
     // §15.1).
     let flags = ws.cpp_flags(ws.root);
-    args.extend(flags.include_dirs.iter().map(|dir| format!("-I{}", dir.display())));
-    args.extend(flags.defines.iter().map(|define| format!("-D{define}")));
+    args.extend(flags.include_dirs.iter().map(|dir| crate::toolchain::include_dir(&cxx, dir)));
+    args.extend(flags.defines.iter().map(|define| crate::toolchain::define(&cxx, define)));
     // `DZ_CXXFLAGS`: extra flags for Dazzle's own code and the link, last so they win. It
     // is how CI builds every program under AddressSanitizer and UBSan (T-0132). Split on
     // whitespace, with no quoting: a flag holding a space is not supported.
@@ -548,8 +532,7 @@ pub fn compile(
 
     let link = ws.link_inputs();
     let mut link_args: Vec<String> = objects.iter().map(|o| o.display().to_string()).collect();
-    link_args.extend(link.dirs.iter().map(|dir| format!("-L{}", dir.display())));
-    link_args.extend(link.libs.iter().map(|lib| format!("-l{lib}")));
+    link_args.extend(crate::toolchain::libraries(&cxx, &link.dirs, &link.libs));
     // macOS system libraries are frameworks, which `-l` does not find (spec §15.1).
     for f in &link.frameworks {
         link_args.extend(["-framework".to_owned(), f.clone()]);
@@ -566,12 +549,15 @@ pub fn compile(
     // from printing a note about running it serially. Only Dazzle's code: the vendored
     // libraries above stay as their recipes build them.
     let mut lto = module.build.optimize != Optimize::Debug;
+    let lto_flag = crate::toolchain::lto(&cxx);
     let build = |lto: bool, pch: bool, timings: &mut dz_driver::Timings| {
         let mut args = args.clone();
         if lto {
-            args.push("-flto=auto".to_owned());
+            args.push(lto_flag.clone());
         }
-        let std_h = std_h.filter(|_| pch).map(PathBuf::as_path);
+        // `cl.exe` precompiles a header its own way (`/Yc`, `/Yu`), which `Pch` does not
+        // speak yet: its files are compiled from the real headers.
+        let std_h = std_h.filter(|_| pch && !msvc).map(PathBuf::as_path);
         let dirs = Dirs { own: root.join("obj").join("dz"), shared: &out.shared };
         compile_and_link(&cxx, &sources, std_h, &args, &link_args, &dirs, &exe, timings)
     };
@@ -595,7 +581,7 @@ pub fn compile(
         if output.is_ok() {
             eprintln!(
                 "note: built without link-time optimisation: {cxx} could not link with \
-                 `-flto=auto` before; delete {} to try again",
+                 `{lto_flag}` before; delete {} to try again",
                 no_lto.display()
             );
         }
@@ -611,7 +597,7 @@ pub fn compile(
             let _ = crate::shared::write(&no_lto, format!("{why}\n").as_bytes());
             eprintln!(
                 "note: built without link-time optimisation: {cxx} could not link with \
-                 `-flto=auto`"
+                 `{lto_flag}`"
             );
         }
     }
@@ -954,12 +940,9 @@ fn compile_and_link(
     }
     // Gone until the link succeeds, so a link cut short is never taken for a good one.
     let _ = std::fs::remove_file(&link_stamp);
-    let output = Command::new(cxx)
-        .args(args)
-        .args(&objects)
-        .args(link_args)
-        .arg("-o")
-        .arg(exe)
+    let lto = args.iter().any(|a| *a == crate::toolchain::lto(cxx));
+    let debug = args.iter().any(|a| a == "/Z7" || a == "-g");
+    let output = crate::toolchain::link(cxx, args, &objects, link_args, exe, lto, debug)
         .output()
         .map_err(|e| Failed::Spawn(format!("could not run {cxx}: {e}")))?;
     timings.lap("link", started);
@@ -974,7 +957,7 @@ fn compile_and_link(
         let _ = std::fs::write(&link_stamp, &link_key);
         Ok(note)
     } else {
-        Err(Failed::Rejected(String::from_utf8_lossy(&output.stderr).into_owned()))
+        Err(Failed::Rejected(crate::toolchain::complaints(cxx, &output)))
     }
 }
 
@@ -988,7 +971,8 @@ fn object_path(dir: &Path, cxx: &str, source: &Path, args: &[String]) -> PathBuf
         key.push(0);
     }
     let stem = source.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-    dir.join(format!("{stem}-{:016x}.o", crate::native::fnv1a(&key)))
+    let ext = crate::toolchain::object_ext(cxx);
+    dir.join(format!("{stem}-{:016x}.{ext}", crate::native::fnv1a(&key)))
 }
 
 /// How many compiles run at once: one per core the system reports.
@@ -1138,16 +1122,20 @@ impl<'a> Jobs<'a> {
         }
         // Written beside the object and renamed onto it once complete: the shared objects
         // are read and written by every `dz` running (T-0182).
-        let child = Command::new(self.cxx)
+        let one = crate::toolchain::compile_one(
+            self.cxx,
+            source,
+            &crate::shared::temp_of(object),
+            &crate::shared::temp_of(&object.with_extension("d")),
+        );
+        // `cl.exe` says what is wrong on standard output.
+        let stdout =
+            if crate::toolchain::is_msvc(self.cxx) { Stdio::piped() } else { Stdio::null() };
+        let child = crate::toolchain::command(self.cxx)
             .args(args)
-            .arg("-c")
-            .arg(source)
-            .arg("-o")
-            .arg(crate::shared::temp_of(object))
-            .args(["-MD", "-MF"])
-            .arg(crate::shared::temp_of(&object.with_extension("d")))
+            .args(one)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(stdout)
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| Failed::Spawn(format!("could not run {}: {e}", self.cxx)))?;
@@ -1173,7 +1161,7 @@ impl<'a> Jobs<'a> {
         } else {
             let _ = std::fs::remove_file(&temp);
             let _ = std::fs::remove_file(crate::shared::temp_of(&object.with_extension("d")));
-            self.errors.push_str(&String::from_utf8_lossy(&out.stderr));
+            self.errors.push_str(&crate::toolchain::complaints(self.cxx, &out));
             self.refused.extend(pch);
         }
         Ok(())
@@ -1266,7 +1254,7 @@ impl Pch {
                 Failed::Spawn(format!("cannot write {}: {e}", self.header.display()))
             })?;
         }
-        Command::new(cxx)
+        crate::toolchain::command(cxx)
             .args(args)
             .args(["-x", "c++-header"])
             .arg(&self.header)
@@ -1491,7 +1479,7 @@ fn links_with(cxx: &str, flags: &[String], dir: &Path) -> bool {
     }
     let source = folder.join("probe.cpp");
     let works = std::fs::write(&source, "int main() { return 0; }\n").is_ok()
-        && Command::new(cxx)
+        && crate::toolchain::command(cxx)
             .args(flags)
             .arg(&source)
             .arg("-o")
@@ -1546,6 +1534,8 @@ mod tests {
         assert_eq!(object_stem("m003-0123456789abcdef.o"), Some("m003"));
         assert_eq!(object_stem("m003.inst-0123456789abcdef.o"), Some("m003.inst"));
         assert_eq!(object_stem("my-mod-0123456789abcdef.o"), Some("my-mod"));
+        // `cl.exe`'s objects (T-0256).
+        assert_eq!(object_stem("m003-0123456789abcdef.obj"), Some("m003"));
         // A depfile, a stamp, the build stamp and a hash of the wrong length are not objects.
         assert_eq!(object_stem("m003-0123456789abcdef.d"), None);
         assert_eq!(object_stem("build-0123456789abcdef.stamp"), None);

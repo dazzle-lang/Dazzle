@@ -28,10 +28,9 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    Rust and C++ habits); T-0252, an eval that measures it. T-0251 makes the website come from
    these same documents: until it is done, the website is separate and **every decision, new
    feature and roadmap change must be copied to it by hand**.
-3. **MSVC (M21).** `cl.exe` was never refused for a language reason; `dz` speaks only GCC's
-   command line. T-0253 (a toolchain with MSVC's flags), T-0254 (the runtime without GCC
-   builtins), T-0255 (what `-fwrapv` and the other two meaning-carrying flags become, for the
-   user to decide before T-0253 lands), T-0256 (a CI row, warning-clean at `/W4`).
+3. **MSVC (M21).** `dz build --cxx cl` uses Visual Studio from a regular shell. T-0253
+   covers the driver, T-0254 the runtime, T-0255 arithmetic and loop semantics, and T-0256
+   the Windows CI job. T-0260 tracks the remaining dependency on named return value optimisation.
 4. **Doc tests (T-0067)**, in M20: once the docs ship inside `dz` for agents to copy from,
    every snippet in them compiles. A design task: its syntax is the user's call.
 5. **Editor speed (M9):** T-0023 (incremental analysis) and T-0025 (`std` checked once).
@@ -337,12 +336,10 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0251](tasks/T-0251-website-generated-from-this-repository-docs.md)** The website is generated from this repository's docs, not written by hand · feature, tooling
 - **[T-0252](tasks/T-0252-agent-eval-fixed-requests-built-offline.md)** An agent eval: fixed requests, built offline, measured over time · feature, llm-tooling
 
-## M21 — MSVC (4 open)
+## M21 — MSVC (2 open)
 
-- **[T-0253](tasks/T-0253-dz-drives-cl-exe-toolchain-with.md)** dz drives cl.exe: a toolchain with MSVC's own flags · feature, tooling
-- **[T-0254](tasks/T-0254-runtime-without-gcc-clang-builtins.md)** The runtime without GCC and Clang builtins · feature, codegen
 - **[T-0255](tasks/T-0255-what-fwrapv-fno-finite-loops-fno.md)** What -fwrapv, -fno-finite-loops and -fno-strict-aliasing promise, under cl.exe · design, codegen
-- **[T-0256](tasks/T-0256-msvc-in-ci-warning-clean-at.md)** MSVC in CI, warning-clean at /W4 · feature, tooling
+- **[T-0260](tasks/T-0260-program-drops-depend-on-whether-c.md)** A program's drops depend on whether the C++ compiler elides a copy · feature, codegen
 
 ## M22 — Placement finished (6 open)
 

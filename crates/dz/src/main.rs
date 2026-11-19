@@ -10,6 +10,7 @@ mod fresh;
 mod native;
 mod reuse;
 mod shared;
+mod toolchain;
 
 use dz_project::Optimize;
 use dz_span::{FileId, SourceMap};
@@ -88,7 +89,8 @@ builds the generated code. Four places may say, nearest first:
     [build] cxx = \"g++\"          the project
     [build.target.linux] cxx    the project, on one platform
 
-With none of them, `dz` uses the first of clang++, g++, c++ that it finds.
+With none of them, `dz` tries clang++, g++ and c++, then MSVC on Windows.
+Select MSVC explicitly with `--cxx cl`. A Developer Prompt is optional.
 
 `DZ_CXXFLAGS` in the environment adds flags to the command that compiles the
 generated code and links the program, after `dz`'s own: for example

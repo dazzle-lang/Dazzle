@@ -23,6 +23,7 @@ to `status: done` in `docs/tasks/`.
 | `m12.md` | the standard library, r39–r80, Breakout, the examples on six C libraries and SDL3, CMake recipes, CI fixes along the way |
 | `m22-placement.md` | placement finished (0.3): owner arenas and the rest of §14.6's "not yet", starting with the `frame` benchmark |
 | `m19-threads.md` | threads (0.3, spec §22): deep `&` and `Iterate::get(&mut self)` first |
+| `m21-msvc.md` | MSVC (0.3): the runtime without builtins, wrapping and empty loops without flags, `dz` driving `cl.exe` |
 | `tooling.md` | build modes, `dz test` (M14), `dz bench` (M15), CI, the parallel suite, `--format=json`, `dz fix`, `dz explain`, `--no-line-directives`, the WebAssembly build, the whole-program benchmarks against C++, and releases with their installers and `dz new` |
 
 **Where things stand (2026-10-21):** M0–M8, M10, M11, M14 and M15 are done; M7 is done
