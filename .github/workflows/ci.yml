@@ -172,13 +172,31 @@ jobs:
             echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> "$GITHUB_ENV"
           fi
 
+      # Clang on Windows compiles against Visual Studio's own STL, and that STL names the
+      # oldest Clang it accepts (STL1000, `yvals_core.h`). Image 20261116 brought MSVC 14.52,
+      # which wants Clang 22, while still shipping LLVM 20.1.8, so every program the suite
+      # built failed to compile. Upgrade LLVM when it is older than the STL allows, on the
+      # msvc row too: libclang reads the same headers for `import cpp`.
       - name: Locate libclang (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $dir = "C:\Program Files\LLVM\bin"
+          $clang = Join-Path $dir "clang++.exe"
+          $major = 0
+          if (Test-Path $clang) {
+            if ((& $clang --version | Select-Object -First 1) -match 'clang version (\d+)') {
+              $major = [int]$Matches[1]
+            }
+          }
+          if ($major -lt 22) {
+            choco upgrade llvm --no-progress -y
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $clang --version
+          }
           if (-not (Test-Path (Join-Path $dir "libclang.dll"))) {
-            choco install llvm --no-progress -y
+            "::error::libclang.dll not found in $dir"
+            exit 1
           }
           "LIBCLANG_PATH=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 

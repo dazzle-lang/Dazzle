@@ -93,9 +93,16 @@ jobs:
         shell: bash
         run: |
           if [ "${{ runner.os }}" = Windows ]; then
-            # clang++, for the program the smoke test builds. The image usually ships LLVM.
-            if [ ! -f "/c/Program Files/LLVM/bin/clang++.exe" ]; then
-              choco install llvm --no-progress -y
+            # clang++, for the program the smoke test builds. The image usually ships LLVM,
+            # but it must be one Visual Studio's STL accepts: MSVC 14.52 refuses any Clang
+            # before 22 (STL1000), and image 20261116 paired it with LLVM 20 (ci.yml).
+            clang="/c/Program Files/LLVM/bin/clang++.exe"
+            major=0
+            if [ -f "$clang" ]; then
+              major=$("$clang" --version | sed -n '1s/.*clang version \([0-9]*\).*/\1/p')
+            fi
+            if [ "${major:-0}" -lt 22 ]; then
+              choco upgrade llvm --no-progress -y
             fi
             export PATH="/c/Program Files/LLVM/bin:$PATH"
             python tools/release.py smoke dist/dazzle-${{ matrix.target }}.zip
