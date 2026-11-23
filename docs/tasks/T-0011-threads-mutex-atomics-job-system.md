@@ -10,10 +10,10 @@ area: concurrency
 **Scheduled for 0.3 by the user on 2026-11-18, as M19.** The design in
 [D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md) was settled
 in r144 after [T-0245](T-0245-try-break-d-0096-before-deciding.md). Spec §22.4 calls
-for atomic counts on `Rc` and `Weak` in parallel programs. The memory tracker (T-0038),
-safe `TypeMap` (T-0246), and ThreadSanitizer in CI (T-0248) have their own tasks.
-Thread-local drops on workers are implemented (T-0247). The notes below record the
-earlier plan.
+for atomic counts on `Rc` and `Weak` in parallel programs. Thread-local drops on workers
+(T-0247) and synchronized memory tracking (T-0038) are implemented. Safe `TypeMap`
+(T-0246) and ThreadSanitizer in CI (T-0248) have their own tasks. The notes below
+record the earlier plan.
 
 ## Where the code is
 

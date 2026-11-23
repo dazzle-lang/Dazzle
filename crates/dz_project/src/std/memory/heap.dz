@@ -22,7 +22,7 @@ impl Allocator for Heap {
             }
         }
         #if TRACK_MEMORY {
-            unsafe { TRACKER.record(p, size, align, loc) }
+            track_allocation(p, size, align, loc)
         }
         return unsafe { p }
     }
@@ -49,7 +49,7 @@ impl Allocator for Heap {
             return
         }
         #if TRACK_MEMORY {
-            unsafe { TRACKER.release(p, size, align, loc) }
+            track_deallocation(p, size, align, loc)
             // A read through a dangling reference then sees `0xDD`, not the old value
             // (T-0131).
             poison(p, 0, size)

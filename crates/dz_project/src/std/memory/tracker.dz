@@ -1,16 +1,23 @@
 // Memory tracking (spec §14.2): compiled only with `TRACK_MEMORY`.
 
 #if TRACK_MEMORY {
+    extern fn memory_tracker_lock()
+    extern fn memory_tracker_unlock()
+
     /// Every allocation `Allocators::Global` has made, by address: open addressing with
     /// linear probing, in memory of its own from the C heap so tracking never tracks itself.
-    /// It reports leaks when the program ends, which is when this static is dropped.
+    /// All access to the table, including rehash and shutdown, holds the same lock.
     struct Tracker {
         m_slots: ^mut Allocation = null
         m_cap: usize = 0
         m_used: usize = 0
         m_seq: u64 = 0
+        m_closed: bool = false
 
         pub fn record(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+            if m_closed {
+                return
+            }
             if (m_used + 1) * 2 > m_cap {
                 self.rehash()
             }
@@ -31,6 +38,9 @@
         }
 
         pub fn release(&mut self, p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+            if m_closed {
+                return
+            }
             if m_cap == 0 {
                 panic!("free of a pointer Allocators::Global never allocated, at {}:{}", loc.file, loc.line)
             }
@@ -115,10 +125,13 @@
             }
         }
 
-        /// Which allocation the live block at `addr` is, if one starts there.
-        pub(module) fn seq_at(&self, addr: usize) -> u64? {
-            let i = self.live_at(addr) or return none
-            return unsafe { m_slots[i].seq }
+        /// A snapshot is checked only while tracking is active.
+        pub(module) fn still_live(&self, h: Held) -> bool {
+            if m_closed {
+                return true
+            }
+            let i = self.live_at(h.addr) or return false
+            return unsafe { m_slots[i].seq == h.seq }
         }
 
         /// The slot holding `addr`, or the empty one where it would go.
@@ -160,10 +173,9 @@
                 }
             }
         }
-    }
 
-    impl Drop for Tracker {
-        fn drop(&mut self) {
+        pub fn finish(&mut self) {
+            m_closed = true
             let mut leaks: usize = 0
             let mut bytes: usize = 0
             let mut i: usize = 0
@@ -188,10 +200,39 @@
             if m_slots != null {
                 unsafe { c_free(m_slots as ^mut u8) }
             }
+            m_slots = null
+            m_cap = 0
+            m_used = 0
         }
     }
 
     static TRACKER: Tracker = Tracker{}
+
+    fn track_allocation(p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        memory_tracker_lock()
+        defer memory_tracker_unlock()
+        unsafe { TRACKER.record(p, size, align, loc) }
+    }
+
+    fn track_deallocation(p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
+        memory_tracker_lock()
+        defer memory_tracker_unlock()
+        unsafe { TRACKER.release(p, size, align, loc) }
+    }
+
+    // The compiler moves a static to its default before running Drop. Keep that move
+    // separate from the shared table, which is accessed only while holding the lock.
+    struct TrackerReport {}
+
+    impl Drop for TrackerReport {
+        fn drop(&mut self) {
+            memory_tracker_lock()
+            defer memory_tracker_unlock()
+            unsafe { TRACKER.finish() }
+        }
+    }
+
+    static TRACKER_REPORT: TrackerReport = TrackerReport{}
 
     /// One block a debug build's element check remembers: where it starts, and which
     /// allocation it is, so one freed and handed out again at the same address is not the
@@ -255,7 +296,11 @@
     /// T-0116). The handle is the list, in C heap memory.
     pub fn trusted_elements(root: usize, size: usize, skip: ^usize, nskip: usize) -> usize {
         let mut all = HeldList{}
-        unsafe { TRACKER.reach(root, size, &mut all) }
+        {
+            memory_tracker_lock()
+            defer memory_tracker_unlock()
+            unsafe { TRACKER.reach(root, size, &mut all) }
+        }
         let kept = unsafe { c_malloc(sizeof(HeldList)) as ^mut HeldList }
         unsafe {
             construct(kept^, HeldList{})
@@ -284,18 +329,19 @@
     pub fn trusted_elements_kept(handle: usize) -> bool {
         let held = unsafe { handle as ^mut HeldList }
         let mut ok = true
-        unsafe {
-            let mut i: usize = 0
-            while i < held.len {
-                let h = held.items[i]
-                let same = if let s = TRACKER.seq_at(h.addr) {
-                    s == h.seq
-                } else {
-                    false
+        {
+            memory_tracker_lock()
+            defer memory_tracker_unlock()
+            unsafe {
+                let mut i: usize = 0
+                while i < held.len {
+                    let same = TRACKER.still_live(held.items[i])
+                    ok = ok && same
+                    i += 1
                 }
-                ok = ok && same
-                i += 1
             }
+        }
+        unsafe {
             destroy(held^)
             c_free(held as ^mut u8)
         }

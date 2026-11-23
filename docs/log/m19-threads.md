@@ -2,6 +2,17 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Synchronized memory tracking (T-0038)
+
+One native lock covers records, frees, table growth, trusted element checks, and
+the final leak report (§14.2). A free can find its record even when a different
+thread made the allocation. Untracked builds bypass the lock. A separate exit
+static closes and reports the table under the lock, so teardown never moves the
+shared table out of its static storage.
+
+The `thread_statics` fixture now has four workers allocate concurrently, grow the
+table, and free one another's blocks. The previous tracker panicked on a valid free.
+
 ## Thread-local drops on workers (T-0247)
 
 The first use of a thread-local static that needs initialization or a drop installs

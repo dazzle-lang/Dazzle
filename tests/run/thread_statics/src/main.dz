@@ -44,7 +44,6 @@ static LATE: Late = Late{ id: 3 }
 
 fn use_statics(id: i32) {
     println!("before {} {} {} {} {}", id, EARLY.items.len(), REPORT.id, LATE.id, state::get_id())
-    // The native runner joins this callback before the next thread touches the tracker.
     unsafe {
         EARLY.items.push(id)
     }
@@ -53,9 +52,27 @@ fn use_statics(id: i32) {
     state::set_id(id + 2)
 }
 
+fn block_size(index: i32) -> usize {
+    return index as usize % 64 + 1
+}
+
+fn allocate_block(index: i32) -> ^mut void {
+    return unsafe {
+        Allocators::Global.alloc(block_size(index), 8) as ^mut void
+    }
+}
+
+fn release_block(ptr: ^mut void, index: i32) {
+    unsafe {
+        Allocators::Global.free(ptr as ^mut u8, block_size(index), 8)
+    }
+}
+
 fn main() {
     use_statics(10)
     native::run_worker(use_statics, 20)
     native::run_worker(use_statics, 30)
     println!("joined {} {} {} {}", EARLY.items.len(), REPORT.id, LATE.id, state::get_id())
+    native::exchange_allocations(allocate_block, release_block)
+    println!("exchanged allocations")
 }

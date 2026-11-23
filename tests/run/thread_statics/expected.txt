@@ -8,6 +8,7 @@ late 31
 report 30 1 0 32
 state 32
 joined 1 10 11 12
+exchanged allocations
 late 11
 report 10 1 0 12
 process 1 0 12

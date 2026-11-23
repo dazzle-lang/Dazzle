@@ -15,9 +15,9 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
 
 1. **Threads (M19).** T-0245 reviewed D-0096, and r144 settled the rules in §22. T-0011
    implements them, including atomic `Rc` and `Weak` counts in parallel programs (§22.4).
-   T-0247 (`thread_local` drops on every thread) is done. T-0038 covers the tracker,
-   T-0246 a safe `TypeMap`, and T-0248 ThreadSanitizer in CI. The proof is `ecs` running its
-   systems in parallel.
+   T-0247 (`thread_local` drops on every thread) and T-0038 (synchronized memory tracking)
+   are done. T-0246 covers a safe `TypeMap` and T-0248 ThreadSanitizer in CI. The proof is
+   `ecs` running its systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
    project and works with no network after setup. T-0250, the guide such an agent reads and
    the README's line to it, kept apart from the compiler's own `CLAUDE.md`; T-0064, `dz new
@@ -310,12 +310,11 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (7 open)
+## M19 — Threads (6 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
-- **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
 - **[T-0246](tasks/T-0246-safe-typemap-owned-trait-objects-for.md)** A safe TypeMap and owned trait objects, for a world keyed by type · feature, stdlib
 - **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
 - **[T-0259](tasks/T-0259-closures-for-parallel-loop-bodies-first.md)** Closures (D-0112, spec §7.8) · feature, language

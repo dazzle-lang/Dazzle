@@ -2,11 +2,19 @@
 id: T-0038
 title: Memory tracking is single-threaded
 milestone: M19
-status: open
+status: done
 kind: deferral
 area: stdlib
-where: `dz_project/src/std/memory/tracker.dz`, `TRACKER`
+where: `crates/dz_project/src/std/memory/tracker.dz` (`TRACKER`); `crates/dz_cpp/src/runtime.rs` (`memory_tracker_lock`)
 ---
+
+**Done.** One process-wide lock protects the table, its counters, trusted element
+checks, and the exit report. The table keeps each record available when another
+thread frees the allocation. The four-worker case in `tests/run/thread_statics`
+grows the table under contention and frees allocations on different workers from
+the ones that made them.
+
+## Original notes
 
 **What happens now.** `--track-memory` records every allocation from `Allocators::Global`
 with its source location, so a leak report can name the line that allocated. The records
