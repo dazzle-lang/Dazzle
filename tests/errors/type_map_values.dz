@@ -1,0 +1,10 @@
+// expect: DZ0413
+// Replacing a typed entry ends a borrow returned by a checked lookup.
+
+fn main() {
+    let mut entries = TypeMap()
+    let _ = entries.insert(1 as i32)
+    let value = entries.get<i32>() or unreachable
+    let _ = entries.insert(2 as i32)
+    println!("{}", value)
+}

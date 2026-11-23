@@ -1154,6 +1154,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/collections/slice_iter_mut.dz", include_str!("std/collections/slice_iter_mut.dz")),
     ("<std>/collections/str_keys.dz", include_str!("std/collections/str_keys.dz")),
     ("<std>/collections/str_set.dz", include_str!("std/collections/str_set.dz")),
+    ("<std>/collections/type_map.dz", include_str!("std/collections/type_map.dz")),
     ("<std>/core/assert.dz", include_str!("std/core/assert.dz")),
     ("<std>/core/format.dz", include_str!("std/core/format.dz")),
     ("<std>/core/formatter.dz", include_str!("std/core/formatter.dz")),

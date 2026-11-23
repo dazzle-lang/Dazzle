@@ -2,6 +2,18 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Checked type-keyed storage (T-0246)
+
+`TypeMap` holds one owned value per type. Each entry is boxed behind a private
+abstract base, whose virtual method supplies the stored type's `TypeId`. Lookups
+check that identity before downcasting. Insertion slots survive growth and
+replacement. A build with `type_info = "none"` leaves the map out of `std`.
+
+The benchmark ECS uses typed lookups for queries. On despawn it calls the typed
+remover for each slot in registration order. `tests/run/type_map` checks missing
+and mismatched lookups, slot stability, and drops of move-only entries.
+`tests/errors/type_map_values.dz` checks that replacement ends a prior borrow.
+
 ## Synchronized memory tracking (T-0038)
 
 One native lock covers records, frees, table growth, trusted element checks, and

@@ -11,8 +11,8 @@ area: concurrency
 [D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md) was settled
 in r144 after [T-0245](T-0245-try-break-d-0096-before-deciding.md). Spec §22.4 calls
 for atomic counts on `Rc` and `Weak` in parallel programs. Thread-local drops on workers
-(T-0247) and synchronized memory tracking (T-0038) are implemented. Safe `TypeMap`
-(T-0246) and ThreadSanitizer in CI (T-0248) have their own tasks. The notes below
+(T-0247), synchronized memory tracking (T-0038), and safe `TypeMap` storage for the
+ECS (T-0246) are implemented. T-0248 tracks ThreadSanitizer in CI. The notes below
 record the earlier plan.
 
 ## Where the code is
@@ -21,7 +21,7 @@ record the earlier plan.
 |---|---|
 | Static lifetime and generated entry hooks | `crates/dz_cpp/src/lib.rs` (`static_decl`, `thread_statics`) and `crates/dz_cpp/src/runtime.rs` (`register_thread_cleanup`) |
 | Reference counts and memory tracker | `crates/dz_project/src/std/memory/` (`rc_block.dz`, `rc.dz`, `weak.dz`, `tracker.dz`) |
-| Type-keyed world and milestone proof | `tests/bench_programs/ecs` |
+| Type-keyed storage and milestone proof | `crates/dz_project/src/std/collections/type_map.dz` and `tests/bench_programs/ecs` |
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole

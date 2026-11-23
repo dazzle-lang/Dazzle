@@ -2,10 +2,10 @@
 id: T-0246
 title: A safe TypeMap and owned trait objects, for a world keyed by type
 milestone: M19
-status: open
+status: done
 kind: feature
 area: stdlib
-where: `crates/dz_project/src/std/reflect/type_id.dz` (`TypeId`); `tests/bench_programs/ecs` (the world that would use it)
+where: `crates/dz_project/src/std/collections/type_map.dz` (`TypeMap`); `tests/bench_programs/ecs/libs/ecs/src/world.dz` (`World`)
 ---
 
 A prerequisite D-0096 names ("Known problems"): without it, an ECS world keyed by component
@@ -21,3 +21,8 @@ safe code. D-0096's per-type tie, `tie @[T] = m_sets[T]`, is written over such a
 
 **Done when** `ecs`'s world holds its sets in a `TypeMap` and its query reaches them with no
 `unsafe` in the world itself.
+
+**Done.** `TypeMap` owns entries through the existing abstract-base `Box` and verifies
+each stored type before a downcast. It provides typed lookups and stable insertion
+slots. `World` uses typed lookups for queries and walks registered storage removers
+in slot order for despawn.

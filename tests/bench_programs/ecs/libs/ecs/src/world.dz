@@ -5,15 +5,15 @@ pub struct World {
     m_generations: List<u32> = List<u32>()
     m_alive:       List<bool> = List<bool>()
     m_free:        List<u32> = List<u32>()
-    m_storages:    List<Box<AnyStorage>> = List<Box<AnyStorage>>()
-    m_ids:         HashMap<TypeId, usize> = HashMap<TypeId, usize>()
+    m_storages:    TypeMap = TypeMap()
+    m_removers:    List<fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values> = List<fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values>()
     m_systems:     List<fn(w: &mut World) kills w> = List<fn(w: &mut World) kills w>()
     m_resource:    Entity = Entity{ index: 0, generation: 0 }
 
     tie @entities = m_generations@items, m_alive@items, m_free@items
-    tie @components = m_storages@items, m_storages[*], m_ids@items, m_ids[*]
+    tie @components = m_storages@items, m_storages@values, m_removers@items
     tie @systems = m_systems@items
-    tie @stored = m_storages[*]@value
+    tie @stored = m_storages@values
 
     World() {
         // Entity 0 holds the world's resources, singleton components of its own.
@@ -41,10 +41,9 @@ pub struct World {
         if !self.is_alive(entity) {
             return
         }
-        for &mut s in m_storages {
-            if let &mut storage = s {
-                storage.remove(entity)
-            }
+        for i in 0..m_removers.len() {
+            let remove: fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values = m_removers[i]
+            remove(&mut m_storages, i, entity)
         }
         let i = entity.index as usize
         m_alive[i] = false
@@ -56,30 +55,17 @@ pub struct World {
     /// moves nothing, so a query may hold one storage while another is found.
     #[inline]
     pub fn storage<T>(&mut self) -> &mut Storage<T> in self@components {
-        let at: usize = m_ids.get(&typeid_of<T>()) or panic!("no entity has this component")
-        return self.storage_at<T>(at)
-    }
-
-    #[inline]
-    fn storage_at<T>(&mut self, i: usize) -> &mut Storage<T> in self@components {
-        let any = m_storages[i] or unreachable
-        // The id the index was found by says what the box was made as.
-        let p: ^mut AnyStorage = any
-        return unsafe {
-            p as ^mut Storage<T> or unreachable
-        }
+        return m_storages.get_mut<Storage<T>>() or panic!("no entity has this component")
     }
 
     /// The storage of `T`, made empty the first time `T` is given to an entity.
     fn storage_or_new<T>(&mut self) -> &mut Storage<T> in self@components kills self@components {
-        let id = typeid_of<T>()
-        if let &at = m_ids.get(&id) {
-            let i: usize = at
-            return self.storage_at<T>(i)
+        if let &mut storage = m_storages.get_mut<Storage<T>>() {
+            return storage
         }
-        m_storages.push(Box<Storage<T>>(Storage<T>{}))
-        m_ids.insert(id, m_storages.len() - 1)
-        return self.storage_at<T>(m_storages.len() - 1)
+        let slot = m_storages.insert(Storage<T>{})
+        m_removers.push(remove_component<T>)
+        return m_storages.get_mut_at<Storage<T>>(slot) or unreachable
     }
 
     pub fn insert<T>(&mut self, entity: Entity, value: T) kills self@components {
@@ -146,4 +132,13 @@ pub struct World {
     pub fn query<A>(&mut self) -> Query<A> in self@components {
         return Query<A>{ storage: self.storage<A>() }
     }
+}
+
+fn remove_component<T>(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values {
+    let ok = storages.update_at<Storage<T>, Entity>(slot, entity, remove_from_storage<T>)
+    assert(ok)
+}
+
+fn remove_from_storage<T>(storage: &mut Storage<T>, entity: Entity) kills storage@items, storage@values {
+    storage.remove(entity)
 }

@@ -11,8 +11,12 @@ use std::collections::{HashMap, HashSet};
 
 use dz_ast::*;
 use dz_diag::{codes, Diagnostic, Diagnostics};
-use dz_project::{ModuleId, Optimize, Workspace, BUILTIN_FLAGS};
+use dz_project::{ModuleId, Optimize, TypeInfo, Workspace, BUILTIN_FLAGS};
 use dz_resolve::ParsedFile;
+
+// Standard-library code can depend on the root's reflection mode. Keeping this
+// in the resolved flags also separates the generated std caches for the two cases.
+const STD_TYPE_INFO_FLAG: &str = "TYPE_INFO";
 
 /// What a build turns on besides each package's own defaults.
 #[derive(Clone, Debug, Default)]
@@ -110,6 +114,9 @@ pub fn resolve_flags(ws: &Workspace, opts: &BuildOptions, diags: &mut Diagnostic
     }
     if opts.track_memory || root.build.track_memory || root.build.check_trusted {
         on.entry(ws.prelude).or_default().insert("TRACK_MEMORY".to_owned());
+    }
+    if root.build.type_info != TypeInfo::None {
+        on.entry(ws.prelude).or_default().insert(STD_TYPE_INFO_FLAG.to_owned());
     }
     Flags { on }
 }
@@ -210,6 +217,9 @@ impl Stripper<'_> {
     fn flag(&mut self, p: &Path) -> bool {
         let names: Vec<&str> = p.segments.iter().map(|s| s.name.name.as_str()).collect();
         let (target, name) = match names[..] {
+            [STD_TYPE_INFO_FLAG] if self.module == self.ws.prelude => {
+                return self.flags.is_on(self.module, STD_TYPE_INFO_FLAG);
+            }
             [name] if BUILTIN_FLAGS.contains(&name) => return self.flags.is_on(self.module, name),
             [name] => (self.module, name),
             [alias, name] => {

@@ -11,15 +11,9 @@ impl Eq for Entity {
     }
 }
 
-/// What the world knows of a component's storage without knowing the component's type:
-/// enough to take an entity out of it when the entity is despawned.
-pub struct AnyStorage {
-    pub virtual fn remove(&mut self, _entity: Entity) kills self
-}
-
 /// One component type's sparse set: the values packed in a dense array, and for each entity
 /// slot the row its value is in, plus one, or zero when it has none.
-pub struct Storage<T> : AnyStorage {
+pub struct Storage<T> {
     m_sparse:   List<u32> = List<u32>()
     m_entities: List<Entity> = List<Entity>()
     m_values:   List<T> = List<T>()
@@ -79,7 +73,7 @@ pub struct Storage<T> : AnyStorage {
         m_values.push(value)
     }
 
-    pub override fn remove(&mut self, entity: Entity) kills self@items, self@values {
+    pub fn remove(&mut self, entity: Entity) kills self@items, self@values {
         let row = self.row_of(entity) or return
         let _ = m_values.swap_remove(row)
         let _ = m_entities.swap_remove(row)

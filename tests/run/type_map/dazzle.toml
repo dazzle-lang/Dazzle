@@ -1,0 +1,9 @@
+[module]
+name    = "type_map_test"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

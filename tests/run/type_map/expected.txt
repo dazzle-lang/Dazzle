@@ -1,0 +1,3 @@
+drop original owned entry
+2 7 13
+drop replaced owned entry
