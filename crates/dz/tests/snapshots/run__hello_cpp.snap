@@ -16,6 +16,8 @@ namespace hello {
 void main();
 void dz_drop_statics__();
 void dz_build_statics__();
+void dz_drop_thread_statics__();
+void dz_build_thread_statics__();
 void dz_build_all_statics__();
 
 }  // namespace hello
@@ -41,12 +43,22 @@ void dz_drop_statics__() {
 void dz_build_statics__() {
 }
 
+void dz_drop_thread_statics__() {
+}
+
+void dz_build_thread_statics__() {
+}
+
+static thread_local bool dz_thread_statics_started__ = false;
+
 static void dz_drop_all_statics__() {
     ::dz::hello::dz_drop_statics__();
     ::dz::std_::dz_drop_statics__();
 }
-[[maybe_unused]] static const int dz_statics_dropped_at_exit__ =
-    (::atexit(&dz_drop_all_statics__), 0);
+[[maybe_unused]] static const int dz_statics_dropped_at_exit__ = [] {
+    dz_thread_statics_started__ = true;
+    return ::atexit(&dz_drop_all_statics__);
+}();
 void dz_build_all_statics__() {
     ::dz::std_::dz_build_statics__();
     ::dz::hello::dz_build_statics__();
@@ -54,3 +66,17 @@ void dz_build_all_statics__() {
 
 }  // namespace hello
 }  // namespace dz
+
+static void dz_drop_worker_statics__() {
+    ::dz::hello::dz_drop_thread_statics__();
+    ::dz::std_::dz_drop_thread_statics__();
+}
+
+void dz::rt::use_thread_statics() {
+    if (::dz::hello::dz_thread_statics_started__) { return; }
+    ::dz::hello::dz_thread_statics_started__ = true;
+    static constexpr auto cleanup = &dz_drop_worker_statics__;
+    register_thread_cleanup(cleanup);
+    ::dz::std_::dz_build_thread_statics__();
+    ::dz::hello::dz_build_thread_statics__();
+}

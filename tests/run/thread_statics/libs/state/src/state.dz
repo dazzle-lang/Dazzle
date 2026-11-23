@@ -1,0 +1,20 @@
+struct State {
+    pub id: i32 = 0
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        println!("state {}", id)
+    }
+}
+
+#[thread_local]
+static STATE: State = State{ id: 1 }
+
+pub fn set_id(id: i32) {
+    STATE.id = id
+}
+
+pub fn get_id() -> i32 {
+    return STATE.id
+}

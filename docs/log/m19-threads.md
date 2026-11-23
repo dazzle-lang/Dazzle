@@ -2,6 +2,22 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Thread-local drops on workers (T-0247)
+
+The first use of a thread-local static that needs initialization or a drop installs
+a worker exit hook and initializes that thread's managed statics in dependency and
+declaration order. The generated hook walks the same order backwards at thread exit.
+It drops only thread-local values and resets each to its default before running its
+drop, so later drops can still read it. The primary thread's process exit hook keeps
+the existing order for both kinds of static (spec §7.7, §22.5).
+
+The cells use trivially destructible storage so C++ does not end their lifetimes
+before the generated hooks run. MinGW's POSIX thread model uses a pthread cleanup
+callback because its C++ TLS destructors can run after the emulated TLS is freed.
+The `thread_statics` run fixture checks the drop order across two modules, on two
+native workers and the main thread, including a worker allocation that must be
+released before the main thread's memory tracker reports.
+
 ## `mut` parameters (r145; 2026-11-18)
 
 What deep `&` cost (below): an iterator taken by value could not step itself, since a

@@ -24,12 +24,11 @@ python tools/track.py check                      # headers, ids, milestones, §-
 new roadmap milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
 hot reload (M13), the web (M18) and a voxel game as the release's proof.
 
-1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
-   §6.7, §7.7, §8, §14): T-0245 tries to break D-0096 and brings its open questions to the
-   user; only once D-0096 is decided, T-0011 builds it, on its prerequisites T-0001 (`Arc`),
-   T-0038 (the tracker atomic), T-0246 (a safe `TypeMap`) and T-0247 (`thread_local` drops on
-   every thread), with T-0248 (ThreadSanitizer in CI) as its test. The proof is `ecs` running
-   its systems in parallel.
+1. **Threads (M19).** T-0245 reviewed D-0096, and r144 settled the rules in §22. T-0011
+   implements them, including atomic `Rc` and `Weak` counts in parallel programs (§22.4).
+   T-0247 (`thread_local` drops on every thread) is done. T-0038 covers the tracker,
+   T-0246 a safe `TypeMap`, and T-0248 ThreadSanitizer in CI. The proof is `ecs` running its
+   systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
    project and works with no network after setup. T-0250, the guide such an agent reads and
    the README's line to it, kept apart from the compiler's own `CLAUDE.md`; T-0064, `dz new
@@ -55,8 +54,8 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    region grows in place), and T-0143 (a memory budget or no heap: a design task and a
    language change, the user's to decide, which M17 then builds on).
 
-Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
-M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
+Suggested order: continue T-0011 and its prerequisites, with the remaining M21 work beside
+it. Build M20 from T-0250 and T-0064 outward.
 
 **0.2 is released (2026-11-17, `v0.2.0`, at r143)**, the user's call once every part of the
 plan below was done; its notes are `docs/releases/v0.2.0.md`. The sections below are the

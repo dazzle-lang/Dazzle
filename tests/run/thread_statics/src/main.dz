@@ -1,0 +1,61 @@
+struct Values {
+    pub items: List<i32> = List<i32>()
+}
+
+#[thread_local]
+static EARLY: Values = Values{}
+
+struct ProcessReport {
+}
+
+impl Drop for ProcessReport {
+    fn drop(&mut self) {
+        println!("process {} {} {}", EARLY.items.len(), REPORT.id, state::get_id())
+    }
+}
+
+static PROCESS_REPORT: ProcessReport = ProcessReport{}
+
+struct Report {
+    pub id: i32 = 0
+}
+
+impl Drop for Report {
+    fn drop(&mut self) {
+        println!("report {} {} {} {}", id, EARLY.items.len(), LATE.id, state::get_id())
+    }
+}
+
+#[thread_local]
+static REPORT: Report = Report{ id: 2 }
+
+struct Late {
+    pub id: i32 = 0
+}
+
+impl Drop for Late {
+    fn drop(&mut self) {
+        println!("late {}", id)
+    }
+}
+
+#[thread_local]
+static LATE: Late = Late{ id: 3 }
+
+fn use_statics(id: i32) {
+    println!("before {} {} {} {} {}", id, EARLY.items.len(), REPORT.id, LATE.id, state::get_id())
+    // The native runner joins this callback before the next thread touches the tracker.
+    unsafe {
+        EARLY.items.push(id)
+    }
+    REPORT.id = id
+    LATE.id = id + 1
+    state::set_id(id + 2)
+}
+
+fn main() {
+    use_statics(10)
+    native::run_worker(use_statics, 20)
+    native::run_worker(use_statics, 30)
+    println!("joined {} {} {} {}", EARLY.items.len(), REPORT.id, LATE.id, state::get_id())
+}

@@ -1,0 +1,6 @@
+[module]
+name    = "state"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }

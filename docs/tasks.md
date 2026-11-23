@@ -13,12 +13,11 @@ the detail (`python tools/track.py show T-NNNN` prints the same). How tasks work
 new roadmap milestones (§19), each with its criterion there. Not in 0.3, by the user's call the same day:
 hot reload (M13), the web (M18) and a voxel game as the release's proof.
 
-1. **Threads (M19).** Design first, since it reopens settled rules (§1.1's "on one thread",
-   §6.7, §7.7, §8, §14): T-0245 tries to break D-0096 and brings its open questions to the
-   user; only once D-0096 is decided, T-0011 builds it, on its prerequisites T-0001 (`Arc`),
-   T-0038 (the tracker atomic), T-0246 (a safe `TypeMap`) and T-0247 (`thread_local` drops on
-   every thread), with T-0248 (ThreadSanitizer in CI) as its test. The proof is `ecs` running
-   its systems in parallel.
+1. **Threads (M19).** T-0245 reviewed D-0096, and r144 settled the rules in §22. T-0011
+   implements them, including atomic `Rc` and `Weak` counts in parallel programs (§22.4).
+   T-0247 (`thread_local` drops on every thread) is done. T-0038 covers the tracker,
+   T-0246 a safe `TypeMap`, and T-0248 ThreadSanitizer in CI. The proof is `ecs` running its
+   systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
    project and works with no network after setup. T-0250, the guide such an agent reads and
    the README's line to it, kept apart from the compiler's own `CLAUDE.md`; T-0064, `dz new
@@ -44,8 +43,8 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    region grows in place), and T-0143 (a memory budget or no heap: a design task and a
    language change, the user's to decide, which M17 then builds on).
 
-Suggested order: T-0245 first, since it needs the user's time and blocks the rest of M19;
-M21 beside it, being mechanical and bounded; M20 from T-0250 and T-0064 outward.
+Suggested order: continue T-0011 and its prerequisites, with the remaining M21 work beside
+it. Build M20 from T-0250 and T-0064 outward.
 
 **0.2 is released (2026-11-17, `v0.2.0`, at r143)**, the user's call once every part of the
 plan below was done; its notes are `docs/releases/v0.2.0.md`. The sections below are the
@@ -311,14 +310,13 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (8 open)
+## M19 — Threads (7 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 - **[T-0038](tasks/T-0038-memory-tracking-single-threaded.md)** Memory tracking is single-threaded · deferral, stdlib
 - **[T-0246](tasks/T-0246-safe-typemap-owned-trait-objects-for.md)** A safe TypeMap and owned trait objects, for a world keyed by type · feature, stdlib
-- **[T-0247](tasks/T-0247-thread-local-static-dropped-on-every.md)** A thread_local static is dropped on every thread, not only the main one · feature, ownership
 - **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
 - **[T-0259](tasks/T-0259-closures-for-parallel-loop-bodies-first.md)** Closures (D-0112, spec §7.8) · feature, language
 

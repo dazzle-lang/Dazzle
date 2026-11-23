@@ -1,0 +1,18 @@
+[module]
+name    = "thread_statics"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+state = { path = "libs/state" }
+native = { cpp = "worker" }
+
+[cpp.libs.worker]
+root         = "native"
+sources      = ["*.cpp"]
+include_dirs = ["."]
+import       = ["worker.hpp"]
+keeps        = []
+
+[build]
+output = "executable"

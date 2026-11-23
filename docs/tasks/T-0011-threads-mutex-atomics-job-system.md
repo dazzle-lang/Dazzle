@@ -7,13 +7,21 @@ kind: feature
 area: concurrency
 ---
 
-**Scheduled for 0.3 by the user on 2026-11-18, as M19.** The design is
-[D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md); nothing is built
-until [T-0245](T-0245-try-break-d-0096-before-deciding.md) has tried to break it and the
-user has decided it. Its prerequisites are tasks of their own: `Arc` (T-0001), an atomic
-memory tracker (T-0038), a safe `TypeMap` (T-0246), `thread_local` drops on every thread
-(T-0247), and ThreadSanitizer in CI (T-0248). What is below predates D-0096; where they
-differ, D-0096 holds.
+**Scheduled for 0.3 by the user on 2026-11-18, as M19.** The design in
+[D-0096](../decisions/D-0096-threads-safe-multithreading-built-on-ties.md) was settled
+in r144 after [T-0245](T-0245-try-break-d-0096-before-deciding.md). Spec §22.4 calls
+for atomic counts on `Rc` and `Weak` in parallel programs. The memory tracker (T-0038),
+safe `TypeMap` (T-0246), and ThreadSanitizer in CI (T-0248) have their own tasks.
+Thread-local drops on workers are implemented (T-0247). The notes below record the
+earlier plan.
+
+## Where the code is
+
+| Piece | Location |
+|---|---|
+| Static lifetime and generated entry hooks | `crates/dz_cpp/src/lib.rs` (`static_decl`, `thread_statics`) and `crates/dz_cpp/src/runtime.rs` (`register_thread_cleanup`) |
+| Reference counts and memory tracker | `crates/dz_project/src/std/memory/` (`rc_block.dz`, `rc.dz`, `weak.dz`, `tracker.dz`) |
+| Type-keyed world and milestone proof | `tests/bench_programs/ecs` |
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole
