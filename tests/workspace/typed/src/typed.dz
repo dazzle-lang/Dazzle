@@ -2633,3 +2633,11 @@ fn mut_parameters(xs: &List<i32>) -> usize {
     let s = exclaimed(String("hi"))
     return (stepped_count(xs.iter()) + halved(8)) as usize + rest_of("abc") + s.byte_len()
 }
+
+// §22.9: an `Atomic` is built from a constant, and written through `&`.
+static TYPED_COUNTER: Atomic<u32> = Atomic<u32>(0)
+
+fn atomics(flag: &Atomic<bool>) -> u32 {
+    flag.store(true)
+    return TYPED_COUNTER.add(1)
+}

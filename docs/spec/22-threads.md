@@ -201,3 +201,33 @@ fn physics(q: Query<&mut Position, &Velocity>) {
 
 A query's type arguments are its access: a view whose type arguments include `&mut X` writes
 `@[X]`, and one with `&X` reads it, which is how §22.3 reads it.
+
+## 22.9 Atomics
+
+`[DECIDED — D-0113]` **`Atomic<T>`** is a value several threads may read and write at once.
+`T` is `bool` or an integer type, and nothing else can be made one.
+
+```dz
+static NEXT_ID: Atomic<u32> = Atomic<u32>(0)
+
+fn new_id() -> u32 {
+    return NEXT_ID.add(1)
+}
+```
+
+Every operation takes `&self`, since writing here is what the type is for:
+
+| Operation | What it does | Returns |
+|---|---|---|
+| `load()` | reads the value | the value |
+| `store(v)` | replaces the value | nothing |
+| `swap(v)` | replaces the value | the value it had |
+| `compare_exchange(expected, v)` | stores `v` if the value is `expected` | the value it found, so it stored exactly when that equals `expected` |
+| `add(n)`, `sub(n)` | integers only; wrap on overflow | the value it had |
+
+Every operation is **sequentially consistent**: all threads see all atomic operations in one
+order. Weaker orderings are not in the language yet.
+
+An `Atomic` is not plain data (§6.3), so using one by value moves it; two copies would be two
+separate counters. `clone` makes a new one from a single read. A `static` of one may start as
+`Atomic<T>(c)` for a constant `c` (§7.7).

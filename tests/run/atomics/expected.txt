@@ -1,0 +1,25 @@
+u8 before 250
+u8 wrapped 4
+u8 back 4
+u8 restored 250
+i8 before -128
+i8 wrapped 127
+i16 swap -2
+i16 now 300
+i64 add -5000000000
+i64 now -4999999999
+isize missed -1
+isize kept -1
+isize hit -1
+isize set 9
+bool swap false
+bool now true
+clone apart true false
+add true
+sub true
+compare_exchange true
+highest true
+one winner true
+owner valid true
+tickets true
+no ticket twice true

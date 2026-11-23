@@ -1,0 +1,12 @@
+// expect: DZ0301
+// What an `Atomic` can hold is `std`'s to say: its bound cannot be named, so not implemented.
+
+struct Wide {
+    pub a: u64 = 0
+    pub b: u64 = 0
+}
+
+impl AtomicValue for Wide {
+}
+
+fn main() {}

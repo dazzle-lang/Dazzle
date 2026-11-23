@@ -1,0 +1,17 @@
+[module]
+name    = "atomics"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+native = { cpp = "workers" }
+
+[cpp.libs.workers]
+root         = "native"
+sources      = ["*.cpp"]
+include_dirs = ["."]
+import       = ["workers.hpp"]
+keeps        = []
+
+[build]
+output = "executable"

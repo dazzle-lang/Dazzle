@@ -1210,6 +1210,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/reflect/type_kind.dz", include_str!("std/reflect/type_kind.dz")),
     ("<std>/reflect/variant_info.dz", include_str!("std/reflect/variant_info.dz")),
     ("<std>/reflect/visibility.dz", include_str!("std/reflect/visibility.dz")),
+    ("<std>/sync/atomic.dz", include_str!("std/sync/atomic.dz")),
     ("<std>/text/chars.dz", include_str!("std/text/chars.dz")),
     ("<std>/text/join.dz", include_str!("std/text/join.dz")),
     ("<std>/text/string.dz", include_str!("std/text/string.dz")),

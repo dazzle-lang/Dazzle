@@ -2,6 +2,28 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `Atomic<T>` (T-0011, r146; 2026-11-23)
+
+The first of T-0011's four pieces. The user chose one generic type and sequentially
+consistent operations only (D-0113, §22.9).
+
+- **`std`** (`std/sync/atomic.dz`). The bounds, `AtomicValue` and `AtomicInteger`, are private
+  traits, so a program can neither name nor implement them. `add` and `sub` come from an
+  `impl` bounded on `AtomicInteger`, so `Atomic<bool>` has neither. `impl Clone` is what makes
+  the type not plain data.
+- **The runtime** (`NATIVE_CPP`). Six functions take their operands by address and a width,
+  so one set serves every `T`. C++17 has no `atomic_ref`, so GCC and Clang use the `__atomic`
+  builtins and `cl.exe` casts to `std::atomic<T>`, with assertions that it has `T`'s layout.
+  They live in `dz_native.cpp`, so each operation is a real call for now; moving them into the
+  header is the obvious step if a benchmark shows it.
+- **The checker.** `is_static_initialiser` accepts `Atomic<T>(constant)`. C++ emission needed
+  nothing: such a static is a `BuiltStatic`, built from `main` before any thread starts.
+
+`tests/run/atomics` races eight native threads on every operation and checks each width's
+wrapping. Checked by hand on g++ and clang++: warning-clean at `-O2` and five clean runs under
+ThreadSanitizer (the CI job is T-0248). `Send` and `Share` are not built, so nothing yet
+refuses a plain value shared between threads.
+
 ## Checked type-keyed storage (T-0246)
 
 `TypeMap` holds one owned value per type. Each entry is boxed behind a private

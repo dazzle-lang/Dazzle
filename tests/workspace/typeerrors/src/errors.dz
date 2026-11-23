@@ -1817,3 +1817,15 @@ fn steps_without_mut<view T: Iterate>(it: T) -> i32 {
 fn mut_on_a_reference(mut n: &mut i32) {
     n = 0
 }
+
+// §22.9: an `Atomic` holds `bool` or an integer, adds only integers, and a static of one is
+// built from a constant.
+fn atomic_of_a_float() {
+    let _a = Atomic<f32>(1.0)
+}
+
+fn atomic_add_on_bool(a: &Atomic<bool>) {
+    a.add(true)
+}
+
+static ATOMIC_FROM_A_CALL: Atomic<i32> = Atomic<i32>(a_runtime_value())

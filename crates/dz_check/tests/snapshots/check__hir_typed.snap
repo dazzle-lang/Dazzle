@@ -16286,6 +16286,233 @@ body impl#125 method hash -> u64
       call-method Hash::hash: u64
         field #0: u32
           local _0 self: TypeId
+body fn atomic_load -> void
+  param _0 target: ^u8
+  param _1 out: ^mut u8
+  param _2 width: usize
+  block
+    (empty)
+body fn atomic_store -> void
+  param _0 target: ^mut u8
+  param _1 value: ^u8
+  param _2 width: usize
+  block
+    (empty)
+body fn atomic_swap -> void
+  param _0 target: ^mut u8
+  param _1 value: ^u8
+  param _2 out: ^mut u8
+  param _3 width: usize
+  block
+    (empty)
+body fn atomic_compare_exchange -> void
+  param _0 target: ^mut u8
+  param _1 expected: ^u8
+  param _2 value: ^u8
+  param _3 out: ^mut u8
+  param _4 width: usize
+  block
+    (empty)
+body fn atomic_add -> void
+  param _0 target: ^mut u8
+  param _1 value: ^u8
+  param _2 out: ^mut u8
+  param _3 width: usize
+  block
+    (empty)
+body fn atomic_sub -> void
+  param _0 target: ^mut u8
+  param _1 value: ^u8
+  param _2 out: ^mut u8
+  param _3 width: usize
+  block
+    (empty)
+body fn atomic_bytes -> ^u8
+  param _0 value: &T
+  block
+    let _1 p: ^T
+      local _0 value: &T
+    return: !
+      block-value: ^u8
+        block
+          cast: ^u8
+            local _1 p: ^T
+body fn atomic_out -> ^mut u8
+  param _0 out: &mut u64
+  block
+    let _1 p: ^mut u64
+      local _0 out: &mut u64
+    return: !
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            local _1 p: ^mut u64
+body fn atomic_result -> T
+  param _0 out: &u64
+  block
+    let _1 p: ^u64
+      local _0 out: &u64
+    return: !
+      block-value: T
+        block
+          index: T
+            cast: ^T
+              local _1 p: ^u64
+            int 0: usize
+body ctor Atomic#0 -> void
+  param _0 self: Atomic<T>
+  param _1 value: T
+  block
+    assign =
+      field #0: T
+        local _0 self: Atomic<T>
+      move: T
+        local _1 value: T
+body method Atomic::load -> T
+  param _0 self: Atomic<T>
+  block
+    let _1 out: u64
+      int 0: u64
+    block-value: void
+      block
+        call atomic_load: void
+          call atomic_bytes: ^u8
+            ref: &T
+              field #0: T
+                local _0 self: Atomic<T>
+          call atomic_out: ^mut u8
+            ref mut: &mut u64
+              local _1 out: u64
+          type-query T::size: usize
+    return: !
+      call atomic_result: T
+        ref: &u64
+          local _1 out: u64
+body method Atomic::store -> void
+  param _0 self: Atomic<T>
+  param _1 value: T
+  block
+    block-value: void
+      block
+        call atomic_store: void
+          call-method Atomic::target: ^mut u8
+            local _0 self: Atomic<T>
+          call atomic_bytes: ^u8
+            ref: &T
+              local _1 value: T
+          type-query T::size: usize
+body method Atomic::swap -> T
+  param _0 self: Atomic<T>
+  param _1 value: T
+  block
+    let _2 out: u64
+      int 0: u64
+    block-value: void
+      block
+        call atomic_swap: void
+          call-method Atomic::target: ^mut u8
+            local _0 self: Atomic<T>
+          call atomic_bytes: ^u8
+            ref: &T
+              local _1 value: T
+          call atomic_out: ^mut u8
+            ref mut: &mut u64
+              local _2 out: u64
+          type-query T::size: usize
+    return: !
+      call atomic_result: T
+        ref: &u64
+          local _2 out: u64
+body method Atomic::compare_exchange -> T
+  param _0 self: Atomic<T>
+  param _1 expected: T
+  param _2 value: T
+  block
+    let _3 out: u64
+      int 0: u64
+    block-value: void
+      block
+        call atomic_compare_exchange: void
+          call-method Atomic::target: ^mut u8
+            local _0 self: Atomic<T>
+          call atomic_bytes: ^u8
+            ref: &T
+              local _1 expected: T
+          call atomic_bytes: ^u8
+            ref: &T
+              local _2 value: T
+          call atomic_out: ^mut u8
+            ref mut: &mut u64
+              local _3 out: u64
+          type-query T::size: usize
+    return: !
+      call atomic_result: T
+        ref: &u64
+          local _3 out: u64
+body method Atomic::target -> ^mut u8
+  param _0 self: Atomic<T>
+  block
+    return: !
+      block-value: ^mut u8
+        block
+          cast: ^mut u8
+            call atomic_bytes: ^u8
+              ref: &T
+                field #0: T
+                  local _0 self: Atomic<T>
+body impl#147 method add -> T
+  param _0 self: Atomic<T>
+  param _1 value: T
+  block
+    let _2 out: u64
+      int 0: u64
+    block-value: void
+      block
+        call atomic_add: void
+          call-method Atomic::target: ^mut u8
+            local _0 self: Atomic<T>
+          call atomic_bytes: ^u8
+            ref: &T
+              local _1 value: T
+          call atomic_out: ^mut u8
+            ref mut: &mut u64
+              local _2 out: u64
+          type-query T::size: usize
+    return: !
+      call atomic_result: T
+        ref: &u64
+          local _2 out: u64
+body impl#147 method sub -> T
+  param _0 self: Atomic<T>
+  param _1 value: T
+  block
+    let _2 out: u64
+      int 0: u64
+    block-value: void
+      block
+        call atomic_sub: void
+          call-method Atomic::target: ^mut u8
+            local _0 self: Atomic<T>
+          call atomic_bytes: ^u8
+            ref: &T
+              local _1 value: T
+          call atomic_out: ^mut u8
+            ref mut: &mut u64
+              local _2 out: u64
+          type-query T::size: usize
+    return: !
+      call atomic_result: T
+        ref: &u64
+          local _2 out: u64
+body copy Atomic -> void
+  param _0 self: Atomic<T>
+  param _1 other: &Atomic<T>
+  block
+    assign =
+      field #0: T
+        local _0 self: Atomic<T>
+      call-method Atomic::load: T
+        local _1 other: &Atomic<T>
 body field-default Chars.1 -> void
   block
     int 0: usize
@@ -16303,7 +16530,7 @@ body method Chars::offset -> usize
     return: !
       field #1: usize
         local _0 self: Chars
-body impl#126 method valid -> bool
+body impl#149 method valid -> bool
   param _0 self: Chars
   block
     return: !
@@ -16313,7 +16540,7 @@ body impl#126 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: Chars
-body impl#126 method get -> char
+body impl#149 method get -> char
   param _0 self: Chars
   block
     let (_1 c, _)
@@ -16325,7 +16552,7 @@ body impl#126 method get -> char
           local _0 self: Chars
     return: !
       local _1 c: char
-body impl#126 method advance -> void
+body impl#149 method advance -> void
   param _0 self: Chars
   block
     let (_, _1 width)
@@ -16530,7 +16757,7 @@ body fn is_utf8_boundary -> bool
               local _1 at: usize
           int 192: u32
         int 128: u32
-body impl#127 method join -> String
+body impl#150 method join -> String
   param _0 self: &[]&str
   param _1 separator: &str
   block
@@ -16557,7 +16784,7 @@ body impl#127 method join -> String
             local _3 i: usize
     return: !
       local _2 out: String
-body impl#128 method join -> String
+body impl#151 method join -> String
   param _0 self: List<const &str>
   param _1 separator: &str
   block
@@ -16585,7 +16812,7 @@ body impl#128 method join -> String
               local _3 i: usize
     return: !
       local _2 out: String
-body impl#129 method join -> String
+body impl#152 method join -> String
   param _0 self: List<String>
   param _1 separator: &str
   block
@@ -17457,7 +17684,7 @@ body copy String -> void
       local _0 self: String
       call-method String::as_str: &str
         local _1 other: &String
-body impl#132 method eq -> bool
+body impl#155 method eq -> bool
   param _0 self: String
   param _1 rhs: &String
   block
@@ -17467,7 +17694,7 @@ body impl#132 method eq -> bool
           local _0 self: String
         call-method String::as_str: &str
           local _1 rhs: &String
-body impl#133 method cmp -> Ordering
+body impl#156 method cmp -> Ordering
   param _0 self: String
   param _1 rhs: &String
   block
@@ -17479,32 +17706,32 @@ body impl#133 method cmp -> Ordering
         cast: &[]u8
           call-method String::as_str: &str
             local _1 rhs: &String
-body impl#134 method iter -> Chars
+body impl#157 method iter -> Chars
   param _0 self: String
   block
     return: !
       call-method String::chars: Chars
         local _0 self: String
-body impl#135 method convert -> &cstr
+body impl#158 method convert -> &cstr
   param _0 self: String
   block
     return: !
       call-method String::as_cstr: &cstr
         local _0 self: String
-body impl#136 method convert -> &str
+body impl#159 method convert -> &str
   param _0 self: String
   block
     return: !
       call-method String::as_str: &str
         local _0 self: String
-body impl#137 method hash -> u64
+body impl#160 method hash -> u64
   param _0 self: String
   block
     return: !
       call-method Hash::hash: u64
         call-method String::as_str: &str
           local _0 self: String
-body impl#138 method format -> void
+body impl#161 method format -> void
   param _0 self: String
   param _1 f: &mut Formatter
   block
@@ -18607,12 +18834,12 @@ body fn cut_bytes_failed -> const &str
               local _7 arg·: SourceLocation
     return: !
       str "": const &str
-body impl#139 method text -> &str
+body impl#162 method text -> &str
   param _0 self: &str
   block
     return: !
       local _0 self: &str
-body impl#140 method text -> &str
+body impl#163 method text -> &str
   param _0 self: String
   block
     return: !
@@ -18729,14 +18956,14 @@ body method Split::find_end -> void
               len: usize
                 field #0: &str
                   local _0 self: Split
-body impl#141 method valid -> bool
+body impl#164 method valid -> bool
   param _0 self: Split
   block
     return: !
       unary !: bool
         field #4: bool
           local _0 self: Split
-body impl#141 method get -> &str
+body impl#164 method get -> &str
   param _0 self: Split
   block
     return: !
@@ -18747,7 +18974,7 @@ body impl#141 method get -> &str
           local _0 self: Split
         field #3: usize
           local _0 self: Split
-body impl#141 method advance -> void
+body impl#164 method advance -> void
   param _0 self: Split
   block
     if: void
@@ -18821,7 +19048,7 @@ body method Lines::find_end -> void
               len: usize
                 field #0: &str
                   local _0 self: Lines
-body impl#142 method valid -> bool
+body impl#165 method valid -> bool
   param _0 self: Lines
   block
     return: !
@@ -18831,7 +19058,7 @@ body impl#142 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: Lines
-body impl#142 method get -> &str
+body impl#165 method get -> &str
   param _0 self: Lines
   block
     let _1 end: usize
@@ -18864,7 +19091,7 @@ body impl#142 method get -> &str
         field #1: usize
           local _0 self: Lines
         local _1 end: usize
-body impl#142 method advance -> void
+body impl#165 method advance -> void
   param _0 self: Lines
   block
     assign =
@@ -18940,7 +19167,7 @@ body method SplitWhitespace::find_word -> void
       field #2: usize
         local _0 self: SplitWhitespace
       local _3 i: usize
-body impl#143 method valid -> bool
+body impl#166 method valid -> bool
   param _0 self: SplitWhitespace
   block
     return: !
@@ -18950,7 +19177,7 @@ body impl#143 method valid -> bool
         len: usize
           field #0: &str
             local _0 self: SplitWhitespace
-body impl#143 method get -> &str
+body impl#166 method get -> &str
   param _0 self: SplitWhitespace
   block
     return: !
@@ -18961,7 +19188,7 @@ body impl#143 method get -> &str
           local _0 self: SplitWhitespace
         field #2: usize
           local _0 self: SplitWhitespace
-body impl#143 method advance -> void
+body impl#166 method advance -> void
   param _0 self: SplitWhitespace
   block
     call-method SplitWhitespace::find_word: void
@@ -19597,7 +19824,7 @@ body method Duration::is_zero -> bool
         field #0: u64
           local _0 self: Duration
         int 0: u64
-body impl#144 method add -> Duration
+body impl#167 method add -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -19609,7 +19836,7 @@ body impl#144 method add -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#145 method sub -> Duration
+body impl#168 method sub -> Duration
   param _0 self: Duration
   param _1 rhs: Duration
   block
@@ -19621,7 +19848,7 @@ body impl#145 method sub -> Duration
               local _0 self: Duration
             field #0: u64
               local _1 rhs: Duration
-body impl#146 method eq -> bool
+body impl#169 method eq -> bool
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -19631,7 +19858,7 @@ body impl#146 method eq -> bool
           local _0 self: Duration
         field #0: u64
           local _1 rhs: &Duration
-body impl#147 method cmp -> Ordering
+body impl#170 method cmp -> Ordering
   param _0 self: Duration
   param _1 rhs: &Duration
   block
@@ -19642,7 +19869,7 @@ body impl#147 method cmp -> Ordering
         ref: &u64
           field #0: u64
             local _1 rhs: &Duration
-body impl#148 method hash -> u64
+body impl#171 method hash -> u64
   param _0 self: Duration
   block
     return: !
@@ -19678,7 +19905,7 @@ body method Instant::since -> Duration
             local _0 self: Instant
           field #0: u64
             local _1 earlier: Instant
-body impl#149 method sub -> Duration
+body impl#172 method sub -> Duration
   param _0 self: Instant
   param _1 rhs: Instant
   block
@@ -19686,7 +19913,7 @@ body impl#149 method sub -> Duration
       call-method Instant::since: Duration
         local _0 self: Instant
         local _1 rhs: Instant
-body impl#150 method add -> Instant
+body impl#173 method add -> Instant
   param _0 self: Instant
   param _1 rhs: Duration
   block
@@ -19698,7 +19925,7 @@ body impl#150 method add -> Instant
               local _0 self: Instant
             call-method Duration::as_nanos: u64
               local _1 rhs: Duration
-body impl#151 method eq -> bool
+body impl#174 method eq -> bool
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -19708,7 +19935,7 @@ body impl#151 method eq -> bool
           local _0 self: Instant
         field #0: u64
           local _1 rhs: &Instant
-body impl#152 method cmp -> Ordering
+body impl#175 method cmp -> Ordering
   param _0 self: Instant
   param _1 rhs: &Instant
   block
@@ -20569,12 +20796,12 @@ body ctor Crate#0 -> void
       field #0: i32
         local _0 self: Crate
       local _1 w: i32
-body impl#156 method describe -> const &str
+body impl#179 method describe -> const &str
   param _0 self: Crate
   block
     return: !
       str "crate": const &str
-body impl#157 method weight -> i32
+body impl#180 method weight -> i32
   param _0 self: Crate
   block
     return: !
@@ -20718,7 +20945,7 @@ body fn enum_variants_without_naming_the_type -> bool
         binary ==: bool
           local _0 l: Layer
           local _2 b: Layer
-body impl#158 method eq -> bool
+body impl#181 method eq -> bool
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -20728,7 +20955,7 @@ body impl#158 method eq -> bool
           local _0 self: Score
         field #0: i32
           local _1 rhs: &Score
-body impl#159 method cmp -> Ordering
+body impl#182 method cmp -> Ordering
   param _0 self: Score
   param _1 rhs: &Score
   block
@@ -20846,7 +21073,7 @@ body fn comparing_writable_with_read_only -> bool
         binary ==: bool
           local _5 w: ^mut i32
           local _6 r: ^i32
-body impl#160 method add -> Vec2
+body impl#183 method add -> Vec2
   param _0 self: Vec2
   param _1 rhs: Vec2
   block
@@ -20864,7 +21091,7 @@ body impl#160 method add -> Vec2
               local _0 self: Vec2
             field #1: f32
               local _1 rhs: Vec2
-body impl#161 method mul -> Vec2
+body impl#184 method mul -> Vec2
   param _0 self: Vec2
   param _1 rhs: f32
   block
@@ -21188,7 +21415,7 @@ body fn widths -> void
         call-method Formatter::finish: void
           local _15 fmt·: Formatter
           str "\n": &str
-body impl#162 method valid -> bool
+body impl#185 method valid -> bool
   param _0 self: Upto
   block
     return: !
@@ -21197,13 +21424,13 @@ body impl#162 method valid -> bool
           local _0 self: Upto
         field #1: i32
           local _0 self: Upto
-body impl#162 method get -> i32
+body impl#185 method get -> i32
   param _0 self: Upto
   block
     return: !
       field #0: i32
         local _0 self: Upto
-body impl#162 method advance -> void
+body impl#185 method advance -> void
   param _0 self: Upto
   block
     assign +=
@@ -21456,7 +21683,7 @@ body fn copies -> i32
           local _0 t: (i32, i32)
         tuple-index #1: i32
           local _0 t: (i32, i32)
-body impl#164 method mul -> Scale
+body impl#187 method mul -> Scale
   param _0 self: Scale
   param _1 rhs: f32
   block
@@ -21467,7 +21694,7 @@ body impl#164 method mul -> Scale
             field #0: f32
               local _0 self: Scale
             local _1 rhs: f32
-body impl#165 method mul -> f32
+body impl#188 method mul -> f32
   param _0 self: Scale
   param _1 rhs: Scale
   block
@@ -21509,7 +21736,7 @@ body method Label::shout -> const &str
     return: !
       call-method Label::label: const &str
         local _0 self: Label
-body impl#166 method label -> const &str
+body impl#189 method label -> const &str
   param _0 self: f32
   block
     return: !
@@ -21520,7 +21747,7 @@ body fn labels -> const &str
     return: !
       call-method Label::shout: const &str
         local _0 x: f32
-body impl#167 method label -> const &str
+body impl#190 method label -> const &str
   param _0 self: Wrap<T>
   block
     return: !
@@ -21533,7 +21760,7 @@ body fn wrapped -> const &str
     return: !
       call-method Label::label: const &str
         local _0 w: Wrap<f32>
-body impl#168 method shout -> const &str
+body impl#191 method shout -> const &str
   param _0 self: f32
   block
     return: !
@@ -22059,7 +22286,7 @@ body fn shares_an_abstract -> usize
         cast: usize
           call-method Nullable::is_null: bool
             local _2 watch: Weak<Drawable>
-body impl#171 method measure -> i32
+body impl#194 method measure -> i32
   param _0 self: Drawable
   block
     return: !
@@ -22077,7 +22304,7 @@ body method Square::area -> i32
           local _0 self: Square
         field #2: i32
           local _0 self: Square
-body impl#172 method measure -> i32
+body impl#195 method measure -> i32
   param _0 self: Square
   block
     return: !
@@ -22419,7 +22646,7 @@ body field-default Tile.0 -> void
 body field-default Tile.1 -> void
   block
     int 0: i32
-body impl#173 method eq -> bool
+body impl#196 method eq -> bool
   param _0 self: Tile
   param _1 rhs: &Tile
   block
@@ -22435,7 +22662,7 @@ body impl#173 method eq -> bool
             local _0 self: Tile
           field #1: i32
             local _1 rhs: &Tile
-body impl#174 method hash -> u64
+body impl#197 method hash -> u64
   param _0 self: Tile
   block
     return: !
@@ -22446,7 +22673,7 @@ body impl#174 method hash -> u64
         call-method Hash::hash: u64
           field #1: i32
             local _0 self: Tile
-body impl#175 method eq -> bool
+body impl#198 method eq -> bool
   param _0 self: TileRef
   param _1 rhs: &TileRef
   block
@@ -22456,7 +22683,7 @@ body impl#175 method eq -> bool
           local _0 self: TileRef
         field #0: ^Tile
           local _1 rhs: &TileRef
-body impl#176 method hash -> u64
+body impl#199 method hash -> u64
   param _0 self: TileRef
   block
     return: !
@@ -22538,7 +22765,7 @@ body fn optionals -> i32
 body field-default Heading.0 -> void
   block
     int 0: i32
-body impl#177 method neg -> Heading
+body impl#200 method neg -> Heading
   param _0 self: Heading
   block
     return: !
@@ -22547,7 +22774,7 @@ body impl#177 method neg -> Heading
           unary -: i32
             field #0: i32
               local _0 self: Heading
-body impl#178 method eq -> bool
+body impl#201 method eq -> bool
   param _0 self: Heading
   param _1 rhs: &Heading
   block
@@ -22591,7 +22818,7 @@ body fn total_of -> i32
           local _3 x: i32
     return: !
       local _2 t: i32
-body impl#179 method named -> &str
+body impl#202 method named -> &str
   param _0 self: Heading
   block
     return: !
@@ -22695,7 +22922,7 @@ body fn named_calls -> i32
           int 3: i32
           int 2: i32
           str "d": &str
-body impl#180 method format -> void
+body impl#203 method format -> void
   param _0 self: Heading
   param _1 f: &mut Formatter
   block
@@ -24046,14 +24273,14 @@ body fn count_items -> i32
           int 1: i32
     return: !
       local _2 n: i32
-body impl#181 method valid -> bool
+body impl#204 method valid -> bool
   param _0 self: Flagged<I>
   block
     return: !
       call-method Iterate::valid: bool
         field #0: I
           local _0 self: Flagged<I>
-body impl#181 method get -> (I::Item, bool)
+body impl#204 method get -> (I::Item, bool)
   param _0 self: Flagged<I>
   block
     return: !
@@ -24062,7 +24289,7 @@ body impl#181 method get -> (I::Item, bool)
           field #0: I
             local _0 self: Flagged<I>
         bool true: bool
-body impl#181 method advance -> void
+body impl#204 method advance -> void
   param _0 self: Flagged<I>
   block
     call-method Iterate::advance: void
@@ -24093,7 +24320,7 @@ body fn seen_all -> i32
     return: !
       field #1: i32
         local _0 c: &mut Cursor<I>
-body impl#182 method steps -> SliceIter<String>
+body impl#205 method steps -> SliceIter<String>
   param _0 self: Roster
   block
     return: !
@@ -24143,13 +24370,13 @@ body fn projections -> i32
         call count_items: i32
           local _0 xs: &List<i32>
           fn-item ignore_int: fn(&i32) -> void
-body impl#183 method mul -> Scale
+body impl#206 method mul -> Scale
   param _0 self: f32
   param _1 rhs: Scale
   block
     return: !
       local _1 rhs: Scale
-body impl#184 method convert -> Grams
+body impl#207 method convert -> Grams
   param _0 self: f32
   block
     return: !
@@ -24421,7 +24648,7 @@ body drop Bookshelf -> void
   param _0 self: Bookshelf
   block
     (empty)
-body impl#186 method index -> &String
+body impl#209 method index -> &String
   param _0 self: Bookshelf
   param _1 i: usize
   block
@@ -24432,7 +24659,7 @@ body impl#186 method index -> &String
             field #0: List<String>
               local _0 self: Bookshelf
             local _1 i: usize
-body impl#187 method cut -> &[]String
+body impl#210 method cut -> &[]String
   param _0 self: Bookshelf
   param _1 from: usize
   param _2 to: usize?
@@ -24531,7 +24758,7 @@ body drop Rack -> void
   param _0 self: Rack
   block
     (empty)
-body impl#189 method iter -> SliceIter<i32>
+body impl#212 method iter -> SliceIter<i32>
   param _0 self: Rack
   block
     return: !
@@ -24954,7 +25181,7 @@ body fn dispatch -> void
           local _2 out: &mut List<String>
           move: String
             local _1 v: String
-body impl#190 method lay -> void
+body impl#213 method lay -> void
   param _0 self: Mailbox
   param _1 letter: String
   block
@@ -24962,7 +25189,7 @@ body impl#190 method lay -> void
       local _0 self: Mailbox
       move: String
         local _1 letter: String
-body impl#190 method lift -> String?
+body impl#213 method lift -> String?
   param _0 self: Mailbox
   block
     return: !
@@ -24971,7 +25198,7 @@ body impl#190 method lift -> String?
 body field-default Blank.0 -> void
   block
     int 0: i32
-body impl#191 method lay -> void
+body impl#214 method lay -> void
   param _0 self: Blank
   param _1 letter: String
   block
@@ -24981,7 +25208,7 @@ body impl#191 method lay -> void
       cast: i32
         call-method String::byte_len: usize
           local _1 letter: String
-body impl#191 method lift -> String?
+body impl#214 method lift -> String?
   param _0 self: Blank
   block
     assign -=
@@ -25084,7 +25311,7 @@ body fn pass_letters -> void
 body field-default Counting.0 -> void
   block
     int 0: usize
-body impl#192 method alloc -> ^mut u8
+body impl#215 method alloc -> ^mut u8
   param _0 self: Counting
   param _1 size: usize
   param _2 align: usize
@@ -25102,7 +25329,7 @@ body impl#192 method alloc -> ^mut u8
             local _1 size: usize
             local _2 align: usize
             local _3 loc: SourceLocation
-body impl#192 method realloc -> ^mut u8
+body impl#215 method realloc -> ^mut u8
   param _0 self: Counting
   param _1 p: ^mut u8
   param _2 old_size: usize
@@ -25120,7 +25347,7 @@ body impl#192 method realloc -> ^mut u8
             local _3 new_size: usize
             local _4 align: usize
             local _5 loc: SourceLocation
-body impl#192 method free -> void
+body impl#215 method free -> void
   param _0 self: Counting
   param _1 p: ^mut u8
   param _2 size: usize
@@ -25242,7 +25469,7 @@ body method Recorder::record_twice -> void
 body field-default Tape.0 -> void
   block
     int 0: i32
-body impl#193 method record -> void
+body impl#216 method record -> void
   param _0 self: Tape
   param _1 value: V
   block
@@ -25250,7 +25477,7 @@ body impl#193 method record -> void
       field #0: i32
         local _0 self: Tape
       int 1: i32
-body impl#193 method total -> i32
+body impl#216 method total -> i32
   param _0 self: Tape
   block
     return: !
@@ -25421,3 +25648,17 @@ body fn mut_parameters -> usize
             str "abc": &str
         call-method String::byte_len: usize
           local _1 s: String
+body static TYPED_COUNTER -> void
+  block
+    call-ctor Atomic#0: Atomic<u32>
+      int 0: u32
+body fn atomics -> u32
+  param _0 flag: &Atomic<bool>
+  block
+    call-method Atomic::store: void
+      local _0 flag: &Atomic<bool>
+      bool true: bool
+    return: !
+      call-method AtomicArithmetic::add: u32
+        static TYPED_COUNTER: Atomic<u32>
+        int 1: u32

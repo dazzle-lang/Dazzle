@@ -549,8 +549,8 @@ static SCRATCH: TempArena = TempArena{}
 - **The type is written.** A static is storage that every user of it relies on, so it is
   never inferred from its initialiser.
 - **The initialiser is built from constants**: literals, `const`s, `null`, `none`, and
-  struct, array, tuple and variant literals of those (DZ0553). Anything more is filled in
-  from `main`.
+  struct, array, tuple and variant literals of those, or `Atomic<T>(c)` of a constant `c`
+  (§22.9; DZ0553). Anything more is filled in from `main`.
 - **A static whose value takes code is built when the program starts, in a fixed order.** A
   struct literal leaves fields to their defaults, and a default may call a constructor, which
   may read another static. Every such static is built before `main`'s body runs: a module's

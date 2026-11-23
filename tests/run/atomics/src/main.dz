@@ -1,0 +1,103 @@
+const WORKERS: i32 = 8
+
+const PASSES: i32 = 20000
+
+static COUNT: Atomic<u64> = Atomic<u64>(0)
+
+static DOWN: Atomic<i32> = Atomic<i32>(0)
+
+static BY_CAS: Atomic<u32> = Atomic<u32>(0)
+
+static HIGHEST: Atomic<i32> = Atomic<i32>(-1)
+
+static OWNER: Atomic<i32> = Atomic<i32>(-1)
+
+static WINNERS: Atomic<u32> = Atomic<u32>(0)
+
+static TICKETS: Atomic<usize> = Atomic<usize>(0)
+
+static TICKET_SUM: Atomic<u64> = Atomic<u64>(0)
+
+/// Every worker races on each static: a lost update on any of them changes a total below.
+fn work(id: i32) {
+    // Exactly one worker finds the slot empty.
+    if OWNER.compare_exchange(-1, id) == -1 {
+        WINNERS.add(1)
+    }
+    for pass in 0..PASSES {
+        COUNT.add(1)
+        DOWN.sub(1)
+
+        let mut seen = BY_CAS.load()
+        loop {
+            let found = BY_CAS.compare_exchange(seen, seen + 1)
+            if found == seen {
+                break
+            }
+            seen = found
+        }
+
+        let candidate = id * PASSES + pass
+        let mut high = HIGHEST.load()
+        while candidate > high {
+            let found = HIGHEST.compare_exchange(high, candidate)
+            if found == high {
+                break
+            }
+            high = found
+        }
+
+        // Each ticket is handed out once, so together they are 0, 1, 2, … in some order.
+        TICKET_SUM.add(TICKETS.add(1) as u64)
+    }
+}
+
+fn widths() {
+    let small = Atomic<u8>(250)
+    println!("u8 before {}", small.add(10))
+    println!("u8 wrapped {}", small.load())
+    println!("u8 back {}", small.sub(10))
+    println!("u8 restored {}", small.load())
+
+    let signed = Atomic<i8>(-128)
+    println!("i8 before {}", signed.sub(1))
+    println!("i8 wrapped {}", signed.load())
+
+    let short = Atomic<i16>(-2)
+    println!("i16 swap {}", short.swap(300))
+    println!("i16 now {}", short.load())
+
+    let wide = Atomic<i64>(-5000000000)
+    println!("i64 add {}", wide.add(1))
+    println!("i64 now {}", wide.load())
+
+    let size = Atomic<isize>(-1)
+    println!("isize missed {}", size.compare_exchange(0, 9))
+    println!("isize kept {}", size.load())
+    println!("isize hit {}", size.compare_exchange(-1, 9))
+    println!("isize set {}", size.load())
+
+    let flag = Atomic<bool>(false)
+    println!("bool swap {}", flag.swap(true))
+    println!("bool now {}", flag.load())
+
+    let copy = flag.clone()
+    flag.store(false)
+    println!("clone apart {} {}", copy.load(), flag.load())
+}
+
+fn main() {
+    widths()
+    native::run_workers(work, WORKERS)
+
+    let total = WORKERS * PASSES
+    println!("add {}", COUNT.load() == total as u64)
+    println!("sub {}", DOWN.load() == -total)
+    println!("compare_exchange {}", BY_CAS.load() == total as u32)
+    println!("highest {}", HIGHEST.load() == WORKERS * PASSES - 1)
+    println!("one winner {}", WINNERS.load() == 1)
+    println!("owner valid {}", OWNER.load() >= 0 && OWNER.load() < WORKERS)
+    println!("tickets {}", TICKETS.load() == total as usize)
+    let n = total as u64
+    println!("no ticket twice {}", TICKET_SUM.load() == n * (n - 1) / 2)
+}

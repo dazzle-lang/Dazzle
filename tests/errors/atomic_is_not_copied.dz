@@ -1,0 +1,8 @@
+// expect: DZ0401
+// An `Atomic` is not plain data: a copy would be a second, separate counter.
+
+fn main() {
+    let a = Atomic<i32>(1)
+    let b = a
+    println!("{} {}", a.load(), b.load())
+}

@@ -1,0 +1,202 @@
+// Each takes its operands by address, as `width` bytes, so one native function serves every
+// type an `Atomic` can hold and no value is widened in a way that depends on byte order.
+extern fn atomic_load(target: ^u8, out: ^mut u8, width: usize)
+
+extern fn atomic_store(target: ^mut u8, value: ^u8, width: usize)
+
+extern fn atomic_swap(target: ^mut u8, value: ^u8, out: ^mut u8, width: usize)
+
+extern fn atomic_compare_exchange(
+    target: ^mut u8,
+    expected: ^u8,
+    value: ^u8,
+    out: ^mut u8,
+    width: usize
+)
+
+extern fn atomic_add(target: ^mut u8, value: ^u8, out: ^mut u8, width: usize)
+
+extern fn atomic_sub(target: ^mut u8, value: ^u8, out: ^mut u8, width: usize)
+
+/// What an `Atomic` can hold: `bool` and the integers. Implemented here and nowhere else.
+trait AtomicValue : Clone {
+}
+
+/// The `AtomicValue`s that can be added to and subtracted from: the integers.
+trait AtomicInteger : AtomicValue {
+}
+
+impl AtomicValue for bool {
+}
+
+impl AtomicValue for i8 {
+}
+
+impl AtomicValue for i16 {
+}
+
+impl AtomicValue for i32 {
+}
+
+impl AtomicValue for i64 {
+}
+
+impl AtomicValue for isize {
+}
+
+impl AtomicValue for u8 {
+}
+
+impl AtomicValue for u16 {
+}
+
+impl AtomicValue for u32 {
+}
+
+impl AtomicValue for u64 {
+}
+
+impl AtomicValue for usize {
+}
+
+impl AtomicInteger for i8 {
+}
+
+impl AtomicInteger for i16 {
+}
+
+impl AtomicInteger for i32 {
+}
+
+impl AtomicInteger for i64 {
+}
+
+impl AtomicInteger for isize {
+}
+
+impl AtomicInteger for u8 {
+}
+
+impl AtomicInteger for u16 {
+}
+
+impl AtomicInteger for u32 {
+}
+
+impl AtomicInteger for u64 {
+}
+
+impl AtomicInteger for usize {
+}
+
+/// `value`'s bytes, as a native call reads them.
+fn atomic_bytes<T>(value: &T) -> ^u8 {
+    let p: ^T = value
+    return unsafe {
+        p as ^u8
+    }
+}
+
+/// A `u64`'s bytes, as a native call writes a result into them.
+fn atomic_out(out: &mut u64) -> ^mut u8 {
+    let p: ^mut u64 = out
+    return unsafe {
+        p as ^mut u8
+    }
+}
+
+/// The `T` a native call wrote at the start of `out`. A `u64` is aligned for every `T`.
+fn atomic_result<T: AtomicValue>(out: &u64) -> T {
+    let p: ^u64 = out
+    return unsafe {
+        (p as ^T)[0].clone()
+    }
+}
+
+/// A value several threads may read and write at once (spec §22.9). Every operation is
+/// sequentially consistent: all threads see all atomic operations in one order. Each takes
+/// `&self`, since writing here is what the type is for.
+///
+/// Not plain data, so it is never copied by accident: two copies would be two counters.
+/// `clone` is explicit and reads the value once.
+pub struct Atomic<T: AtomicValue> {
+    m_value: T
+
+    pub Atomic(value: T) {
+        m_value = value
+    }
+
+    /// The current value.
+    pub fn load(&self) -> T {
+        let mut out: u64 = 0
+        unsafe {
+            atomic_load(atomic_bytes<T>(&m_value), atomic_out(&mut out), sizeof(T))
+        }
+        return atomic_result<T>(&out)
+    }
+
+    /// Replace the value.
+    pub fn store(&self, value: T) {
+        unsafe {
+            atomic_store(self.target(), atomic_bytes<T>(&value), sizeof(T))
+        }
+    }
+
+    /// Replace the value and return the one it had.
+    pub fn swap(&self, value: T) -> T {
+        let mut out: u64 = 0
+        unsafe {
+            atomic_swap(self.target(), atomic_bytes<T>(&value), atomic_out(&mut out), sizeof(T))
+        }
+        return atomic_result<T>(&out)
+    }
+
+    /// Store `value` if the current value is `expected`. Returns the value found, so the
+    /// store happened exactly when the result equals `expected`.
+    pub fn compare_exchange(&self, expected: T, value: T) -> T {
+        let mut out: u64 = 0
+        unsafe {
+            atomic_compare_exchange(self.target(), atomic_bytes<T>(&expected), atomic_bytes<T>(&value), atomic_out(&mut out), sizeof(T))
+        }
+        return atomic_result<T>(&out)
+    }
+
+    /// The field as the native calls write it. `&` is deep (§5.2), and this type is the
+    /// exception §22.1 names: the write goes through an atomic operation.
+    pub(module) fn target(&self) -> ^mut u8 {
+        return unsafe {
+            atomic_bytes<T>(&m_value) as ^mut u8
+        }
+    }
+}
+
+/// Adding and subtracting, for an `Atomic` of an integer. Both wrap on overflow and return
+/// the value from before the operation.
+pub trait AtomicArithmetic<T> {
+    fn add(&self, value: T) -> T
+    fn sub(&self, value: T) -> T
+}
+
+impl<T: AtomicInteger> AtomicArithmetic<T> for Atomic<T> {
+    fn add(&self, value: T) -> T {
+        let mut out: u64 = 0
+        unsafe {
+            atomic_add(self.target(), atomic_bytes<T>(&value), atomic_out(&mut out), sizeof(T))
+        }
+        return atomic_result<T>(&out)
+    }
+
+    fn sub(&self, value: T) -> T {
+        let mut out: u64 = 0
+        unsafe {
+            atomic_sub(self.target(), atomic_bytes<T>(&value), atomic_out(&mut out), sizeof(T))
+        }
+        return atomic_result<T>(&out)
+    }
+}
+
+impl<T: AtomicValue> Clone for Atomic<T> {
+    fn clone(&mut self, other: &Self) {
+        m_value = other.load()
+    }
+}

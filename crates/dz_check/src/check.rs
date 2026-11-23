@@ -5413,7 +5413,9 @@ impl<'a, 'c> Body<'a, 'c> {
             let p = def.name();
             // A type the language provides has no module for an `impl` to live in, so the
             // way to give it a trait is a struct around it (spec §7.6).
-            let help = if chosen.named().is_some() {
+            let help = if self.trait_out_of_reach(bound.trait_sym) {
+                self.out_of_reach_help(bound.trait_sym)
+            } else if chosen.named().is_some() {
                 format!("implement it: `impl {shown} for {t} {{ … }}` (spec §7.6)")
             } else {
                 format!(
@@ -5431,6 +5433,22 @@ impl<'a, 'c> Body<'a, 'c> {
             ok = false;
         }
         ok
+    }
+
+    /// Is this trait private to another module, so this one cannot implement it? `std` keeps
+    /// what an `Atomic` can hold that way (spec §22.9).
+    fn trait_out_of_reach(&self, tr: SymbolId) -> bool {
+        let s = self.cx.res.symbol(tr);
+        !dz_resolve::visible_from(s.vis, s.module, self.cx.module)
+    }
+
+    /// The help for a bound on such a trait, in place of telling the program to implement it.
+    fn out_of_reach_help(&self, tr: SymbolId) -> String {
+        format!(
+            "`{}` is private to the module that declares it, which decides what implements it; \
+             use one of those types",
+            self.cx.res.symbol(tr).name
+        )
     }
 
     /// `Mul<f32>` — a trait reference as it would be written, for a diagnostic.
@@ -6350,11 +6368,16 @@ impl<'a, 'c> Body<'a, 'c> {
                                     name.name
                                 ),
                                 format!("`{a}` does not implement `{b}`"),
-                                format!(
-                                    "`{}` comes from `{tname}`, implemented for `{t}` when its \
-                                     argument is `{b}`: implement `{b}` for `{a}` (spec §7.6)",
-                                    name.name
-                                ),
+                                if self.trait_out_of_reach(bound.trait_sym) {
+                                    self.out_of_reach_help(bound.trait_sym)
+                                } else {
+                                    format!(
+                                        "`{}` comes from `{tname}`, implemented for `{t}` when \
+                                         its argument is `{b}`: implement `{b}` for `{a}` (spec \
+                                         §7.6)",
+                                        name.name
+                                    )
+                                },
                             );
                             for a in args {
                                 self.expr(a, None);
@@ -9354,6 +9377,14 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             hir::ExprKind::ArrayLit(parts) | hir::ExprKind::Tuple(parts) => {
                 parts.iter().all(|p| self.is_static_initialiser(*p))
+            }
+            // `std`'s `Atomic` keeps its field private, so it has no literal to write. Its
+            // constructor only stores the value and reads no other static (spec §7.7, §22.9).
+            hir::ExprKind::Call { callee: hir::Callee::Ctor { owner, .. }, args } => {
+                let symbol = self.cx.res.symbol(*owner);
+                symbol.module == self.cx.res.prelude
+                    && symbol.name == "Atomic"
+                    && args.iter().all(|a| self.is_constant(*a))
             }
             _ => false,
         }

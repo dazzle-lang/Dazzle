@@ -2244,3 +2244,27 @@ error[DZ0591]: `n` is a reference, so `mut` changes nothing
      │                       ^^^^^^^^^^^^^^^ `mut` on a `&mut i32`
      │
      = help: a reference is never pointed elsewhere: assigning to it writes through it, and `&mut` in its type is what makes that possible; remove `mut` (spec §7.2)
+
+error[DZ0531]: `f32` does not implement `AtomicValue`
+     ┌─ typeerrors/src/errors.dz:1824:14
+     │
+1824 │     let _a = Atomic<f32>(1.0)
+     │              ^^^^^^^^^^^^^^^^ `T` is bounded by `AtomicValue`
+     │
+     = help: `AtomicValue` is private to the module that declares it, which decides what implements it; use one of those types
+
+error[DZ0531]: `Atomic<bool>` has `add` only when `bool` implements `AtomicInteger`
+     ┌─ typeerrors/src/errors.dz:1828:7
+     │
+1828 │     a.add(true)
+     │       ^^^ `bool` does not implement `AtomicInteger`
+     │
+     = help: `AtomicInteger` is private to the module that declares it, which decides what implements it; use one of those types
+
+error[DZ0553]: `ATOMIC_FROM_A_CALL` must be built from constants
+     ┌─ typeerrors/src/errors.dz:1831:42
+     │
+1831 │ static ATOMIC_FROM_A_CALL: Atomic<i32> = Atomic<i32>(a_runtime_value())
+     │                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ computed when the program starts
+     │
+     = help: a `static` starts as a literal, a `const`, `null`, `none`, or a struct, array or variant literal of those; fill it in from `main` if it needs more (spec §7.7)
