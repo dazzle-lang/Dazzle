@@ -23,6 +23,7 @@ safe code. D-0096's per-type tie, `tie @[T] = m_sets[T]`, is written over such a
 `unsafe` in the world itself.
 
 **Done.** `TypeMap` owns entries through the existing abstract-base `Box` and verifies
-each stored type before a downcast. It provides typed lookups and stable insertion
-slots. `World` uses typed lookups for queries and walks registered storage removers
-in slot order for despawn.
+each stored type before a downcast: `len`, `get<T>`, `get_mut<T>` and `insert<T>`.
+`World` finds every storage by type, despawn included, through one remover per
+component type. Owned trait objects, the other half of the title, are not built:
+nothing in the world needs one now that despawn finds storages by type.

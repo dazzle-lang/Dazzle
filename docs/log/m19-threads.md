@@ -6,12 +6,25 @@ The 0.3 milestone for threads (spec §19, §22). Newest first.
 
 `TypeMap` holds one owned value per type. Each entry is boxed behind a private
 abstract base, whose virtual method supplies the stored type's `TypeId`. Lookups
-check that identity before downcasting. Insertion slots survive growth and
-replacement. A build with `type_info = "none"` leaves the map out of `std`.
+check that identity before downcasting. A build with `type_info = "none"` leaves
+the map out of `std`.
 
-The benchmark ECS uses typed lookups for queries. On despawn it calls the typed
-remover for each slot in registration order. `tests/run/type_map` checks missing
-and mismatched lookups, slot stability, and drops of move-only entries.
+Its API is `len`, `get<T>`, `get_mut<T>` and `insert<T>`, and nothing more. The first
+version also handed out insertion slots, with `get_mut_at` and a callback-taking
+`update_at`, which existed for the ECS's despawn alone; they were taken out the same
+day. The ECS now keeps one remover per component type, a generic function pushed
+with the storage, that finds its storage by type, so nothing ties the remover list's
+order to the map's. Despawn is the one path that pays a lookup per storage.
+
+What the remover kills needs one indirection. A kill through `T`'s storage would be
+`self@stored@items`, a tie the map's private entry type does not have, so the remover
+takes the entity out through a function value declared `kills storage`, which the
+checker reads as all of `self@stored`. A tie per type (§22.8) makes it direct.
+The remover is a free function because a method named as a value checks clean and
+then fails in C++ generation, DZ0804 (T-0261).
+
+`tests/run/type_map` checks missing and mismatched lookups, values kept while the
+map grows, and replacement dropping the old value without adding an entry.
 `tests/errors/type_map_values.dz` checks that replacement ends a prior borrow.
 
 ## Synchronized memory tracking (T-0038)

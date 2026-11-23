@@ -18,44 +18,44 @@ impl Drop for Owned {
     }
 }
 
-fn add(first: &mut First, amount: i32) {
-    first.number += amount
-}
-
 fn main() {
     let mut entries = TypeMap()
     assert(entries.len() == 0)
     assert(entries.get<First>() == null)
 
-    let first = entries.insert(First{ number: 3 })
-    let second = entries.insert(Second{ number: 7 })
-    let owned = entries.insert(Owned{ text: String("original owned entry") })
-    assert(entries.get_mut_at<First>(second) == null)
-    assert(entries.get_mut_at<Second>(1000) == null)
-    assert(!entries.update_at<First, i32>(second, 99, add))
-    assert(entries.update_at<First, i32>(first, 5, add))
+    entries.insert(First{ number: 3 })
+    entries.insert(Second{ number: 7 })
+    entries.insert(Owned{ text: String("original owned entry") })
+    // A type is its own key: `Second` is not found as `First`, nor `i32` as `u32`.
+    assert(entries.get<i32>() == null)
+    if let &mut first = entries.get_mut<First>() {
+        first.number += 5
+    }
 
-    // Grow both the slot array and the key table.
-    let _ = entries.insert(1 as u8)
-    let _ = entries.insert(1 as u16)
-    let _ = entries.insert(1 as u32)
-    let _ = entries.insert(1 as u64)
-    let _ = entries.insert(1 as i8)
-    let _ = entries.insert(1 as i16)
-    let _ = entries.insert(1 as i32)
-    let _ = entries.insert(1 as i64)
-    let _ = entries.insert(1 as f32)
-    let _ = entries.insert(1 as f64)
+    // Grow the list of entries and the key table; the values already there stay put.
+    entries.insert(1 as u8)
+    entries.insert(1 as u16)
+    entries.insert(1 as u32)
+    entries.insert(1 as u64)
+    entries.insert(1 as i8)
+    entries.insert(1 as i16)
+    entries.insert(1 as i32)
+    entries.insert(1 as i64)
+    entries.insert(1 as f32)
+    entries.insert(1 as f64)
     assert(entries.len() == 13)
-    let value = entries.get_mut_at<First>(first) or unreachable
+    let value = entries.get_mut<First>() or unreachable
     assert(value.number == 8)
     value.number = 2
 
-    let replaced = entries.insert(Owned{ text: String("replaced owned entry") })
-    assert(replaced == owned)
+    // Replacing a value drops the old one and adds no entry.
+    entries.insert(Owned{ text: String("replaced owned entry") })
+    entries.insert(5 as u32)
+    assert(entries.len() == 13)
     let a = entries.get<First>() or unreachable
     let b = entries.get<Second>() or unreachable
+    let c = entries.get<u32>() or unreachable
     let stored = entries.get<Owned>() or unreachable
     assert(stored.text.as_str() == "replaced owned entry")
-    println!("{} {} {}", a.number, b.number, entries.len())
+    println!("{} {} {} {}", a.number, b.number, c, entries.len())
 }

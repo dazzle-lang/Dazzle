@@ -1,6 +1,6 @@
 #if TYPE_INFO {
-    /// Owns one value of each type. Available when the build has a type table (§13).
-    /// Entries keep their insertion slots when the map grows or a value is replaced.
+    /// Owns at most one value of each type, found again by that type (spec §22.8).
+    /// Available when the build has a type table (§13), since a type's key is its `TypeId`.
     pub struct TypeMap {
         m_entries: List<Box<TypeMapEntry>> = List<Box<TypeMapEntry>>()
         m_slots:   HashMap<TypeId, usize> = HashMap<TypeId, usize>()
@@ -10,16 +10,20 @@
 
         TypeMap() {}
 
+        /// How many types have a value.
         pub fn len(&self) -> usize {
             return m_entries.len()
         }
 
-        /// The value of type `T`, or `null` when it has no entry.
+        /// The value of type `T`, or `null` when it has none.
         #[inline]
         pub fn get<T>(&self) -> ^T in self@values {
             let id = typeid_of<T>()
             let slot: usize = m_slots.get(&id) or return null
             let entry = m_entries[slot] or unreachable
+            // Every entry is a `TypeMapValue` boxed by `insert`, under its own type's id, and
+            // the private base cannot be derived from outside this module. The check costs
+            // one virtual call and keeps a corrupted slot from becoming a bad cast.
             if entry.type_id() != id {
                 return null
             }
@@ -29,68 +33,39 @@
             }
         }
 
-        /// The value of type `T`, to change in place.
+        /// The value of type `T`, to change in place, or `null` when it has none.
         #[inline]
         pub fn get_mut<T>(&mut self) -> ^mut T in self@values {
-            let slot: usize = m_slots.get(&typeid_of<T>()) or return null
-            return self.get_mut_at<T>(slot)
-        }
-
-        /// Look up a known insertion slot. A missing slot or a different type returns
-        /// `null`, even if that slot is valid for another map.
-        #[inline]
-        pub fn get_mut_at<T>(&mut self, slot: usize) -> ^mut T in self@values {
-            if slot >= m_entries.len() {
-                return null
-            }
+            let id = typeid_of<T>()
+            let slot: usize = m_slots.get(&id) or return null
             let entry = m_entries[slot] or unreachable
-            if entry.type_id() != typeid_of<T>() {
+            if entry.type_id() != id {
                 return null
             }
-            // This private base is only ever boxed as TypeMapValue<T>, whose type_id
-            // describes its actual T. That makes the downcast safe after the check.
             let p: ^mut TypeMapEntry = entry
             return unsafe {
                 &mut (p as ^mut TypeMapValue<T>)[0].value
             }
         }
 
-        /// Apply an operation that can invalidate borrows into the stored value.
-        #[inline]
-        pub fn update_at<T, A>(
-            &mut self,
-            slot: usize,
-            arg: A,
-            update: fn(value: &mut T, arg: A) kills value
-        ) -> bool kills self@values {
-            if let &mut value = self.get_mut_at<T>(slot) {
-                update(&mut value, arg)
-                return true
-            }
-            return false
-        }
-
-        /// Store `value` and return its insertion slot. An existing value of the same
-        /// type is dropped and its slot reused. Insertion invalidates borrows from the map.
+        /// Store `value` as the map's `T`, dropping the one it had. A value stays where it is
+        /// when others are added, but any reference into the map ends here.
         pub fn insert<T>(
             &mut self,
             value: T,
             loc: SourceLocation = #location
-        ) -> usize kills self@items, self@values sends value to self {
-            let id = typeid_of<T>()
-            if let &slot = m_slots.get(&id) {
-                let at: usize = slot
-                let existing = self.get_mut_at<T>(at) or unreachable
+        ) kills self@items, self@values sends value to self {
+            if let &mut existing = self.get_mut<T>() {
                 existing = value
-                return at
+                return
             }
-            let next = m_entries.len()
+            m_slots.insert(typeid_of<T>(), m_entries.len(), loc)
             m_entries.push(Box<TypeMapValue<T>>(TypeMapValue<T>{ value: value }, loc), loc)
-            m_slots.insert(id, next, loc)
-            return next
         }
     }
 
+    /// What every entry is boxed as, so the map can hold values of different types in one
+    /// list and check which one an entry holds before casting to it.
     struct TypeMapEntry {
         pub virtual fn type_id(&self) -> TypeId
     }

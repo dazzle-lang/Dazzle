@@ -6,7 +6,9 @@ pub struct World {
     m_alive:       List<bool> = List<bool>()
     m_free:        List<u32> = List<u32>()
     m_storages:    TypeMap = TypeMap()
-    m_removers:    List<fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values> = List<fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values>()
+    // One per component type, made with its storage: what despawn calls to take an entity
+    // out of that storage without knowing its type.
+    m_removers:    List<fn(w: &mut World, entity: Entity) kills w@stored> = List<fn(w: &mut World, entity: Entity) kills w@stored>()
     m_systems:     List<fn(w: &mut World) kills w> = List<fn(w: &mut World) kills w>()
     m_resource:    Entity = Entity{ index: 0, generation: 0 }
 
@@ -42,8 +44,8 @@ pub struct World {
             return
         }
         for i in 0..m_removers.len() {
-            let remove: fn(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values = m_removers[i]
-            remove(&mut m_storages, i, entity)
+            let remove: fn(w: &mut World, entity: Entity) kills w@stored = m_removers[i]
+            remove(&mut self, entity)
         }
         let i = entity.index as usize
         m_alive[i] = false
@@ -58,14 +60,25 @@ pub struct World {
         return m_storages.get_mut<Storage<T>>() or panic!("no entity has this component")
     }
 
+    /// Take `entity` out of `T`'s storage, if `T` has one.
+    pub(module) fn remove_from_storage<T>(&mut self, entity: Entity) kills self@stored {
+        // The map cannot name `T`'s storage's own ties (`self@stored@items` is a tie of the
+        // map's private entry type), so the call is made through a function value that kills
+        // the whole storage, which is `self@stored`. A tie per type (spec §22.8) ends this.
+        let remove: fn(storage: &mut Storage<T>, entity: Entity) kills storage = take_out<T>
+        if let &mut storage = m_storages.get_mut<Storage<T>>() {
+            remove(&mut storage, entity)
+        }
+    }
+
     /// The storage of `T`, made empty the first time `T` is given to an entity.
     fn storage_or_new<T>(&mut self) -> &mut Storage<T> in self@components kills self@components {
         if let &mut storage = m_storages.get_mut<Storage<T>>() {
             return storage
         }
-        let slot = m_storages.insert(Storage<T>{})
+        m_storages.insert(Storage<T>{})
         m_removers.push(remove_component<T>)
-        return m_storages.get_mut_at<Storage<T>>(slot) or unreachable
+        return m_storages.get_mut<Storage<T>>() or unreachable
     }
 
     pub fn insert<T>(&mut self, entity: Entity, value: T) kills self@components {
@@ -134,11 +147,12 @@ pub struct World {
     }
 }
 
-fn remove_component<T>(storages: &mut TypeMap, slot: usize, entity: Entity) kills storages@values {
-    let ok = storages.update_at<Storage<T>, Entity>(slot, entity, remove_from_storage<T>)
-    assert(ok)
+/// Despawn's remover for component type `T`, pushed with `T`'s storage. This and `take_out`
+/// are free functions because a method taken as a value does not reach C++ yet (T-0261).
+fn remove_component<T>(w: &mut World, entity: Entity) kills w@stored {
+    w.remove_from_storage<T>(entity)
 }
 
-fn remove_from_storage<T>(storage: &mut Storage<T>, entity: Entity) kills storage@items, storage@values {
+fn take_out<T>(storage: &mut Storage<T>, entity: Entity) kills storage@items, storage@values {
     storage.remove(entity)
 }
