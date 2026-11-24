@@ -1,0 +1,11 @@
+// expect: DZ0596
+// `Send` comes from a type's fields; only `std` vouches for an exception (spec §22.2).
+
+struct Handle {
+    pub at: ^mut i32 = null
+}
+
+impl Send for Handle {
+}
+
+fn main() {}

@@ -803,8 +803,9 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }
-        TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends } => format!(
-            "fn({}){}{}{}{}",
+        TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends, main_thread } => format!(
+            "{}fn({}){}{}{}{}",
+            if *main_thread { "#[main_thread] " } else { "" },
             params
                 .iter()
                 .zip(param_names)

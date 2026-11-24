@@ -1045,6 +1045,10 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         kills: paths.to_vec(),
         kills_span: None,
         kills_unknown: unknown,
+        // The type's `#[main_thread]` is read where the value is called (spec §22.5).
+        main_thread: false,
+        main_thread_span: None,
+        entry_point: false,
         // What a function stored in it may send, and whose home its result may be in: a
         // call through the value places by these as by a declaration's (T-0202).
         sends: sends.to_vec(),
@@ -1084,7 +1088,7 @@ fn fn_types(
     }
     let mut inner = |t: &Ty| fn_types(table, res, module, t, span, out, depth + 1);
     match ty {
-        Ty::Fn { params, ret, kills } => {
+        Ty::Fn { params, ret, kills, .. } => {
             for p in params {
                 inner(p);
             }

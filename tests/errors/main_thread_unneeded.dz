@@ -1,0 +1,11 @@
+// expect: DZ0593
+// `#[main_thread]` on a body that needs no main thread keeps it from threads for nothing.
+
+#[main_thread]
+fn double(n: i32) -> i32 {
+    return n * 2
+}
+
+fn main() {
+    println!("{}", double(2))
+}

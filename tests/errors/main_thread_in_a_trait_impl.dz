@@ -1,0 +1,23 @@
+// expect: DZ0595
+// A call through the trait may run on any thread, so its implementation may not need the
+// main thread unless the trait's method says so.
+
+static DRAWN: u32 = 0
+
+trait Shape {
+    fn draw(&self)
+}
+
+struct Square {
+}
+
+impl Shape for Square {
+    fn draw(&self) {
+        DRAWN += 1
+    }
+}
+
+fn main() {
+    let s = Square{}
+    s.draw()
+}

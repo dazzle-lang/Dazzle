@@ -1,0 +1,12 @@
+// expect: DZ0592
+// A function that touches a plain static runs on the main thread only, and says so (spec §22.5).
+
+static FRAME_COUNT: u64 = 0
+
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn main() {
+    tick()
+}

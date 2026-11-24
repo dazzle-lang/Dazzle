@@ -1,0 +1,8 @@
+// expect: DZ0531
+// A generic body is checked once, so a `T` crosses only if its bound says `Send` (spec §8).
+
+fn start<T>(entry: fn(T), value: T) -> Thread {
+    return spawn(entry, value)
+}
+
+fn main() {}

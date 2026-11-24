@@ -1,0 +1,15 @@
+// expect: DZ0594
+// `spawn` takes a plain `fn(A)`, so a function that touches a plain static never reaches a
+// thread (spec §22.5, §22.11).
+
+static FRAME_COUNT: u64 = 0
+
+#[main_thread]
+fn work(n: u64) {
+    FRAME_COUNT += n
+}
+
+fn main() {
+    let mut t = spawn(work, 1)
+    t.join()
+}

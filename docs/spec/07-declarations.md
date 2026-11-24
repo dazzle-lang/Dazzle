@@ -577,7 +577,7 @@ static SCRATCH: TempArena = TempArena{}
   sees an empty value, never freed memory. `[DECIDED — D-0094]`
 - **A function that touches a plain static is `#[main_thread]`** (§22.5), as is every
   function calling one, so threads never race on it. A `const`, a `#[thread_local]` static,
-  one whose type is `Share` (a `Mutex`, an atomic) and one touched only inside `unsafe` need
+  one whose type synchronises (a `Mutex`, an atomic) and one touched only inside `unsafe` need
   nothing. `[DECIDED — D-0096]`
 
 `const` has no storage and is folded into its uses; `static` is one place in memory. The

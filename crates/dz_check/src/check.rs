@@ -11,7 +11,7 @@ use dz_span::Span;
 
 use crate::build::{BodyBuilder, Checked, CheckedBlock};
 use crate::impls::might_overlap;
-use crate::ty::{self, assignable, join, FnKills, IntTy, Ty};
+use crate::ty::{self, assignable, join, FnKills, IntTy, MainThread, Ty};
 use crate::{
     const_int_literal, decode_raw_string_literal, decode_string_literal, parse_float_literal,
     parse_int_literal, type_name, Ctx, FnSig, ForeignUnsafe, ImplSig, ItemSig, ParamDef, TraitRef,
@@ -222,6 +222,22 @@ fn check_impl(cx: &mut Ctx, it: &Item, i: &ImplDecl) {
     let drop_trait = cx.prelude_trait("Drop");
     let copy_trait = cx.prelude_trait("Clone");
     let special = Some(trait_sym) == drop_trait || Some(trait_sym) == copy_trait;
+
+    // `Send` and `Share` come from a type's fields; an exception is a promise that nothing
+    // else checks, which only `std` makes, as it writes its containers' `kills` (spec §22.2).
+    if cx.table.crossing_of(trait_sym).is_some() && !cx.ws.module(cx.module).embedded {
+        cx.error_help(
+            codes::CROSSING_IMPL_OUTSIDE_STD,
+            imp.span,
+            format!("`{trait_name}` cannot be implemented outside the standard library"),
+            format!("`{me}` is `{trait_name}` exactly when its fields are"),
+            format!(
+                "the compiler works out `{trait_name}` from a type's fields, so a type has it \
+                 by holding what has it; to share a value between threads, hold it in a \
+                 `Mutex` or an atomic (spec §22.2)"
+            ),
+        );
+    }
 
     // One implementation of a trait per type and arguments, or a call could not choose.
     // Reported at the later one. `Drop` and `Copy` have their own "declared twice".
@@ -1010,6 +1026,7 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
             MemberKind::Ctor(f) => {
                 // A constructor runs on the object, so `self` is mutable.
                 let (params, variadic) = cx.param_sigs(&f.params);
+                let marked = m.attrs.iter().find(|a| a.name.name == "main_thread");
                 let sig = FnSig {
                     ret_cast: false,
                     dispatch: Dispatch::Static,
@@ -1031,6 +1048,9 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     kills: Vec::new(),
                     kills_span: None,
                     kills_unknown: false,
+                    main_thread: marked.is_some(),
+                    main_thread_span: marked.map(|a| a.span),
+                    entry_point: false,
                     sends: Vec::new(),
                     sends_span: None,
                     ret_span: None,
@@ -1201,6 +1221,9 @@ struct Body<'a, 'c> {
     /// In a view struct's constructor, the reference fields its opening statements have yet
     /// to bind, by index and name (spec §6.7). Empty everywhere else.
     unbound: Vec<(usize, String)>,
+    /// What this body does outside `unsafe` that needs the main thread, and why, in
+    /// order: held to the function's `#[main_thread]` when it ends (spec §22.5).
+    main_thread_needs: Vec<(Span, String)>,
     /// Whether the statement about to be checked is still among the constructor's opening
     /// ones, where `m_map = map` binds a reference field rather than writing through it.
     binding_prefix: bool,
@@ -1266,6 +1289,7 @@ impl<'a, 'c> Body<'a, 'c> {
             loops: Vec::new(),
             next_loop: 0,
             unbound: Vec::new(),
+            main_thread_needs: Vec::new(),
             binding_prefix: false,
             read_only_fields: Vec::new(),
             read_only_views: HashSet::new(),
@@ -1386,6 +1410,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// Register a body that is one expression: a `const` initialiser or a field default.
     fn finish_value(mut self, span: Span, value: Checked) {
+        self.settle_main_thread_value();
         let stmt = self.hir.stmt(span, hir::StmtKind::Expr(value.id));
         let root = self.hir.block(span, vec![stmt]);
         self.finish(root);
@@ -1525,10 +1550,11 @@ impl<'a, 'c> Body<'a, 'c> {
             Ty::Named { sym, args } => {
                 Ty::Named { sym: *sym, args: args.iter().map(|a| self.subst(a)).collect() }
             }
-            Ty::Fn { params, ret, kills } => Ty::Fn {
+            Ty::Fn { params, ret, kills, main_thread } => Ty::Fn {
                 params: params.iter().map(|p| self.subst(p)).collect(),
                 ret: rc(ret),
                 kills: kills.clone(),
+                main_thread: *main_thread,
             },
             Ty::Assoc(p) => self.cx.table.normalize(&Ty::Assoc(Rc::new(ty::Proj {
                 on: self.subst(&p.on),
@@ -1725,12 +1751,44 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return;
         }
+        // A function that runs on the main thread only, where any thread may call it
+        // (spec §22.5).
+        if let (
+            Ty::Fn { params, ret, kills, main_thread: MainThread(false) },
+            Ty::Fn { main_thread: MainThread(true), .. },
+        ) = (&expected, &actual)
+        {
+            let on_main = Ty::Fn {
+                params: params.clone(),
+                ret: ret.clone(),
+                kills: kills.clone(),
+                main_thread: MainThread(true),
+            };
+            if assignable(&on_main, &actual) {
+                self.cx.error_help(
+                    codes::MAIN_THREAD_FN_VALUE,
+                    span,
+                    "this function runs on the main thread only, and the function type does not say so",
+                    "a `#[main_thread]` function",
+                    "a function type without `#[main_thread]` may be called on any thread, so a \
+                     function that touches a plain static or C that needs the main thread cannot \
+                     be one; write the type `#[main_thread] fn(…)`, or store a function that runs \
+                     anywhere (spec §22.5)",
+                );
+                return;
+            }
+        }
         // A function that would fit but for its clauses (spec §6.7): what it kills, or
         // where its result points.
-        if let (Ty::Fn { params, ret, kills: wider }, Ty::Fn { kills: narrow, .. }) =
+        if let (Ty::Fn { params, ret, kills: wider, .. }, Ty::Fn { kills: narrow, .. }) =
             (&expected, &actual)
         {
-            let any = Ty::Fn { params: params.clone(), ret: ret.clone(), kills: FnKills::Unknown };
+            let any = Ty::Fn {
+                params: params.clone(),
+                ret: ret.clone(),
+                kills: FnKills::Unknown,
+                main_thread: MainThread(true),
+            };
             let listed = |paths: &[dz_ast::TiePath]| {
                 paths
                     .iter()
@@ -1935,6 +1993,228 @@ impl<'a, 'c> Body<'a, 'c> {
         ))
     }
 
+    // --- the main thread (spec §22.5) ---------------------------------------
+
+    /// Something this body does outside `unsafe` that only the main thread may do: touch a
+    /// plain static, or call a `#[main_thread]` function or C that is not thread-safe.
+    fn needs_main_thread(&mut self, span: Span, why: String) {
+        // A place may be checked more than once, as a receiver and then as a place; it is
+        // one use.
+        if self.unsafe_depth == 0 && !self.main_thread_needs.iter().any(|(s, _)| *s == span) {
+            self.main_thread_needs.push((span, why));
+        }
+    }
+
+    /// A call to `name`, whose signature is `sig`, from this body.
+    fn note_main_thread_call(&mut self, span: Span, sig: &FnSig, name: &str) {
+        if !sig.main_thread {
+            return;
+        }
+        let why = if sig.kills_unknown {
+            format!("calls `{name}`, from C or C++ its recipe does not mark `thread_safe`")
+        } else {
+            format!("calls `{name}`, which runs on the main thread only")
+        };
+        self.needs_main_thread(span, why);
+    }
+
+    /// A value made here, or taken by value, that runs a `#[main_thread]` drop when it
+    /// dies: wherever it is made or kept, it must die on the main thread (spec §22.5).
+    fn note_main_thread_value(&mut self, span: Span, ty: &Ty) {
+        // A default builds part of a value whose type holds it, and that value is noted
+        // wherever it is built.
+        if matches!(
+            self.hir.owner(),
+            BodyOwner::FieldDefault { .. } | BodyOwner::PayloadDefault { .. }
+        ) {
+            return;
+        }
+        if self.cx.table.dies_on_main_thread(ty) {
+            let n = self.cx.name_of(ty);
+            self.needs_main_thread(
+                span,
+                format!("holds a `{n}`, whose drop runs on the main thread only"),
+            );
+        }
+    }
+
+    /// A static named in this body. One every thread has its own, or one whose type
+    /// synchronises, needs nothing; any other is the main thread's (spec §7.7, §22.5).
+    fn note_static(&mut self, span: Span, sym: SymbolId, ty: &Ty) {
+        if self.cx.table.is_thread_local(sym) || self.cx.table.synchronises(ty) {
+            return;
+        }
+        let name = self.cx.res.symbol(sym).name.clone();
+        self.needs_main_thread(span, format!("touches the static `{name}`"));
+    }
+
+    /// What `#[main_thread]` may be on this body's function: `Some(false)` when it
+    /// implements a trait method or overrides a `virtual` one that does not say it, since a
+    /// call through the trait or the base may run anywhere; `None` when it is the function's
+    /// own to say.
+    fn main_thread_ceiling(&self, sig: &FnSig) -> Option<(bool, String)> {
+        match self.hir.owner() {
+            BodyOwner::Copy(_) => Some((false, "`Clone::clone`".to_owned())),
+            BodyOwner::ImplMethod { imp, name } => {
+                let imp = self.cx.table.impls().get(*imp as usize)?;
+                let theirs = self.cx.table.trait_method(&imp.trait_ref, &imp.self_ty, name)?;
+                let t = self.cx.res.symbol(imp.trait_ref.trait_sym).name.clone();
+                Some((theirs.main_thread, format!("`{t}::{name}`")))
+            }
+            BodyOwner::Method { owner, name } if sig.dispatch == Dispatch::Override => {
+                let name = name.split('#').next().unwrap_or(name);
+                self.cx.table.with_bases(*owner).into_iter().skip(1).find_map(|b| {
+                    let bsig = self.cx.table.struct_sig(b)?;
+                    let key = bsig.overloads.get(name)?.first()?;
+                    let theirs = bsig.methods.get(key)?;
+                    let base = self.cx.res.symbol(b).name.clone();
+                    Some((theirs.main_thread, format!("`{base}::{name}`")))
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Hold a function's `#[main_thread]` to its body, as a `kills` clause is held (spec
+    /// §22.5): a body that needs the main thread says so, and one that says so needs it.
+    fn settle_main_thread(&mut self, f: &FnDecl, sig: &FnSig) {
+        // An `extern fn` is `std`'s, whose native code vouches for itself; a function with
+        // no body promises only what its signature says.
+        if f.body.is_none() || f.is_extern {
+            return;
+        }
+        let needs = std::mem::take(&mut self.main_thread_needs);
+        let ceiling = self.main_thread_ceiling(sig);
+        let name = f.name.name.clone();
+        let file = self.cx.file;
+        if let Some((span, why)) = needs.first().cloned() {
+            if sig.entry_point {
+                return;
+            }
+            match ceiling {
+                Some((false, theirs)) => {
+                    self.cx.diags.push(
+                        Diagnostic::error(
+                            codes::MAIN_THREAD_NOT_IN_TRAIT,
+                            format!("`{name}` runs on the main thread only, and {theirs} may run on any"),
+                        )
+                        .at(file, span, why)
+                        .with_help(format!(
+                            "a call through {theirs} may run on any thread, so what implements it \
+                             may not need the main thread: reach the static through a `Mutex` or \
+                             an atomic, or mark {theirs} `#[main_thread]` (spec §22.5)"
+                        )),
+                    );
+                }
+                _ if sig.main_thread => {}
+                _ => {
+                    let mut d = Diagnostic::error(
+                        codes::MAIN_THREAD_NOT_DECLARED,
+                        format!("`{name}` runs on the main thread only, and does not say so"),
+                    )
+                    .at(file, span, why)
+                    .with_help(
+                        "a function that touches a plain static, or calls one that does or C \
+                         that needs the main thread, is written `#[main_thread]`, so no other \
+                         thread ever runs it; or reach the static through a `Mutex` or an \
+                         atomic (spec §22.5)",
+                    );
+                    if needs.len() > 1 {
+                        d = d.with_note(format!(
+                            "and {} more place{} in the body",
+                            needs.len() - 1,
+                            if needs.len() == 2 { "" } else { "s" }
+                        ));
+                    }
+                    if let Some(edit) = self.main_thread_insertion(f) {
+                        d = d.with_fix("add `#[main_thread]`", vec![edit]);
+                    }
+                    self.cx.diags.push(d);
+                }
+            }
+            return;
+        }
+        let Some(written) = sig.main_thread_span else { return };
+        // A `virtual` method and a trait's default body speak for what replaces them, which
+        // may need the main thread where they do not.
+        let speaks_for_others = f.dispatch == Dispatch::Virtual
+            || matches!(self.hir.owner(), BodyOwner::Method { owner, .. }
+                if self.cx.res.symbol(*owner).kind == SymbolKind::Trait);
+        if speaks_for_others {
+            return;
+        }
+        let why = if sig.entry_point {
+            "an entry point is on the main thread already"
+        } else {
+            "nothing in the body needs the main thread"
+        };
+        let mut d = Diagnostic::error(
+            codes::MAIN_THREAD_UNNEEDED,
+            format!("`{name}` is `#[main_thread]`, and nothing in it needs to be"),
+        )
+        .at(file, written, why)
+        .with_help(
+            "`#[main_thread]` keeps a function off every other thread, so it is written only \
+             where the body touches a plain static or calls what does (spec §22.5)",
+        );
+        if let Some(edit) = self.main_thread_removal(written) {
+            d = d.with_fix("remove `#[main_thread]`", vec![edit]);
+        }
+        self.cx.diags.push(d);
+    }
+
+    /// A field's or a payload's default runs wherever its struct is built, on any thread, so
+    /// it may need nothing of the main thread (spec §22.5).
+    fn settle_main_thread_value(&mut self) {
+        let needs = std::mem::take(&mut self.main_thread_needs);
+        let Some((span, why)) = needs.into_iter().next() else { return };
+        if !matches!(
+            self.hir.owner(),
+            BodyOwner::FieldDefault { .. } | BodyOwner::PayloadDefault { .. }
+        ) {
+            return;
+        }
+        self.cx.error_help(
+            codes::MAIN_THREAD_NOT_DECLARED,
+            span,
+            "a default runs wherever its value is built, and this one needs the main thread",
+            why,
+            "a default runs on whichever thread builds the value, so it may not touch a plain \
+             static or call what does; set the field in a constructor or a function marked \
+             `#[main_thread]` instead (spec §22.5)",
+        );
+    }
+
+    /// `#[main_thread]` written on its own line above `f`, indented as `f` is.
+    fn main_thread_insertion(&self, f: &FnDecl) -> Option<dz_diag::Edit> {
+        let text = self.cx.map.try_get(self.cx.file)?.text();
+        // A function a macro wrote has its tokens at the invocation (§12): no edit here can
+        // reach its declaration.
+        let name = f.name.span;
+        if text.get(name.start as usize..name.end as usize) != Some(f.name.name.as_str()) {
+            return None;
+        }
+        let at = f.span.start as usize;
+        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+        let indent: String =
+            text[line_start..at].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+        let first = line_start + indent.len();
+        Some(dz_diag::Edit {
+            file: self.cx.file,
+            span: Span::new(first, first),
+            text: format!("#[main_thread]\n{indent}"),
+        })
+    }
+
+    /// The written `#[main_thread]` gone, with the space after it up to the next token.
+    fn main_thread_removal(&self, written: Span) -> Option<dz_diag::Edit> {
+        let text = self.cx.map.try_get(self.cx.file)?.text();
+        let start = written.start as usize;
+        let rest = text.get(written.end as usize..)?;
+        let end = written.end as usize + (rest.len() - rest.trim_start().len());
+        Some(dz_diag::Edit { file: self.cx.file, span: Span::new(start, end), text: String::new() })
+    }
+
     // --- functions --------------------------------------------------------
 
     fn function(&mut self, f: &FnDecl, sig: &FnSig) -> BlockId {
@@ -2044,6 +2324,7 @@ impl<'a, 'c> Body<'a, 'c> {
                      and `&mut` in its type is what makes that possible; remove `mut` (spec §7.2)",
                 );
             }
+            self.note_main_thread_value(p.name.span, &ty);
             self.bind(&ps.name, ty, p.is_mut, LocalKind::Param, p.name.span);
         }
         // A constructor's `: Base(…)`, checked here because C++ runs it before the body
@@ -2076,6 +2357,7 @@ impl<'a, 'c> Body<'a, 'c> {
         if self.hir.owner_is_ctor() {
             self.require_field_values(f);
         }
+        self.settle_main_thread(f, sig);
         self.pop();
         root
     }
@@ -2370,6 +2652,7 @@ impl<'a, 'c> Body<'a, 'c> {
                         (d.clone(), Some(c.id))
                     }
                     (Some(d), None) => {
+                        self.note_main_thread_value(l.pat.span, d);
                         // `let it: HashMapIter<K, V>` would start at its defaults, and a
                         // reference field has none (spec §6.2, §6.7).
                         if self.cx.table.holds_reference(d) {
@@ -4259,6 +4542,9 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// Push the node the checker just decided on, tagged with its source expression.
     fn mk(&mut self, e: &Expr, ty: Ty, kind: hir::ExprKind) -> Checked {
+        if matches!(kind, hir::ExprKind::Call { .. } | hir::ExprKind::StructLit { .. }) {
+            self.note_main_thread_value(e.span, &ty);
+        }
         self.hir.expr(e.span, ty, kind)
     }
 
@@ -5499,6 +5785,19 @@ impl<'a, 'c> Body<'a, 'c> {
             // way to give it a trait is a struct around it (spec §7.6).
             let help = if self.trait_out_of_reach(bound.trait_sym) {
                 self.out_of_reach_help(bound.trait_sym)
+            } else if let Some(which) = self.cx.table.crossing_of(bound.trait_sym) {
+                // Worked out from the fields, so no `impl` gives it: say what stands in the way.
+                let why = self
+                    .cx
+                    .table
+                    .crossing_blocker(chosen, which)
+                    .map(|b| format!("{}: ", self.cx.describe_blocker(&b)))
+                    .unwrap_or_default();
+                format!(
+                    "{why}a type is `{shown}` exactly when everything it holds is, and a raw \
+                     pointer that is not `own`, a view, an `Rc` or a value whose drop is the main \
+                     thread's never is; share through a `Mutex` or an atomic instead (spec §22.2)"
+                )
             } else if chosen.named().is_some() {
                 format!("implement it: `impl {shown} for {t} {{ … }}` (spec §7.6)")
             } else {
@@ -6803,7 +7102,14 @@ impl<'a, 'c> Body<'a, 'c> {
         let c = self.expr(callee, None);
         let callee_ty = c.ty.clone();
         let (ty, arg_ids) = match &callee_ty {
-            Ty::Fn { params, ret, .. } => {
+            Ty::Fn { params, ret, main_thread, .. } => {
+                if main_thread.0 {
+                    self.needs_main_thread(
+                        span,
+                        "calls a `#[main_thread] fn`, which runs on the main thread only"
+                            .to_owned(),
+                    );
+                }
                 let params = params.clone();
                 if params.len() != args.len() {
                     let (want, got) = (params.len(), args.len());
@@ -6892,6 +7198,9 @@ impl<'a, 'c> Body<'a, 'c> {
         span: Span,
         name: &str,
     ) -> Vec<hir::ExprId> {
+        // Every call a program writes comes here, so this is where a call that needs the
+        // main thread is seen (spec §22.5).
+        self.note_main_thread_call(span, sig, name);
         if let Some(at) = sig.variadic {
             return self.check_variadic_args(sig, at, args, span, name);
         }
@@ -8210,6 +8519,8 @@ impl<'a, 'c> Body<'a, 'c> {
                                     homes: sig.ret_home.iter().cloned().collect(),
                                 }
                             },
+                            // Where it may run, held to the type as its clauses are (§22.5).
+                            main_thread: MainThread(sig.main_thread),
                         },
                         hir::ExprKind::FnItem { sym, type_args },
                     )
@@ -8247,7 +8558,11 @@ impl<'a, 'c> Body<'a, 'c> {
                 _ => (Ty::Error, hir::ExprKind::Error),
             },
             SymbolKind::Static => match self.cx.table.get(sym) {
-                Some(ItemSig::Static(t)) => (t.clone(), hir::ExprKind::Static(sym)),
+                Some(ItemSig::Static(t)) => {
+                    let t = t.clone();
+                    self.note_static(e.span, sym, &t);
+                    (t, hir::ExprKind::Static(sym))
+                }
                 _ => (Ty::Error, hir::ExprKind::Error),
             },
             // A bare type name in value position is only meaningful as a constructor

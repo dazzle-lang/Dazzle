@@ -1014,6 +1014,50 @@ fn main() {
     assert!(body(&a, &p, "caller").demoted().is_empty(), "the check refused a placement");
 }
 
+/// What a thread is given outlives every region, and another thread would grow it, so it is
+/// built on the heap, never in the region of the code that started the thread (spec §22.6).
+#[test]
+fn what_a_thread_is_given_is_built_on_the_heap() {
+    let a = analyse(
+        r#"
+struct Job {
+    pub names: List<String> = List<String>()
+}
+fn sums(xs: List<i32>) {
+    let mut ys = xs
+    ys.push(1)
+}
+fn named(job: Job) {
+}
+fn start() {
+    let mut xs = List<i32>()
+    xs.push(7)
+    let mut t = spawn(sums, xs)
+    let mut job = Job{}
+    job.names.push(String::from("a"))
+    let mut u = spawn(named, job)
+    t.join()
+    u.join()
+}
+fn main() {
+    start()
+}
+"#,
+    );
+    // The rules propose the heap; proposing a region for everything, the check is what
+    // refuses it, so either way nothing a thread is given stays in `start`'s region.
+    for proposer in [Proposer::Rules, Proposer::Everything] {
+        let p = place(&a, proposer);
+        let ds = decisions(&a, &p, "start");
+        assert!(ds.len() >= 2, "{proposer:?}: the list and the job are placed: {ds:?}");
+        for d in ds {
+            assert!(d.contains(": heap: "), "{proposer:?}: {d}");
+        }
+    }
+    let p = place(&a, Proposer::Rules);
+    assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
+}
+
 fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }

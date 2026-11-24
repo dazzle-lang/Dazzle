@@ -79,10 +79,12 @@ pub struct Board {
 
 static BOARD: Board = Board{}
 
+#[main_thread]
 fn place(v: i32) kills BOARD.cells@items {
     BOARD.cells.push(v)
 }
 
+#[main_thread]
 fn held_across_a_kill() kills BOARD.cells@items {
     let first = &BOARD.cells[0]
     place(1)

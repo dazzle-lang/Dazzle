@@ -684,6 +684,9 @@ pub enum TypeKind {
         /// `sends s to xs`: the most a function stored in it may hand from one input to
         /// another (D-0097, T-0202). More than one pair is parenthesised, as `kills` is.
         sends: Vec<Send>,
+        /// `#[main_thread] fn(…)`: may hold a function that runs on the main thread only
+        /// (spec §22.5).
+        main_thread: bool,
     },
     /// `const str`: text in static storage (spec §5.3). Only `str` may follow `const`; the
     /// checker reports anything else.

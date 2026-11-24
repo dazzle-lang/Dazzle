@@ -200,3 +200,11 @@ impl<T: AtomicValue> Clone for Atomic<T> {
         m_value = other.load()
     }
 }
+
+// Every operation is atomic, so an `Atomic` may be written through `&` on any thread, and a
+// static of one needs no `#[main_thread]` (spec §22.2, §22.5).
+impl<T: AtomicValue> Share for Atomic<T> {
+}
+
+impl<T: AtomicValue> Synchronises for Atomic<T> {
+}

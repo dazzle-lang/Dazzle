@@ -157,6 +157,10 @@ pub struct CppLib {
     /// when the key is absent: then a function taking a pointer is `unsafe` to call, and
     /// one taking only values is safe either way (spec §15.2, D-0094 point 6).
     pub keeps: Option<Vec<(String, Span)>>,
+    /// `thread_safe = true`, or `thread_safe = ["f", "g"]`: which of the library's functions
+    /// may be called from any thread at once. The rest are `#[main_thread]` (spec §15.1,
+    /// §22.5), as raylib's and SDL's must be.
+    pub thread_safe: ThreadSafe<(String, Span)>,
     /// `uses = ["sdl3"]`: recipes of the same manifest whose headers this library's sources
     /// include, so they are compiled with those recipes' include dirs and shared defines.
     /// ImGui's SDL3 backend includes `SDL3/SDL.h`, which only SDL's CMake install provides,
@@ -468,6 +472,29 @@ pub struct Trust {
     /// `None` when no recipe vouched; otherwise the functions listed in `keeps`, written as
     /// Dazzle names them: `ma_device_init`, `JPH::BodyInterface::SetUserData`.
     pub keeps: Option<Vec<String>>,
+    /// The functions a recipe says may run on any thread (spec §15.1, §22.5).
+    pub thread_safe: ThreadSafe<String>,
+}
+
+/// A recipe's `thread_safe` (spec §15.1): none of the library's functions, every one, or the
+/// ones listed, named as `keeps` names them. `N` is a name, with its span where it was read.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ThreadSafe<N> {
+    #[default]
+    No,
+    All,
+    Only(Vec<N>),
+}
+
+impl ThreadSafe<String> {
+    /// Whether the function Dazzle calls `name` may run on any thread.
+    pub fn covers(&self, name: &str) -> bool {
+        match self {
+            ThreadSafe::No => false,
+            ThreadSafe::All => true,
+            ThreadSafe::Only(names) => names.iter().any(|n| n == name),
+        }
+    }
 }
 
 impl Workspace {
@@ -490,6 +517,21 @@ impl Workspace {
             // `unsafe`.
             Some(id) => {
                 let shared = self.modules[id.0 as usize].foreign.as_mut().expect("foreign");
+                shared.trust.thread_safe = match (
+                    std::mem::take(&mut shared.trust.thread_safe),
+                    foreign.trust.thread_safe,
+                ) {
+                    (ThreadSafe::All, _) | (_, ThreadSafe::All) => ThreadSafe::All,
+                    (ThreadSafe::Only(mut ours), ThreadSafe::Only(theirs)) => {
+                        for name in theirs {
+                            if !ours.contains(&name) {
+                                ours.push(name);
+                            }
+                        }
+                        ThreadSafe::Only(ours)
+                    }
+                    (ThreadSafe::No, other) | (other, ThreadSafe::No) => other,
+                };
                 if let Some(theirs) = foreign.trust.keeps {
                     let keeps = shared.trust.keeps.get_or_insert_with(Vec::new);
                     for name in theirs {
@@ -852,10 +894,12 @@ fn read_cmake_installs(ws: &mut Workspace) {
 ///
 /// Only `ids` import; `added` is every header file already in the map, so two imports that
 /// include one file share it.
-/// A `keeps` entry must name a function or method of what the recipe imports: a misspelt
-/// one would leave the function it meant safe to call (spec §15.2).
-fn unknown_keeps(
+/// A `keeps` or `thread_safe` entry must name a function or method of what the recipe
+/// imports: a misspelt one would leave the function it meant safe to call, or keep one on
+/// the main thread that was meant to run anywhere (spec §15.1, §15.2).
+fn unknown_names(
     header: &dz_cppimport::Header,
+    key: &str,
     keeps: &[(String, Span)],
     file: FileId,
     diags: &mut Diagnostics,
@@ -876,7 +920,7 @@ fn unknown_keeps(
         diags.push(
             Diagnostic::error(
                 codes::MANIFEST_BAD_VALUE,
-                format!("`keeps` names `{name}`, which the library's headers do not declare"),
+                format!("`{key}` names `{name}`, which the library's headers do not declare"),
             )
             .at(file, *span, "no function or method by this name")
             .with_help(help),
@@ -1043,11 +1087,22 @@ fn import_headers(
                         }
                         let keeps = recipe.keeps.as_ref().map(|k| {
                             if checked_keeps.insert((pf_file, recipe.name_span)) {
-                                unknown_keeps(&h, k, pf_file, diags);
+                                unknown_names(&h, "keeps", k, pf_file, diags);
                             }
                             k.iter().map(|(n, _)| n.clone()).collect()
                         });
-                        let trust = Trust { recipe: recipe.name.clone(), keeps };
+                        let thread_safe = match &recipe.thread_safe {
+                            ThreadSafe::No => ThreadSafe::No,
+                            ThreadSafe::All => ThreadSafe::All,
+                            ThreadSafe::Only(names) => {
+                                let at = names.first().map_or(recipe.name_span, |n| n.1);
+                                if checked_keeps.insert((pf_file, at)) {
+                                    unknown_names(&h, "thread_safe", names, pf_file, diags);
+                                }
+                                ThreadSafe::Only(names.iter().map(|(n, _)| n.clone()).collect())
+                            }
+                        };
+                        let trust = Trust { recipe: recipe.name.clone(), keeps, thread_safe };
                         ws.add_foreign(id, &dep, Foreign { header: h, files: ids, trust });
                     }
                     // The standard library has no manifest to point at, and its import failing
@@ -1213,6 +1268,10 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/sync/atomic.dz", include_str!("std/sync/atomic.dz")),
     ("<std>/sync/mutex.dz", include_str!("std/sync/mutex.dz")),
     ("<std>/sync/mutex_guard.dz", include_str!("std/sync/mutex_guard.dz")),
+    ("<std>/sync/thread.dz", include_str!("std/sync/thread.dz")),
+    ("<std>/sync/send.dz", include_str!("std/sync/send.dz")),
+    ("<std>/sync/share.dz", include_str!("std/sync/share.dz")),
+    ("<std>/sync/synchronises.dz", include_str!("std/sync/synchronises.dz")),
     ("<std>/text/chars.dz", include_str!("std/text/chars.dz")),
     ("<std>/text/join.dz", include_str!("std/text/join.dz")),
     ("<std>/text/string.dz", include_str!("std/text/string.dz")),
@@ -1361,6 +1420,8 @@ impl<'a> Loader<'a> {
                     // std's bodies are trusted already (D-0094 point 8), so it vouches for
                     // the C library it calls.
                     keeps: Some(Vec::new()),
+                    // `malloc` and `free` may be called from any thread (spec §22.5).
+                    thread_safe: ThreadSafe::All,
                     uses: Vec::new(),
                     cmake: None,
                     shared_defines: Vec::new(),
@@ -2387,6 +2448,7 @@ impl<'a> Loader<'a> {
             "flags",
             "import",
             "keeps",
+            "thread_safe",
             "cmake",
             "options",
             "uses",
@@ -2625,6 +2687,7 @@ impl<'a> Loader<'a> {
                     flags: l.flags,
                     import: l.import,
                     keeps: l.keeps,
+                    thread_safe: l.thread_safe,
                     uses: l.uses.into_iter().map(|(n, _)| n).collect(),
                     // Where it builds is the root project's to say, so it is placed when the
                     // whole workspace has been read (`place_cmake_builds`).
@@ -2766,6 +2829,26 @@ impl<'a> Loader<'a> {
                 }
                 continue;
             }
+            // `thread_safe = true` for the whole library, or a list of the functions that
+            // are (spec §15.1). The list is read below, with the other lists of names.
+            if key == "thread_safe" {
+                match &entry.value {
+                    Value::Bool(b, _) => {
+                        out.thread_safe = if *b { ThreadSafe::All } else { ThreadSafe::No };
+                        continue;
+                    }
+                    Value::Array(..) => out.thread_safe = ThreadSafe::Only(Vec::new()),
+                    other => {
+                        self.type_error(
+                            file,
+                            other,
+                            &format!("{}.{key}", table.name),
+                            "`true`, `false`, or an array of the functions that are",
+                        );
+                        continue;
+                    }
+                }
+            }
             let Value::Array(items, _) = &entry.value else {
                 self.type_error(
                     file,
@@ -2804,6 +2887,12 @@ impl<'a> Loader<'a> {
                     "import" => out.import.push((s.clone(), *span)),
                     // Checked against the header once it is read (`unknown_keeps`).
                     "keeps" => out.keeps.get_or_insert_with(Vec::new).push((s.clone(), *span)),
+                    // Checked against the header once it is read, as `keeps` is.
+                    "thread_safe" => {
+                        if let ThreadSafe::Only(names) = &mut out.thread_safe {
+                            names.push((s.clone(), *span));
+                        }
+                    }
                     // Checked against the manifest's other recipes once all are read.
                     "uses" => out.uses.push((s.clone(), *span)),
                     "sources" => {
@@ -2949,6 +3038,7 @@ struct Lists {
     flags: Vec<String>,
     import: Vec<(String, Span)>,
     keeps: Option<Vec<(String, Span)>>,
+    thread_safe: ThreadSafe<(String, Span)>,
     /// `cmake = "…"`: the folder, checked to hold a `CMakeLists.txt`.
     cmake: Option<PathBuf>,
     options: Vec<(String, String)>,

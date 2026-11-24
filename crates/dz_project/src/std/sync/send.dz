@@ -1,0 +1,13 @@
+/// A value that may move to another thread, or be lent to one as `&mut` (spec §22.2).
+///
+/// Nothing implements it: a type is `Send` when every field is, worked out by the compiler as
+/// it works out whether a type is plain. Numbers, `bool`, plain structs and arrays of them
+/// are; a raw pointer that is not `own` is not, since what it points at may be anyone's, and
+/// so neither is anything holding one, `Rc` and `Weak` included. Only `std` makes an
+/// exception, for a container whose memory the compiler places for the thread (§22.6).
+///
+/// ```dz
+/// fn start<T: Send>(value: T) -> Thread { … }
+/// ```
+pub trait Send {
+}

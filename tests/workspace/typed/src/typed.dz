@@ -1244,8 +1244,9 @@ fn carried_struct(m: &mut Motion) -> f32 kills m {
     }
 }
 
-// §7.7, §6.7: a static is read anywhere, and changed anywhere a clause says so. Writing
-// plain data kills nothing, so it needs no clause; a caller names the kill its callee does.
+// §7.7, §6.7: a static is read and changed on the main thread (§22.5), and changed wherever a
+// clause says so. Writing plain data kills nothing, so it needs no clause; a caller names the
+// kill its callee does.
 static TALLY: Walking = Walking{ speed: 2 }
 #[thread_local]
 static LIMITS: [2]i32 = [MAX_TALLY, 0]
@@ -1283,6 +1284,7 @@ fn trait_objects(s: &Square) -> i32 {
     return measured_through_an_object(s) + r.measure()
 }
 
+#[main_thread]
 fn statics() -> f32 {
     let before = TALLY.speed + LIMITS[0] as f32
     TALLY.speed = before
@@ -1297,15 +1299,18 @@ pub struct Journal {
 
 pub static JOURNAL: Journal = Journal{}
 
+#[main_thread]
 pub fn journals(v: i32) kills JOURNAL.lines@items {
     JOURNAL.lines.push(v)
 }
 
+#[main_thread]
 pub fn journals_twice(v: i32) kills JOURNAL.lines@items {
     journals(v)
     journals(v + 1)
 }
 
+#[main_thread]
 pub fn first_line() -> &i32 in JOURNAL.lines@items {
     return &JOURNAL.lines[0]
 }
@@ -2363,6 +2368,7 @@ fn oldest(letters: &mut List<String>) -> String in letters@home kills letters@it
     return letters.remove(0)
 }
 
+#[main_thread]
 fn dispatch(letters: &mut List<String>) sends letters[*] to OUTBOX kills letters@items, letters[*], OUTBOX {
     let v = letters.pop() or return
     if let &mut out = OUTBOX {
@@ -2650,6 +2656,60 @@ fn locked_add(by: i32) -> i32 {
     let value = held.get_mut()
     value += by
     return value
+}
+
+// §22.5: a function that touches a plain static says `#[main_thread]`, and so does one that
+// calls it, or calls through a `#[main_thread] fn`. A `const`, a `#[thread_local]` static, a
+// `Mutex`, an atomic and a static touched only inside `unsafe` need nothing.
+static TYPED_FRAMES: u64 = 0
+
+#[main_thread]
+fn typed_tick() {
+    TYPED_FRAMES += 1
+}
+
+#[main_thread]
+fn typed_frame(then: #[main_thread] fn()) {
+    typed_tick()
+    then()
+}
+
+fn anywhere() -> u32 {
+    let vouched = unsafe { TYPED_FRAMES }
+    return TYPED_COUNTER.add(1) + LIMITS[0] as u32 + MAX_TALLY as u32 + vouched as u32
+}
+
+// §22.5: any function fits a `#[main_thread] fn`, and one that runs anywhere fits a plain one.
+#[main_thread]
+fn main_thread_values() -> u32 {
+    let plain: fn() -> u32 = anywhere
+    let either: #[main_thread] fn() = typed_tick
+    typed_frame(either)
+    return plain()
+}
+
+// §22.2, §22.11: what is `Send` moves to a thread, a container and a `Box` with it, and a
+// generic body that names the bound may start one.
+struct Job {
+    pub names: List<String> = List<String>()
+    pub total: Box<u64> = null
+}
+
+fn run_job(job: Job) {
+    TYPED_COUNTER.add(job.names.len() as u32)
+}
+
+fn start_with<T: Send>(entry: fn(T), value: T) -> Thread {
+    return spawn(entry, value)
+}
+
+fn threads() {
+    let mut job = Job{}
+    job.names.push(String("a"))
+    let mut first = spawn(run_job, job)
+    let mut second = start_with(run_job, Job{})
+    first.join()
+    second.join()
 }
 
 // §4: a private constructor is reached through the type's own functions, a `pub(module)` one

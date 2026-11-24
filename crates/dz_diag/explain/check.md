@@ -1924,3 +1924,190 @@ fn main() {
     reset(&mut x)
 }
 ```
+
+## DZ0592
+
+A static is one place for the whole program, so two threads touching a plain one would race
+on it. A function that touches a plain static, or calls a function that does, or calls C its
+recipe does not mark `thread_safe`, runs on the main thread only, and says so with
+`#[main_thread]` (spec §22.5). That is what keeps it from `spawn` and every other way code
+runs on another thread: a `#[main_thread]` function is not a plain `fn(…)`. The mark is
+written rather than worked out, as a `kills` clause is, so a change to one body never
+silently stops a thread starting somewhere else; `dz fix` writes it. A `const`, a
+`#[thread_local]` static, a `Mutex` or an atomic needs no mark, and neither does a static
+touched only inside `unsafe`, which vouches for it there. An entry point, `main`, a `#[test]`
+or a `#[bench]`, is on the main thread already.
+
+```dz
+static FRAME_COUNT: u64 = 0
+
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn main() {
+    tick()
+}
+```
+
+```dz
+static FRAME_COUNT: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn main() {
+    tick()
+}
+```
+
+## DZ0593
+
+`#[main_thread]` keeps a function off every thread but the main one. Written on a function
+whose body touches no plain static and calls nothing that does, it would keep the function
+from threads for nothing, and keep its callers there too (spec §22.5). So it is written
+exactly where it is needed, as a `kills` clause is; `dz fix` removes it. A `virtual` method
+and a trait's method may carry it without needing it themselves, since they speak for what
+overrides or implements them.
+
+```dz
+#[main_thread]
+fn double(n: i32) -> i32 {
+    return n * 2
+}
+
+fn main() {
+    println!("{}", double(2))
+}
+```
+
+```dz
+fn double(n: i32) -> i32 {
+    return n * 2
+}
+
+fn main() {
+    println!("{}", double(2))
+}
+```
+
+## DZ0594
+
+A function type without `#[main_thread]`, `fn(…)`, may be called on any thread: it is what
+`spawn` takes. A function that runs on the main thread only cannot be one, or calling the
+value would run it anywhere (spec §22.5). Write the type `#[main_thread] fn(…)`, which any
+function fits, and a call through it is then the main thread's; or store a function that
+runs anywhere.
+
+```dz
+static COUNT: u64 = 0
+
+#[main_thread]
+fn bump() {
+    COUNT += 1
+}
+
+fn main() {
+    let f: fn() = bump
+    f()
+}
+```
+
+```dz
+static COUNT: u64 = 0
+
+#[main_thread]
+fn bump() {
+    COUNT += 1
+}
+
+fn main() {
+    let f: #[main_thread] fn() = bump
+    f()
+}
+```
+
+## DZ0595
+
+A call through a trait, or through a base's `virtual` method, does not know which
+implementation it reaches, so it may run on any thread unless the trait's method says
+`#[main_thread]`. An implementation, an override, or a `drop` cannot need the main thread
+when the method it implements does not say so (spec §22.5). Keep the work off plain statics,
+with a `Mutex` or an atomic, or mark the trait's method.
+
+```dz
+static DRAWN: u32 = 0
+
+trait Shape {
+    fn draw(&self)
+}
+
+struct Square {
+}
+
+impl Shape for Square {
+    fn draw(&self) {
+        DRAWN += 1
+    }
+}
+
+fn main() {
+    let s = Square{}
+    s.draw()
+}
+```
+
+```dz
+static DRAWN: Atomic<u32> = Atomic<u32>(0)
+
+trait Shape {
+    fn draw(&self)
+}
+
+struct Square {
+}
+
+impl Shape for Square {
+    fn draw(&self) {
+        DRAWN.add(1)
+    }
+}
+
+fn main() {
+    let s = Square{}
+    s.draw()
+}
+```
+
+## DZ0596
+
+A type is `Send` or `Share` exactly when its fields are, and the compiler works that out
+(spec §22.2). An implementation would be a promise nothing checks, that the type is safe on
+another thread whatever it holds, so only the standard library makes one, for `Mutex`, the
+atomics and the containers whose memory it places for each thread. A type holding a raw
+pointer is neither: to share a value between threads, hold it in a `Mutex` or an atomic.
+
+```dz
+struct Handle {
+    pub at: ^mut i32 = null
+}
+
+impl Send for Handle {
+}
+
+fn main() {
+}
+```
+
+```dz
+struct Counter {
+    pub hits: Atomic<u32> = Atomic<u32>(0)
+}
+
+fn main() {
+    let c = Counter{}
+    c.hits.add(1)
+}
+```

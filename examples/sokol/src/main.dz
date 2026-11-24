@@ -30,6 +30,7 @@ struct Fountain {
     m_pipeline: sk::sgl_pipeline
 
     /// Called once the window and the GPU are ready.
+    #[main_thread]
     pub fn init(&mut self) {
         let logger = sk::sg_logger{ func: sk::slog_func }
         sk::sg_setup(&sk::sg_desc{ environment: sk::sglue_environment(), logger: logger })
@@ -72,6 +73,7 @@ struct Fountain {
         }
     }
 
+    #[main_thread]
     fn draw(&self) {
         let w = sk::sapp_widthf()
         let h = sk::sapp_heightf()
@@ -107,11 +109,13 @@ struct Fountain {
         sk::sg_commit()
     }
 
+    #[main_thread]
     pub fn frame(&mut self) {
         self.update((sk::sapp_frame_duration() as f32).min(0.05))
         self.draw()
     }
 
+    #[main_thread]
     pub fn event(&mut self, e: &sk::sapp_event) {
         switch e.type {
             case SAPP_EVENTTYPE_MOUSE_MOVE {
@@ -131,6 +135,7 @@ struct Fountain {
         }
     }
 
+    #[main_thread]
     pub fn cleanup(&mut self) {
         sk::sgl_shutdown()
         sk::sg_shutdown()
@@ -146,16 +151,19 @@ fn app(data: ^mut void) -> ^mut Fountain {
     }
 }
 
+#[main_thread]
 fn init(data: ^mut void) {
     let app = app(data) or return
     app.init()
 }
 
+#[main_thread]
 fn frame(data: ^mut void) {
     let app = app(data) or return
     app.frame()
 }
 
+#[main_thread]
 fn event(e: ^sk::sapp_event, data: ^mut void) {
     let app = app(data) or return
     let e = unsafe {
@@ -164,6 +172,7 @@ fn event(e: ^sk::sapp_event, data: ^mut void) {
     app.event(e)
 }
 
+#[main_thread]
 fn cleanup(data: ^mut void) {
     let app = app(data) or return
     app.cleanup()

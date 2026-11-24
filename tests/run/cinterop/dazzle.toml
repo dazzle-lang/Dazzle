@@ -18,3 +18,6 @@ import       = ["mini.h"]
 # Vouches for the library: its functions taking a pointer are safe to call, except the one
 # that keeps it past the call (spec §15.2).
 keeps        = ["mini_watch"]
+# Pure arithmetic may run on any thread; `mini_log` keeps the last message, so it and the
+# rest stay on the main thread (spec §15.1, §22.5).
+thread_safe  = ["mini_add"]

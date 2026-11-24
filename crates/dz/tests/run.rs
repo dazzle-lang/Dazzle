@@ -3231,8 +3231,8 @@ fn a_clause_names_a_static_in_another_module() {
         "dz_static_clause",
         "[module]\nname = \"game\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\n\
          std = { open = true }\nworld = { path = \"world\" }\n",
-        "fn named(v: i32) kills world::SCORES.list@items {\n    world::add(v)\n}\n\n\
-         fn unnamed(v: i32) {\n    world::add(v)\n}\n\n\
+        "#[main_thread]\nfn named(v: i32) kills world::SCORES.list@items {\n    world::add(v)\n}\n\n\
+         #[main_thread]\nfn unnamed(v: i32) {\n    world::add(v)\n}\n\n\
          fn main() {\n    named(1)\n    unnamed(2)\n}\n",
     );
     std::fs::create_dir_all(dir.join("world/src")).unwrap();
@@ -3246,7 +3246,7 @@ fn a_clause_names_a_static_in_another_module() {
         dir.join("world/src/lib.dz"),
         "pub struct Scores {\n    pub list: List<i32> = List<i32>()\n}\n\n\
          pub static SCORES: Scores = Scores{}\n\n\
-         pub fn add(v: i32) kills SCORES.list@items {\n    SCORES.list.push(v)\n}\n",
+         #[main_thread]\npub fn add(v: i32) kills SCORES.list@items {\n    SCORES.list.push(v)\n}\n",
     )
     .unwrap();
     let check = || {
@@ -3255,7 +3255,7 @@ fn a_clause_names_a_static_in_another_module() {
     };
     let before = check();
     assert_eq!(before.matches("DZ0415").count(), 1, "{before}");
-    assert!(before.contains("main.dz:6:"), "the kill is `unnamed`'s call:\n{before}");
+    assert!(before.contains("main.dz:8:"), "the kill is `unnamed`'s call:\n{before}");
     let out = Command::new(dz()).args(["fix", dir.to_str().unwrap()]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let main = std::fs::read_to_string(dir.join("src/main.dz")).unwrap();

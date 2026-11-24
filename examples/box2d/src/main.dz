@@ -28,6 +28,7 @@ struct Demo {
     /// The bodies on screen: what adding one or starting over moves.
     tie @things = m_things@items
 
+    #[main_thread]
     pub fn init(&mut self) kills self@things {
         let logger = sk::sg_logger{ func: sk::slog_func }
         sk::sg_setup(&sk::sg_desc{ environment: sk::sglue_environment(), logger: logger })
@@ -36,6 +37,7 @@ struct Demo {
     }
 
     /// A fresh world: the ground, and a pyramid on it.
+    #[main_thread]
     fn reset(&mut self) kills self@things {
         if b2::b2World_IsValid(m_world) {
             b2::b2DestroyWorld(m_world)
@@ -66,10 +68,12 @@ struct Demo {
         }
     }
 
+    #[main_thread]
     fn width(&self) -> f32 {
         return sk::sapp_widthf() / SCALE
     }
 
+    #[main_thread]
     fn add_box(&mut self, at: Vec2, half: f32, color: Vec3) kills self@things {
         let mut def = b2::b2DefaultBodyDef()
         def.type = b2::b2BodyType::b2_dynamicBody
@@ -81,6 +85,7 @@ struct Demo {
         m_things.push(Thing{ body: body, half: Vec2{ x: half, y: half }, color: color })
     }
 
+    #[main_thread]
     fn throw_ball(&mut self, from: Vec2) kills self@things {
         let mut def = b2::b2DefaultBodyDef()
         def.type = b2::b2BodyType::b2_dynamicBody
@@ -99,6 +104,7 @@ struct Demo {
         m_things.push(Thing{ body: body, radius: 0.6, color: Vec3{ x: 0.85, y: 0.9, z: 1 } })
     }
 
+    #[main_thread]
     pub fn frame(&mut self) {
         let dt = (sk::sapp_frame_duration() as f32).min(1.0 / 30)
         b2::b2World_Step(m_world, dt, 4)
@@ -130,6 +136,7 @@ struct Demo {
         sk::sg_commit()
     }
 
+    #[main_thread]
     pub fn event(&mut self, e: &sk::sapp_event) kills self@things {
         switch e.type {
             case SAPP_EVENTTYPE_MOUSE_MOVE {
@@ -161,6 +168,7 @@ struct Demo {
         }
     }
 
+    #[main_thread]
     pub fn cleanup(&mut self) {
         b2::b2DestroyWorld(m_world)
         sk::sgl_shutdown()
@@ -170,6 +178,7 @@ struct Demo {
 
 /// A box of half-size `half` at `(x, y)`, turned by the rotation `(c, s)`: its cosine and
 /// sine, which is how Box2D keeps an angle.
+#[main_thread]
 fn draw_box(x: f32, y: f32, c: f32, s: f32, half: Vec2) {
     sk::sgl_begin_quads()
     for corner in [Vec2{ x: -1, y: -1 }, Vec2{ x: 1, y: -1 }, Vec2{ x: 1, y: 1 }, Vec2{ x: -1, y: 1 }] {
@@ -181,6 +190,7 @@ fn draw_box(x: f32, y: f32, c: f32, s: f32, half: Vec2) {
 }
 
 /// A ball as a fan of triangles, with one darker spoke so it can be seen rolling.
+#[main_thread]
 fn draw_ball(x: f32, y: f32, c: f32, s: f32, radius: f32) {
     let segments = 20
     sk::sgl_begin_triangles()
@@ -205,16 +215,19 @@ fn demo(data: ^mut void) -> ^mut Demo {
     }
 }
 
+#[main_thread]
 fn init(data: ^mut void) kills data {
     let d = demo(data) or return
     d.init()
 }
 
+#[main_thread]
 fn frame(data: ^mut void) {
     let d = demo(data) or return
     d.frame()
 }
 
+#[main_thread]
 fn event(e: ^sk::sapp_event, data: ^mut void) kills data {
     let d = demo(data) or return
     let e = unsafe {
@@ -223,6 +236,7 @@ fn event(e: ^sk::sapp_event, data: ^mut void) kills data {
     d.event(e)
 }
 
+#[main_thread]
 fn cleanup(data: ^mut void) {
     let d = demo(data) or return
     d.cleanup()

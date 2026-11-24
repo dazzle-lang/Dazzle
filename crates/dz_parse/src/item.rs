@@ -252,7 +252,7 @@ impl<'a> Parser<'a> {
 
     // --- attributes -------------------------------------------------------
 
-    fn parse_attrs(&mut self) -> Vec<Attr> {
+    pub(crate) fn parse_attrs(&mut self) -> Vec<Attr> {
         let mut attrs = Vec::new();
         loop {
             self.skip_terminators();

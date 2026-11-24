@@ -4,8 +4,11 @@
 struct Loop {
     pub n: usize
 
+    // `unsafe`: a field's default builds this, and a default may run on any thread, so it
+    // cannot be `#[main_thread]` (spec §22.5); a static's is built as the program starts, on
+    // the main thread, which the block vouches for.
     pub Loop() {
-        n = SELF_READ.l.n
+        n = unsafe { SELF_READ.l.n }
     }
 }
 

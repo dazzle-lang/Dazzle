@@ -1,0 +1,13 @@
+// expect: DZ0531
+// What a raw pointer points at may be anyone's, so a value holding one is not `Send`.
+
+struct Cursor {
+    pub at: ^mut i32 = null
+}
+
+fn walk(c: Cursor) {}
+
+fn main() {
+    let mut t = spawn(walk, Cursor{})
+    t.join()
+}

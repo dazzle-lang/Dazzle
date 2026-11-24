@@ -421,6 +421,20 @@ impl PartialEq for FnKills {
 
 impl Eq for FnKills {}
 
+/// Whether a function type is `#[main_thread] fn(…)`: one that may hold a function that runs
+/// on the main thread only (spec §22.5). Not part of a type's identity, as `kills` is not: it
+/// changes neither the C++ type nor an instance, and [`assignable`] is where it counts.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MainThread(pub bool);
+
+impl PartialEq for MainThread {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for MainThread {}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Ty {
     /// A type that could not be determined. Already reported, and compatible with
@@ -494,6 +508,8 @@ pub enum Ty {
         /// identity, so it changes neither the C++ type nor an instance; [`assignable`] is
         /// where it counts.
         kills: FnKills,
+        /// `#[main_thread] fn(…)` (spec §22.5), likewise not part of its identity.
+        main_thread: MainThread,
     },
     /// A struct, union, enum or trait, with its type arguments (spec §8.1).
     ///
@@ -722,10 +738,11 @@ pub fn substitute_with(
         Ty::Variant(sym, index, args) => {
             Ty::Variant(*sym, *index, args.iter().map(&substitute).collect())
         }
-        Ty::Fn { params, ret, kills } => Ty::Fn {
+        Ty::Fn { params, ret, kills, main_thread } => Ty::Fn {
             params: params.iter().map(&substitute).collect(),
             ret: rc(ret),
             kills: kills.clone(),
+            main_thread: *main_thread,
         },
         // The base may become concrete here, and then the projection has an answer — but
         // only the checker's type table knows the implementations, so finding it is
@@ -789,9 +806,12 @@ pub fn map_parts(t: &Ty, f: &dyn Fn(&Ty) -> Ty) -> Ty {
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(f).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(f).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(f).collect()),
-        Ty::Fn { params, ret, kills } => {
-            Ty::Fn { params: params.iter().map(f).collect(), ret: rc(ret), kills: kills.clone() }
-        }
+        Ty::Fn { params, ret, kills, main_thread } => Ty::Fn {
+            params: params.iter().map(f).collect(),
+            ret: rc(ret),
+            kills: kills.clone(),
+            main_thread: *main_thread,
+        },
         other => other.clone(),
     }
 }
@@ -830,9 +850,12 @@ pub fn replace(t: &Ty, from: &Ty, to: &Ty) -> Ty {
         Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(r).collect()),
         Ty::Named { sym, args } => Ty::Named { sym: *sym, args: args.iter().map(r).collect() },
         Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, args.iter().map(r).collect()),
-        Ty::Fn { params, ret, kills } => {
-            Ty::Fn { params: params.iter().map(r).collect(), ret: rc(ret), kills: kills.clone() }
-        }
+        Ty::Fn { params, ret, kills, main_thread } => Ty::Fn {
+            params: params.iter().map(r).collect(),
+            ret: rc(ret),
+            kills: kills.clone(),
+            main_thread: *main_thread,
+        },
         Ty::Assoc(p) => Ty::Assoc(Rc::new(Proj {
             on: replace(&p.on, from, to),
             trait_sym: p.trait_sym,
@@ -929,12 +952,17 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
         (Ty::Tuple(a), Ty::Tuple(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| assignable(x, y))
         }
-        // A function fits a function type that promises at least what it kills (§6.7).
-        (Ty::Fn { params: p1, ret: r1, kills: k1 }, Ty::Fn { params: p2, ret: r2, kills: k2 }) => {
+        // A function fits a function type that promises at least what it kills (§6.7), and
+        // one that runs on the main thread only fits only a type that says so (§22.5).
+        (
+            Ty::Fn { params: p1, ret: r1, kills: k1, main_thread: m1 },
+            Ty::Fn { params: p2, ret: r2, kills: k2, main_thread: m2 },
+        ) => {
             p1.len() == p2.len()
                 && p1.iter().zip(p2).all(|(x, y)| assignable(x, y))
                 && assignable(r1, r2)
                 && k2.within(k1, p1)
+                && (m1.0 || !m2.0)
         }
         _ => expected == actual,
     }

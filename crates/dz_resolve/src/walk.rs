@@ -1071,7 +1071,7 @@ impl<'a, 'w> Walker<'a, 'w> {
             ("persist", "§17.6"),
             ("raw", "§7.5"),
         ];
-        const KNOWN: &[&str] = &["test", "bench", "thread_local", "inline"];
+        const KNOWN: &[&str] = &["test", "bench", "thread_local", "inline", "main_thread"];
         let file = self.file;
         for (i, a) in attrs.iter().enumerate() {
             let name = a.name.name.as_str();
@@ -1101,8 +1101,8 @@ impl<'a, 'w> Walker<'a, 'w> {
                     }
                     (_, Some(s)) => d.with_help(format!("did you mean `#[{s}]`?")),
                     (_, None) => d.with_help(
-                        "the attributes are `#[test]`, `#[bench]`, `#[thread_local]` and \
-                         `#[inline]` (spec §12.8)",
+                        "the attributes are `#[test]`, `#[bench]`, `#[thread_local]`, \
+                         `#[inline]` and `#[main_thread]` (spec §12.8)",
                     ),
                 };
                 self.error(d);
@@ -1126,6 +1126,16 @@ impl<'a, 'w> Walker<'a, 'w> {
                 "inline" => (
                     matches!(target, AttrTarget::ModuleFn | AttrTarget::Method),
                     "a function or a method",
+                ),
+                // A constructor runs code too, and may touch a static (spec §22.5).
+                "main_thread" => (
+                    matches!(
+                        target,
+                        AttrTarget::ModuleFn
+                            | AttrTarget::Method
+                            | AttrTarget::Other("a constructor")
+                    ),
+                    "a function, a method or a constructor",
                 ),
                 _ => (matches!(target, AttrTarget::Static), "a `static`"),
             };

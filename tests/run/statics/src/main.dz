@@ -34,6 +34,7 @@ struct Log {
 
 static LOG: Log = Log{}
 
+#[main_thread]
 fn record(v: i32) kills LOG.lines@items {
     LOG.lines.push(v)
 }
@@ -46,6 +47,7 @@ struct Report {
 }
 
 impl Drop for Report {
+    #[main_thread]
     fn drop(&mut self) {
         println!("at exit: {} runs, {} logged, {} notes", runs, LOG.lines.len(), NOTES.lines.len())
     }
@@ -54,6 +56,7 @@ impl Drop for Report {
 static REPORT: Report = Report{}
 static NOTES: Log = Log{}
 
+#[main_thread]
 fn note(v: i32) kills NOTES.lines@items {
     NOTES.lines.push(v)
 }
@@ -62,6 +65,7 @@ struct Holder {
     pub p: ^mut Counter = null
 }
 
+#[main_thread]
 fn touch() -> i32 {
     return COUNT.bump()
 }

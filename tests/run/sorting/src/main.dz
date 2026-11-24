@@ -106,6 +106,7 @@ fn integers() {
     println!("5000 in five shapes sorted: {}", shapes_ok)
 }
 
+#[main_thread]
 fn move_only() {
     {
         let mut tokens = List<Token>()

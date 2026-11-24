@@ -126,9 +126,77 @@ impl<'a> Parser<'a> {
                 self.expect_in(TokenKind::RParen, "to close a tuple type");
                 TypeKind::Tuple(elems)
             }
+            // `#[main_thread] fn(w: &World)`: a function type that may hold a function that
+            // runs on the main thread only (spec §22.5). No other attribute applies to a type.
+            TokenKind::Hash if self.peek_at(1) == TokenKind::LBracket => {
+                let attrs = self.parse_attrs();
+                let mut main_thread = false;
+                for a in &attrs {
+                    if a.name.name == "main_thread" && a.args.is_empty() && !main_thread {
+                        main_thread = true;
+                        continue;
+                    }
+                    self.error_help(
+                        codes::MISPLACED_ATTRIBUTE,
+                        a.span,
+                        format!("`#[{}]` does not apply to a function type", a.name.name),
+                        "not an attribute of a type",
+                        "a function type takes `#[main_thread]` and nothing else, once and \
+                         without arguments (spec §12.8, §22.5)",
+                    );
+                }
+                if self.at(TokenKind::Fn) {
+                    self.bump();
+                    self.fn_type(main_thread)
+                } else {
+                    let span = self.peek_token().span;
+                    let found = self.describe_current();
+                    self.error_help(
+                        codes::EXPECTED_TYPE,
+                        span,
+                        format!("expected `fn` after `#[main_thread]`, found {found}"),
+                        "expected a function type here",
+                        "`#[main_thread]` is written on a function type, \
+                         `#[main_thread] fn(w: &World)` (spec §22.5)",
+                    );
+                    TypeKind::Error
+                }
+            }
             // `fn(i32, f32) -> bool`, or `fn(world: &mut World) kills world` (spec §6.7)
             TokenKind::Fn => {
                 self.bump();
+                self.fn_type(false)
+            }
+            TokenKind::SelfType => {
+                self.bump();
+                TypeKind::SelfType
+            }
+            TokenKind::Ident => match self.parse_type_path() {
+                Some(p) => TypeKind::Path(p),
+                None => TypeKind::Error,
+            },
+            _ => {
+                let span = self.peek_token().span;
+                let found = self.describe_current();
+                self.error_help(
+                    codes::EXPECTED_TYPE,
+                    span,
+                    format!("expected a type, found {found}"),
+                    "expected a type here",
+                    "types are names, `^T`, `&T`, `&mut T`, `own ^T`, `T?`, `[N]T`, `[]T`, \
+                     `[]mut T`, \
+                     tuples, or `fn(...) -> T`",
+                );
+                TypeKind::Error
+            }
+        };
+        self.finish_type(start, kind)
+    }
+
+    /// A function type after its `fn`: `(params) -> T in … kills … sends …`.
+    fn fn_type(&mut self, main_thread: bool) -> TypeKind {
+        {
+            {
                 let mut params = Vec::new();
                 let mut param_names = Vec::new();
                 if self.expect_in(TokenKind::LParen, "in a function type") {
@@ -189,31 +257,13 @@ impl<'a> Parser<'a> {
                     ret_ties,
                     kills: kills.unwrap_or_default(),
                     sends: sends.unwrap_or_default(),
+                    main_thread,
                 }
             }
-            TokenKind::SelfType => {
-                self.bump();
-                TypeKind::SelfType
-            }
-            TokenKind::Ident => match self.parse_type_path() {
-                Some(p) => TypeKind::Path(p),
-                None => TypeKind::Error,
-            },
-            _ => {
-                let span = self.peek_token().span;
-                let found = self.describe_current();
-                self.error_help(
-                    codes::EXPECTED_TYPE,
-                    span,
-                    format!("expected a type, found {found}"),
-                    "expected a type here",
-                    "types are names, `^T`, `&T`, `&mut T`, `own ^T`, `T?`, `[N]T`, `[]T`, \
-                     `[]mut T`, \
-                     tuples, or `fn(...) -> T`",
-                );
-                TypeKind::Error
-            }
-        };
+        }
+    }
+
+    fn finish_type(&mut self, start: u32, kind: TypeKind) -> Type {
         // `?` is postfix and binds to the type name, so it wraps whatever was just parsed
         // (spec §5.6). `^T?` is therefore a pointer to an optional, and access sigils —
         // parsed above, as prefixes — always sit outside it.

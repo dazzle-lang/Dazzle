@@ -28,6 +28,7 @@ mod build;
 mod check;
 mod impls;
 mod moves;
+mod threads;
 pub mod ties;
 
 /// The type model lives in `dz_hir`, since the HIR stores a `Ty` on every node and
@@ -219,6 +220,15 @@ pub struct FnSig {
     /// A C or C++ function, whose header says nothing of what it kills: a call to it kills
     /// everything reachable through its `&mut` and `^mut` arguments, and `kills` is empty.
     pub kills_unknown: bool,
+    /// `#[main_thread]`: runs on the main thread only, since it touches a plain static or C
+    /// that is not thread-safe, itself or through a call (spec §22.5). An imported function
+    /// is, unless its recipe says `thread_safe`.
+    pub main_thread: bool,
+    /// The `#[main_thread]` as written, for a fix that removes it.
+    pub main_thread_span: Option<Span>,
+    /// `main`, a `#[test]` or a `#[bench]`: called by no Dazzle code, on the main thread
+    /// already, so `#[main_thread]` is never needed on one (spec §22.5).
+    pub entry_point: bool,
 }
 
 impl FnSig {
@@ -435,6 +445,17 @@ pub struct TypeTable {
     /// The prelude's `Drop`, for the same reason — and so that inheriting a base's
     /// implementations can leave the two special members alone (spec §6.1, §7.3).
     drop_trait: Option<SymbolId>,
+    /// The prelude's `Send` and `Share`, which a type has from its fields (spec §22.2).
+    send_trait: Option<SymbolId>,
+    share_trait: Option<SymbolId>,
+    /// `std`'s private `Synchronises`: `Mutex` and `Atomic`, whose statics need no
+    /// `#[main_thread]` (spec §22.5).
+    synchronises_trait: Option<SymbolId>,
+    /// The standard library's module, whose implementations of `Send` and `Share` are the
+    /// only ones that count (spec §22.2).
+    std_module: Option<dz_project::ModuleId>,
+    /// The statics written `#[thread_local]`, of which each thread has its own (spec §7.7).
+    thread_locals: HashSet<SymbolId>,
     /// Every `impl Trait for Type`, in declaration order (spec §7.6).
     impls: Vec<ImplSig>,
     /// `impls` by the head of the type each is for, in declaration order, so a question
@@ -1486,6 +1507,11 @@ impl<'a> Ctx<'a> {
                 declared_traits: HashMap::new(),
                 copy_trait: None,
                 drop_trait: None,
+                send_trait: None,
+                share_trait: None,
+                synchronises_trait: None,
+                std_module: None,
+                thread_locals: HashSet::new(),
                 impls: Vec::new(),
                 impls_by_head: HashMap::new(),
                 drop_impls: HashMap::new(),
@@ -1504,6 +1530,10 @@ impl<'a> Ctx<'a> {
         };
         cx.table.copy_trait = cx.prelude_trait("Clone");
         cx.table.drop_trait = cx.prelude_trait("Drop");
+        cx.table.send_trait = cx.prelude_trait("Send");
+        cx.table.share_trait = cx.prelude_trait("Share");
+        cx.table.synchronises_trait = cx.prelude_trait("Synchronises");
+        cx.table.std_module = Some(cx.res.prelude);
         // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
         for (i, s) in res.symbols.iter().enumerate() {
             if s.module == res.prelude && s.kind == SymbolKind::Trait {
@@ -1631,6 +1661,9 @@ impl Ctx<'_> {
                         kills: Vec::new(),
                         kills_span: None,
                         kills_unknown: true,
+                        main_thread: !f.trust.thread_safe.covers(&d.qualified()),
+                        main_thread_span: None,
+                        entry_point: false,
                         sends: Vec::new(),
                         sends_span: None,
                         ret_span: None,
@@ -1748,6 +1781,9 @@ impl Ctx<'_> {
                 kills: Vec::new(),
                 kills_span: None,
                 kills_unknown: true,
+                main_thread: !foreign.trust.thread_safe.covers(&format!("{owner}::{}", m.name)),
+                main_thread_span: None,
+                entry_point: false,
                 sends: Vec::new(),
                 sends_span: None,
                 ret_span: None,
@@ -1795,8 +1831,10 @@ impl Ctx<'_> {
             CType::Fn { params, ret } => Ty::Fn {
                 params: params.iter().map(|p| self.foreign_ty(module, p)).collect(),
                 ret: Rc::new(self.foreign_ty(module, ret)),
-                // A C function pointer says nothing of what it kills (spec §6.7).
+                // A C function pointer says nothing of what it kills (spec §6.7), nor
+                // where it may run: called from Dazzle, it is on the main thread (§22.5).
                 kills: FnKills::Unknown,
+                main_thread: ty::MainThread(true),
             },
             CType::Named(n) => self.res.foreign(module, n).map(Ty::plain).unwrap_or(Ty::Error),
             // The importer leaves out whatever uses one, so this is never reached.
@@ -2806,7 +2844,7 @@ impl<'a> Ctx<'a> {
             TypeKind::Tuple(elems) => {
                 Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
             }
-            TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends } => {
+            TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends, main_thread } => {
                 let names: Vec<String> = param_names
                     .iter()
                     .map(|n| n.as_ref().map(|n| n.name.clone()).unwrap_or_default())
@@ -2830,6 +2868,7 @@ impl<'a> Ctx<'a> {
                         sends: sends.iter().cloned().collect(),
                         homes: homes.into(),
                     },
+                    main_thread: ty::MainThread(*main_thread),
                 }
             }
             // `const &str`, and nothing else yet: static slices wait for a program that
@@ -3780,7 +3819,7 @@ impl<'a> Ctx<'a> {
                 self.table.sigs.insert(sym, ItemSig::Enum { backing, variants, values });
             }
             ItemKind::Fn(f) => {
-                let sig = self.fn_sig(f, item.vis, Some(sym));
+                let sig = self.fn_sig(f, &item.attrs, item.vis, Some(sym));
                 self.check_test_attribute(item, f, &sig, sym);
                 self.table.sigs.insert(sym, ItemSig::Fn(sig));
             }
@@ -3800,6 +3839,9 @@ impl<'a> Ctx<'a> {
                 let ty = self.lower_type(&s.ty);
                 // A static lives for the whole program, which no view's tie does (§6.7).
                 self.check_view_storage(&ty, s.ty.span, "a static");
+                if item.attrs.iter().any(|a| a.name.name == "thread_local") {
+                    self.table.thread_locals.insert(sym);
+                }
                 self.table.sigs.insert(sym, ItemSig::Static(ty));
             }
             ItemKind::Impl(_)
@@ -4014,7 +4056,7 @@ impl<'a> Ctx<'a> {
                     sig.fields.push(field);
                 }
                 MemberKind::Fn(f) => {
-                    let s = self.fn_sig(f, m.vis, None);
+                    let s = self.fn_sig(f, &m.attrs, m.vis, None);
                     // One `virtual` anywhere in the chain makes the whole type
                     // polymorphic, which decides its destructor and whether it can be
                     // memcpy'd (spec §7.3, 18.32). `flatten_bases` carries it downward.
@@ -4037,7 +4079,7 @@ impl<'a> Ctx<'a> {
                     sig.methods.insert(key, s);
                 }
                 MemberKind::Ctor(f) => {
-                    let s = self.fn_sig(f, m.vis, None);
+                    let s = self.fn_sig(f, &m.attrs, m.vis, None);
                     sig.ctors.push(s);
                 }
                 MemberKind::Tie(t) => sig.ties.push(TieSig {
@@ -4107,7 +4149,25 @@ impl<'a> Ctx<'a> {
     ///
     /// `sym` is `Some` for a free function, whose parameters pass 0 already allocated;
     /// `None` for a method, which allocates its own here.
-    fn fn_sig(&mut self, f: &FnDecl, vis: Vis, sym: Option<SymbolId>) -> FnSig {
+    fn fn_sig(
+        &mut self,
+        f: &FnDecl,
+        attrs: &[dz_ast::Attr],
+        vis: Vis,
+        sym: Option<SymbolId>,
+    ) -> FnSig {
+        let mut sig = self.fn_sig_unmarked(f, vis, sym);
+        let marked = attrs.iter().find(|a| a.name.name == "main_thread");
+        sig.main_thread = marked.is_some();
+        sig.main_thread_span = marked.map(|a| a.span);
+        // Only a function at module level can be one; its caller passes its symbol.
+        sig.entry_point = sym.is_some()
+            && (f.name.name == "main"
+                || attrs.iter().any(|a| matches!(a.name.name.as_str(), "test" | "bench")));
+        sig
+    }
+
+    fn fn_sig_unmarked(&mut self, f: &FnDecl, vis: Vis, sym: Option<SymbolId>) -> FnSig {
         let generics = match sym {
             Some(sym) => self.table.type_params.get(&sym).cloned().unwrap_or_default(),
             None => {
@@ -4199,6 +4259,9 @@ impl<'a> Ctx<'a> {
             kills: f.kills.clone(),
             kills_span: f.kills_span,
             kills_unknown: false,
+            main_thread: false,
+            main_thread_span: None,
+            entry_point: false,
             sends: f.sends.clone(),
             sends_span: f.sends_span,
             ret_span: f.ret.as_ref().map(|r| r.span),

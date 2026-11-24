@@ -1,0 +1,19 @@
+// expect: DZ0592
+// A `drop` may need the main thread, as one that gives back what a GPU made does, and says so
+// like any function (spec §22.5).
+
+static DROPPED: u32 = 0
+
+struct Counted {
+    pub n: i32 = 0
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        DROPPED += 1
+    }
+}
+
+fn main() {
+    let _c = Counted{}
+}

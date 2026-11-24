@@ -14,3 +14,6 @@ c = {cpp = "cstdlib"}
 # (spec §14, §15.1).
 [cpp.libs.cstdlib]
 import = ["stdlib.h"]
+# `malloc` and `free` may be called from any thread at once, so the shelf's `clone` may run
+# on any thread too (spec §15.1, §22.5).
+thread_safe = ["malloc", "free"]

@@ -1,0 +1,109 @@
+// Threads (spec §22.11, T-0011): `spawn` moves a value to a new thread and `join` waits.
+
+const WORKERS: u32 = 8
+
+const PASSES: u32 = 20000
+
+static TOTAL: Atomic<u64> = Atomic<u64>(0)
+
+static SCORE: Mutex<u64> = Mutex<u64>(0)
+
+static RAN: Atomic<u32> = Atomic<u32>(0)
+
+fn count(passes: u32) {
+    for _ in 0..passes {
+        TOTAL.add(1)
+    }
+}
+
+fn add_under_lock(passes: u32) {
+    for _ in 0..passes {
+        let mut held = SCORE.lock()
+        let score = held.get_mut()
+        score += 1
+    }
+}
+
+struct Job {
+    pub first: u32
+    pub last: u32
+}
+
+fn sum_range(job: Job) {
+    let mut sum: u64 = 0
+    for i in job.first..job.last {
+        sum += i as u64
+    }
+    TOTAL.add(sum)
+}
+
+fn run_once(_: u32) {
+    RAN.add(1)
+}
+
+/// A value with a destructor crosses too, and is dropped once, on the thread.
+struct Noisy {
+    pub name: String
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        // A value that was moved from is reset and dropped too (spec §6.4), with no name.
+        if name.len() > 0 {
+            println!("dropped {}", name)
+        }
+    }
+}
+
+fn take(n: Noisy) {
+    println!("thread has {}", n.name)
+}
+
+fn main() {
+    // One thread, then its effect is visible after `join`.
+    let mut one = spawn(count, 100)
+    one.join()
+    println!("one {}", TOTAL.load())
+
+    // Many at once, all racing on one atomic.
+    let mut threads = List<Thread>()
+    for _ in 0..WORKERS {
+        threads.push(spawn(count, PASSES))
+    }
+    for &mut t in threads {
+        t.join()
+    }
+    println!("atomic {}", TOTAL.load())
+
+    // The same race, under a mutex.
+    let mut locked = List<Thread>()
+    for _ in 0..WORKERS {
+        locked.push(spawn(add_under_lock, PASSES))
+    }
+    for &mut t in locked {
+        t.join()
+    }
+    println!("mutex {}", SCORE.lock().get())
+
+    // A struct is how more than one value is given.
+    TOTAL.store(0)
+    let mut a = spawn(sum_range, Job{ first: 0, last: 100 })
+    let mut b = spawn(sum_range, Job{ first: 100, last: 200 })
+    a.join()
+    b.join()
+    println!("sums {}", TOTAL.load())
+
+    // Joining twice does nothing the second time.
+    a.join()
+
+    // A handle that is dropped lets its thread go on; wait for it by what it did.
+    {
+        let _gone = spawn(run_once, 0)
+    }
+    while RAN.load() == 0 {
+    }
+    println!("ran {}", RAN.load())
+
+    let mut owned = spawn(take, Noisy{ name: String("noisy") })
+    owned.join()
+}

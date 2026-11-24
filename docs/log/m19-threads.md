@@ -2,6 +2,73 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `Send`, `Share` and `#[main_thread]` (T-0264, r150; 2026-11-24)
+
+What makes `spawn` safe. It was first built as an `unsafe fn`; the user asked that spawning not
+be `unsafe` and that the promise of §1.1 hold, so the checks of §22.2 and §22.5 came with it.
+
+- **`Send` and `Share`** (`dz_check/src/threads.rs`). `TypeTable::sendable` and `shareable`
+  walk the fields as `copyable` does, with Rust's mapping for references (`&T` is `T` shared,
+  `&mut T` moves as `T` and is never shared). `implements` answers both from the walk, so a
+  bound `T: Send` needs no new machinery. `std`'s `impl Send` and `impl Share` replace the walk
+  for that type and count only in `std` (DZ0596 refuses one elsewhere): the containers, whose
+  `^mut Allocator` is placed for the thread, `Mutex` and `Atomic`. A refused bound names the
+  field that stops it (`crossing_blocker`).
+- **`#[main_thread]`** (`dz_check/src/check.rs`, "the main thread"). A body records what needs
+  the main thread outside `unsafe`: a static that is not `#[thread_local]` and whose type does
+  not synchronise (`note_static`), every call whose signature is `#[main_thread]` (hooked in
+  `check_args`, which every call a program writes passes through), a call through a
+  `#[main_thread] fn` value, and making or taking by value a value whose drop is the main
+  thread's. `settle_main_thread` holds that to the signature when the body ends: DZ0592 with a
+  certain fix that writes the attribute above the declaration at its indentation, DZ0593 with
+  one that removes it, and DZ0595 where a trait's method or a base's `virtual` one does not
+  allow it. `FnSig` carries `main_thread` and `entry_point`; `Ty::Fn` carries `MainThread`,
+  outside its identity as `kills` is, and `assignable` refuses a main-thread function where a
+  plain one is wanted (DZ0594).
+- **Statics.** "A static whose type is `Share` needs nothing" would let `FRAME_COUNT += 1` race,
+  since a `u64` is `Share`. Read instead as a type that synchronises, which `std` says with a
+  private trait, `Synchronises`, on `Mutex` and `Atomic`.
+- **Drops.** `examples/sdl3`'s `Renderer` frees GPU resources in its `drop`. The user chose that a
+  `drop` may be `#[main_thread]`, its type then neither `Send` nor `Share`; making or taking one
+  by value needs the main thread too (`TypeTable::dies_on_main_thread`), or a worker could build
+  one from its defaults and drop it.
+- **C.** A recipe's `thread_safe` (§15.1) is read: `true`, or the functions listed, checked
+  against the header as `keeps` is. Everything else imported is `#[main_thread]`, and so is a C
+  function pointer. `std`'s `libc` is thread-safe.
+- **The type `#[main_thread] fn(…)`** parses, prints and formats.
+
+The migration was `dz fix`: `examples/breakout`, `sokol`, `stb`, `box2d` and `sdl3` (every function
+calling raylib, sokol, SDL, OpenGL or ImGui, and `Renderer`'s `drop`), and the run tests that
+touch statics. `examples/ownership` and `tests/run/cinterop` say `thread_safe` instead. Three
+tests build statics at start-up through constructors that read other statics, from a field's
+default, which may run on any thread; they read them inside `unsafe`, vouching for start-up.
+
+`tests/errors/main_thread_*`, `spawn_*`, `send_*` and `attribute_on_a_function_type` have one
+mistake each; `typed/` and `typeerrors/` have the rules side by side; `dz_flow`'s placement
+tests pin that what a thread is given is built on the heap.
+
+## `spawn` and `Thread` (T-0011, r150; 2026-11-24)
+
+The third of T-0011's pieces. §22.3 decides `spawn!(f(a, b))` and nothing about what it
+expands to, so the function underneath is a proposal (D-0117, §22.11): `spawn(entry, value)`
+and a `Thread` with `join`. The macro waits, since an expression macro cannot declare the
+struct a call's arguments need.
+
+- **`std`** (`std/sync/thread.dz`). `spawn<A>` builds a `Start<A>` of the function and the
+  value in a `Global` allocation, and starts the generic `start_thread<A>`, passed as a plain
+  `fn(^mut u8)` value, on it. The thread moves the value out and frees the block before it calls
+  `entry`, so a thread that never returns holds nothing. A `Thread` is one word, zero once
+  joined, and its drop detaches it if it was not.
+- **The runtime** (`NATIVE_CPP`). `_beginthreadex` and `WaitForSingleObject` on Windows,
+  `pthread_create` elsewhere, with a malloc'd record for the `pthread_t`, since it may be zero or
+  a pointer. Not `std::thread`: `<thread>` is missing from MinGW's win32 thread model. The link
+  line gains `-pthread` off Windows (`toolchain::link`), for glibc before 2.34.
+- **Safe**, with T-0264's checks, above.
+
+`tests/run/threads` joins one thread, eight racing on an atomic and eight on a mutex, a struct
+carrying two values, a handle dropped unjoined, and a value with a destructor that runs once,
+on the thread. Clean under `--track-memory`.
+
 ## Constructor visibility (D-0115, r148; 2026-11-23)
 
 Found while building `Mutex<T>`: its guard's `pub(module)` constructor could be called from

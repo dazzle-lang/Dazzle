@@ -11,6 +11,7 @@ const WIDTH: i32 = 1280
 
 const HEIGHT: i32 = 720
 
+#[main_thread]
 fn gl_attribute(attr: sdl::SDL_GLAttr, value: i32) {
     if !sdl::SDL_GL_SetAttribute(attr, value) {
         eprintln!("SDL_GL_SetAttribute: {}", unsafe {

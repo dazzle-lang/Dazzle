@@ -203,6 +203,7 @@ fn render(scene: &Scene) -> List<u8> {
     return pixels
 }
 
+#[main_thread]
 fn save_png(path: &String, pixels: &List<u8>) !-> void {
     let data = unsafe {
         pixels.as_slice().ptr as ^void

@@ -1,5 +1,6 @@
 ---
 source: crates/dz_resolve/tests/resolve.rs
+assertion_line: 201
 expression: "format!(\"modules: {}, own files: {}\\n\\n{}\", r.module_count, r.own_file_count,\nbody)"
 ---
 modules: 3, own files: 0
@@ -94,4 +95,4 @@ error[DZ0004]: unknown key `optimise` in `[cpp.libs.broken]`
 27 │ optimise = "fast"
    │ ^^^^^^^^ not a key of this table
    │
-   = help: the keys here are `git`, `version`, `rev`, `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import`, `keeps`, `cmake`, `options`, `uses` (spec §15.1)
+   = help: the keys here are `git`, `version`, `rev`, `root`, `sources`, `header`, `include_dirs`, `defines`, `lib_dirs`, `link_libs`, `frameworks`, `flags`, `import`, `keeps`, `thread_safe`, `cmake`, `options`, `uses` (spec §15.1)

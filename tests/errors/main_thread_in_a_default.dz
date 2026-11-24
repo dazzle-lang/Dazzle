@@ -1,0 +1,18 @@
+// expect: DZ0592
+// A field's default runs wherever its struct is built, on any thread (spec §22.5).
+
+static NEXT: u32 = 0
+
+#[main_thread]
+fn next_id() -> u32 {
+    NEXT += 1
+    return NEXT
+}
+
+struct Tagged {
+    pub id: u32 = next_id()
+}
+
+fn main() {
+    let _t = Tagged{}
+}

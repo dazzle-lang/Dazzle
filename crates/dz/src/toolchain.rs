@@ -402,7 +402,13 @@ pub fn link(
     let mut command = command(cxx);
     match family(cxx) {
         Family::Gnu => {
-            command.args(args).args(objects).args(link_args).arg("-o").arg(exe);
+            command.args(args).args(objects).args(link_args);
+            // Threads (spec §22.3) need it on older glibc, where they are not in libc itself.
+            // Windows has its own threads, and MinGW's win32 thread model has no `-pthread`.
+            if cfg!(not(windows)) {
+                command.arg("-pthread");
+            }
+            command.arg("-o").arg(exe);
         }
         Family::Msvc => {
             let mut fe = std::ffi::OsString::from("/Fe");

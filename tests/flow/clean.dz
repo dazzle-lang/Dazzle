@@ -200,14 +200,17 @@ pub struct Shelf {
 
 static SHELF: Shelf = Shelf{}
 
+#[main_thread]
 fn shelve(v: i32) kills SHELF.books@items {
     SHELF.books.push(v)
 }
 
+#[main_thread]
 fn first_book() -> &i32 in SHELF.books@items {
     return &SHELF.books[0]
 }
 
+#[main_thread]
 fn read_twice() kills SHELF.books@items {
     shelve(1)
     let first = first_book()

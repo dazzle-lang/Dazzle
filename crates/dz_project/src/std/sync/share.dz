@@ -1,0 +1,8 @@
+/// A value several threads may read through `&` at once (spec §22.2).
+///
+/// Nothing implements it: a type is `Share` when every field is, worked out by the compiler.
+/// A `&` is read-only all the way down (§5.2), so plain data is `Share`; a `&mut` or a raw
+/// pointer that is not `own` is not, and neither is anything holding one. `Mutex` and the
+/// atomics are `Share` by `std`'s word, since writing through `&` is what they are for.
+pub trait Share {
+}

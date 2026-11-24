@@ -367,3 +367,12 @@ fn encode_utf8(c: char, out: &mut [4]u8) -> usize {
     out[3] = (0x80 | (cp & 0x3F)) as u8
     return 4
 }
+
+// Its bytes decide whether it crosses to another thread, not its `^mut Allocator`: what a
+// thread is given is placed on the heap or in that thread's own pool, never in a region another
+// thread may be growing (spec §22.2, §22.6).
+impl Send for String {
+}
+
+impl Share for String {
+}

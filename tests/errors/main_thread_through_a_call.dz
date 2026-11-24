@@ -1,0 +1,17 @@
+// expect: DZ0592
+// A function that calls a `#[main_thread]` one is on the main thread too, however far up.
+
+static FRAME_COUNT: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn frame() {
+    tick()
+}
+
+fn main() {
+    frame()
+}

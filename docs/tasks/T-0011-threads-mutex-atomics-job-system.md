@@ -16,8 +16,10 @@ ECS (T-0246) are implemented. T-0248 tracks ThreadSanitizer in CI. The notes bel
 record the earlier plan.
 
 **Progress.** Atomics are done (`Atomic<T>`, D-0113, §22.9, r146), and so is the mutex
-(`Mutex<T>`, §22.10, r147; its API is proposed in D-0114). **Next: threads**, then the job
-system. `Send` and `Share` (§22.2) are not built.
+(`Mutex<T>`, §22.10, r147; its API is proposed in D-0114), and so is `spawn` with `Thread`
+(§22.11, r150; D-0117, proposed), safe with `Send`, `Share` and `#[main_thread]` (T-0264).
+**Next:** the macro `spawn!`; then `join!` and the parallel loop, whose argument rule (§22.3)
+builds on `Send` and `Share`, and the job system.
 
 ## Where the code is
 
@@ -26,6 +28,7 @@ system. `Send` and `Share` (§22.2) are not built.
 | `Atomic<T>` and its native operations | `crates/dz_project/src/std/sync/atomic.dz`; `crates/dz_cpp/src/runtime.rs` (`NATIVE_H`, `NATIVE_CPP`); the static exception is `is_static_initialiser` in `crates/dz_check/src/check.rs` |
 | `Mutex<T>` and its native lock | `crates/dz_project/src/std/sync/mutex.dz`, `mutex_guard.dz`; `crates/dz_cpp/src/runtime.rs` (`mutex_lock`, `mutex_unlock`) |
 | Static lifetime and generated entry hooks | `crates/dz_cpp/src/lib.rs` (`static_decl`, `thread_statics`) and `crates/dz_cpp/src/runtime.rs` (`register_thread_cleanup`) |
+| `spawn` and `Thread` | `crates/dz_project/src/std/sync/thread.dz`; `crates/dz_cpp/src/runtime.rs` (`thread_start`, `thread_join`, `thread_detach`); `-pthread` in `crates/dz/src/toolchain.rs` (`link`) |
 | Reference counts and memory tracker | `crates/dz_project/src/std/memory/` (`rc_block.dz`, `rc.dz`, `weak.dz`, `tracker.dz`) |
 | Type-keyed storage and milestone proof | `crates/dz_project/src/std/collections/type_map.dz` and `tests/bench_programs/ecs` |
 

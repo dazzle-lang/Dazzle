@@ -6,6 +6,7 @@ const LIMIT: i32 = 10
 
 static calls: i32 = 0
 
+#[main_thread]
 fn total(xs: &List<i32>) -> i32 {
     calls += 1
     let mut n = 0
@@ -28,12 +29,14 @@ struct Tally {
     pub total: i32 = 0
     pub LIMIT: i32 = 1
 
+    #[main_thread]
     pub fn add(&mut self, xs: &List<i32>) {
         total += total(xs) + LIMIT
     }
 }
 
 struct Wider : Tally {
+    #[main_thread]
     pub fn again(&mut self, xs: &List<i32>) {
         total += total(xs)
     }

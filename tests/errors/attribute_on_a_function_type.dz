@@ -1,0 +1,8 @@
+// expect: DZ0315
+// A function type takes `#[main_thread]` and nothing else.
+
+fn run(f: #[inline] fn()) {
+    f()
+}
+
+fn main() {}

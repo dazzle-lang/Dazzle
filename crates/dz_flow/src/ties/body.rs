@@ -1256,7 +1256,7 @@ impl Analysis<'_> {
         // function stored in it may kill, as a direct call reads its callee's (§6.7). A
         // pointer from C has none, and kills what its `&mut` arguments reach.
         if let Callee::Value(value) = callee {
-            if let Ty::Fn { params, ret, kills } = self.body.ty(*value) {
+            if let Ty::Fn { params, ret, kills, .. } = self.body.ty(*value) {
                 let signature = Signature {
                     sig: dz_check::ties::fn_type_sig(params, ret, kills),
                     module: self.module(),
@@ -1286,7 +1286,7 @@ impl Analysis<'_> {
             return Some(s);
         }
         let Callee::Value(value) = callee else { return None };
-        let Ty::Fn { params, ret, kills } = self.body.ty(*value) else { return None };
+        let Ty::Fn { params, ret, kills, .. } = self.body.ty(*value) else { return None };
         Some(Signature {
             sig: dz_check::ties::fn_type_sig(params, ret, kills),
             module: self.module(),

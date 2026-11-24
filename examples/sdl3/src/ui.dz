@@ -15,6 +15,7 @@
 // - SDL's own types, which ImGui's backend header only declares and SDL's defines: one C++
 //   type, so `sdl::SDL_Window` and SDL's event pass straight through.
 
+#[main_thread]
 pub fn start_panel(window: ^mut sdl::SDL_Window, context: ^mut sdl::SDL_GLContextState) {
     ImGui::CreateContext()
     ImGui::StyleColorsDark()
@@ -39,6 +40,7 @@ pub fn start_panel(window: ^mut sdl::SDL_Window, context: ^mut sdl::SDL_GLContex
     imgui::ImGui_ImplOpenGL3_Init("#version 330 core")
 }
 
+#[main_thread]
 pub fn stop_panel() {
     imgui::ImGui_ImplOpenGL3_Shutdown()
     imgui::ImGui_ImplSDL3_Shutdown()
@@ -47,6 +49,7 @@ pub fn stop_panel() {
 
 /// Hands ImGui an event, and says whether the panel took the mouse or the keyboard with
 /// it, so that dragging a slider does not also turn the camera.
+#[main_thread]
 pub fn panel_event(ev: &sdl::SDL_Event) -> (bool, bool) {
     imgui::ImGui_ImplSDL3_ProcessEvent(ev)
     let io = ImGui::GetIO()
@@ -54,6 +57,7 @@ pub fn panel_event(ev: &sdl::SDL_Event) -> (bool, bool) {
 }
 
 /// Builds the panel for this frame and draws it over what is already in the framebuffer.
+#[main_thread]
 pub fn draw_panel(s: &mut Settings, camera: &mut Camera, fps: f32) {
     imgui::ImGui_ImplOpenGL3_NewFrame()
     imgui::ImGui_ImplSDL3_NewFrame()

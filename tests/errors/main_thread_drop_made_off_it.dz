@@ -1,0 +1,25 @@
+// expect: DZ0592
+// A value whose drop is the main thread's dies where it is made or kept, so a function that
+// makes one is `#[main_thread]` too (spec §22.5).
+
+static FREED: u32 = 0
+
+struct Texture {
+    pub id: u32 = 0
+}
+
+impl Drop for Texture {
+    #[main_thread]
+    fn drop(&mut self) {
+        FREED += 1
+    }
+}
+
+fn scratch() -> u32 {
+    let t = Texture{ id: 3 }
+    return t.id
+}
+
+fn main() {
+    println!("{}", scratch())
+}

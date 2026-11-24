@@ -20,6 +20,7 @@ struct Mesh {
     pub count: i32
 }
 
+#[main_thread]
 fn upload(g: &Geometry) -> Mesh {
     let mut m: Mesh
     gl::glGenVertexArrays(1, &mut m.vao)
@@ -44,6 +45,7 @@ fn upload(g: &Geometry) -> Mesh {
     return m
 }
 
+#[main_thread]
 fn compile(kind: u32, parts: &[]&cstr) -> u32 {
     let shader = gl::glCreateShader(kind)
     gl::glShaderSource(shader, parts.len as i32, parts.ptr, null)
@@ -63,6 +65,7 @@ fn compile(kind: u32, parts: &[]&cstr) -> u32 {
     return shader
 }
 
+#[main_thread]
 fn link(vertex: &[]&cstr, fragment: &[]&cstr) -> u32 {
     let vs = compile(gl::GL_VERTEX_SHADER, vertex)
     let fs = compile(gl::GL_FRAGMENT_SHADER, fragment)
@@ -104,6 +107,7 @@ pub struct Renderer {
     m_shadow_fbo: u32
     m_shadow_map: u32
 
+    #[main_thread]
     pub Renderer() {
         m_lit = link(&[VERSION, LIT_VS], &[VERSION, NOISE, COMMON, LIGHTING, GRASS, LIT_FS])
         m_shadow = link(&[VERSION, SHADOW_VS], &[VERSION, SHADOW_FS])
@@ -161,15 +165,18 @@ pub struct Renderer {
         }
     }
 
+    #[main_thread]
     fn use_program(&mut self, program: u32) {
         m_current = program
         gl::glUseProgram(program)
     }
 
+    #[main_thread]
     fn location(&self, name: &cstr) -> i32 {
         return gl::glGetUniformLocation(m_current, name)
     }
 
+    #[main_thread]
     fn set_mat4(&self, name: &cstr, m: &Mat4) {
         let p: ^Mat4 = m
         gl::glUniformMatrix4fv(self.location(name), 1, 0, unsafe {
@@ -177,12 +184,14 @@ pub struct Renderer {
         })
     }
 
+    #[main_thread]
     fn set_vec3s(&self, name: &cstr, vs: &[]Vec3) {
         gl::glUniform3fv(self.location(name), vs.len as i32, unsafe {
             vs.ptr as ^f32
         })
     }
 
+    #[main_thread]
     fn set_vec3(&self, name: &cstr, v: &Vec3) {
         let p: ^Vec3 = v
         gl::glUniform3fv(self.location(name), 1, unsafe {
@@ -190,15 +199,18 @@ pub struct Renderer {
         })
     }
 
+    #[main_thread]
     fn set_f32(&self, name: &cstr, v: f32) {
         gl::glUniform1f(self.location(name), v)
     }
 
+    #[main_thread]
     fn set_i32(&self, name: &cstr, v: i32) {
         gl::glUniform1i(self.location(name), v)
     }
 
     /// The uniforms `COMMON` declares, which both the sky and the lit shader read.
+    #[main_thread]
     fn set_common(&self, frame: &Frame, width: i32, height: i32) {
         self.set_vec3("u_sun_dir", &frame.sun_dir)
         self.set_vec3s("u_lamp_pos", &frame.lamp_pos)
@@ -209,6 +221,7 @@ pub struct Renderer {
         self.set_f32("u_sky", frame.sky)
     }
 
+    #[main_thread]
     fn draw_mesh(&self, shape: Shape) {
         let mesh = self.mesh(shape)
         gl::glBindVertexArray(mesh.vao)
@@ -216,6 +229,7 @@ pub struct Renderer {
     }
 
     /// Draws `frame` into the window's framebuffer, `width` × `height` pixels.
+    #[main_thread]
     pub fn draw(&mut self, frame: &Frame, width: i32, height: i32) {
         let center = Vec3{ x: 0, y: 1, z: 0 }
         let up = Vec3{ x: 0, y: 1, z: 0 }
@@ -304,6 +318,7 @@ pub struct Renderer {
 /// Everything the renderer made on the GPU, given back while the GL context still exists:
 /// `main` creates the context first, so it is destroyed after this runs.
 impl Drop for Renderer {
+    #[main_thread]
     fn drop(&mut self) {
         for &m in [m_floor, m_cube, m_sphere, m_knot] {
             gl::glDeleteBuffers(1, &m.vbo)

@@ -1,0 +1,6 @@
+/// A type that synchronises by itself, so a `static` of it may be reached from any thread
+/// without `#[main_thread]` (spec §22.5): `Mutex` and `Atomic`. A plain `u64` is `Share`
+/// too, but a static of one is written by assignment, never through `&`, so two threads would
+/// race on it. `std`'s own: a program can neither name nor implement it.
+trait Synchronises {
+}

@@ -155,6 +155,7 @@ fn visiting() {
     println!("visited {} sum {}", count, sum)
 }
 
+#[main_thread]
 fn ownership() {
     {
         let mut sprites = HashMap<i32, Sprite>()

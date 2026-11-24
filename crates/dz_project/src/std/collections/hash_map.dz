@@ -576,3 +576,12 @@ impl<K: Hash + Eq + Clone, V: Clone> Clone for HashMap<K, V> {
         m_growth_left = other.m_growth_left
     }
 }
+
+// What it holds decides whether it crosses to another thread, not its `^mut Allocator`: what a
+// thread is given is placed on the heap or in that thread's own pool, never in a region another
+// thread may be growing (spec §22.2, §22.6).
+impl<K: Hash + Eq + Send, V: Send> Send for HashMap<K, V> {
+}
+
+impl<K: Hash + Eq + Share, V: Share> Share for HashMap<K, V> {
+}

@@ -914,6 +914,7 @@ pub struct Accounts {
 
 static ACCOUNTS: Accounts = Accounts{}
 
+#[main_thread]
 pub fn records(v: i32) kills ACCOUNTS.entries@items {
     ACCOUNTS.entries.push(v)
 }
@@ -1838,6 +1839,59 @@ fn write_through_a_guards_get(m: &Mutex<i32>) {
 }
 
 static MUTEX_FROM_A_CALL: Mutex<i32> = Mutex<i32>(a_runtime_value())
+
+// §22.5: a function that touches a plain static, or calls a `#[main_thread]` one, says so; one
+// that says so needs it; a `#[main_thread]` function is no plain `fn`; and what implements a
+// trait method may not need the main thread where the trait's does not say so.
+static ERROR_FRAMES: u64 = 0
+
+fn touches_a_plain_static() {
+    ERROR_FRAMES += 1
+}
+
+#[main_thread]
+fn on_the_main_thread() {
+    ERROR_FRAMES += 1
+}
+
+fn calls_a_main_thread_function() {
+    on_the_main_thread()
+}
+
+#[main_thread]
+fn marked_for_nothing() -> i32 {
+    return 1
+}
+
+fn main_thread_as_a_plain_fn() {
+    let _f: fn() = on_the_main_thread
+}
+
+trait TicksOnce {
+    fn tick(&self)
+}
+
+impl TicksOnce for i32 {
+    fn tick(&self) {
+        ERROR_FRAMES += 1
+    }
+}
+
+// §22.2: only `std` implements `Send` or `Share`, and a value crosses to a thread only if it
+// is `Send`.
+struct Pointing {
+    pub at: ^mut i32 = null
+}
+
+impl Share for Pointing {
+}
+
+fn reads_one(p: Pointing) {}
+
+fn spawns_a_pointer() {
+    let mut t = spawn(reads_one, Pointing{})
+    t.join()
+}
 
 // §4: a constructor with no keyword is private to its type.
 struct PrivatelyBuilt {

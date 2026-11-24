@@ -105,6 +105,11 @@ impl BodyBuilder {
             .min()
     }
 
+    /// Whose body this is.
+    pub(crate) fn owner(&self) -> &BodyOwner {
+        &self.owner
+    }
+
     /// Is this body a constructor's? Only a constructor builds its base.
     pub(crate) fn owner_is_ctor(&self) -> bool {
         matches!(self.owner, BodyOwner::Ctor { .. })

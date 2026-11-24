@@ -68,3 +68,12 @@ pub struct Mutex<T> {
 impl<T> Drop for Mutex<T> {
     fn drop(&mut self) {}
 }
+
+// The lock is what makes reaching the value through `&` safe from any thread, so a `Mutex` is
+// `Share` whenever its value may move to the thread that locks it (spec §22.2), and a static
+// of one needs no `#[main_thread]` (§22.5).
+impl<T: Send> Share for Mutex<T> {
+}
+
+impl<T: Send> Synchronises for Mutex<T> {
+}

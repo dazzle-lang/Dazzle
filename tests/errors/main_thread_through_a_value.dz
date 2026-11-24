@@ -1,0 +1,8 @@
+// expect: DZ0592
+// A call through a `#[main_thread] fn` value is the main thread's, as a call by name is.
+
+fn run(f: #[main_thread] fn()) {
+    f()
+}
+
+fn main() {}

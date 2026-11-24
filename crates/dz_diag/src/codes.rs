@@ -492,6 +492,23 @@ pub const NO_DEFAULT_TO_BUILD: &str = "DZ0590";
 /// `mut` on a parameter that is a reference, `mut r: &mut T`: a reference is never pointed
 /// elsewhere, assigning to one writes through it, so `mut` would change nothing (spec §7.2).
 pub const MUT_REFERENCE_PARAM: &str = "DZ0591";
+/// A body that runs on the main thread only, by touching a plain static, calling a
+/// `#[main_thread]` function or C its recipe does not mark `thread_safe`, in a function not
+/// written `#[main_thread]` (spec §22.5). `dz fix` writes it.
+pub const MAIN_THREAD_NOT_DECLARED: &str = "DZ0592";
+/// `#[main_thread]` on a function whose body needs no main thread: it would keep the function
+/// from every thread for nothing (spec §22.5).
+pub const MAIN_THREAD_UNNEEDED: &str = "DZ0593";
+/// A `#[main_thread]` function where a function type without it is wanted: through the
+/// value it could run on another thread (spec §22.5).
+pub const MAIN_THREAD_FN_VALUE: &str = "DZ0594";
+/// An implementation of a trait method, or an override, that needs the main thread where
+/// the method it implements does not say so: a call through the trait or the base could
+/// run it on any thread (spec §22.5).
+pub const MAIN_THREAD_NOT_IN_TRAIT: &str = "DZ0595";
+/// `impl Send` or `impl Share` outside the standard library: both are worked out from a
+/// type's fields, and only `std` vouches for an exception (spec §22.2).
+pub const CROSSING_IMPL_OUTSIDE_STD: &str = "DZ0596";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

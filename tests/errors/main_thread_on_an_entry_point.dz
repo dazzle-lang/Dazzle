@@ -1,0 +1,5 @@
+// expect: DZ0593
+// An entry point is on the main thread already.
+
+#[main_thread]
+fn main() {}

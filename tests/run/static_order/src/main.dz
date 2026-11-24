@@ -11,12 +11,14 @@ struct Bag {
 struct Probe {
     pub n: usize
 
-    // `unsafe`: a constructor cannot yet say what it kills (T-0122).
+    // `unsafe`: a constructor cannot yet say what it kills (T-0122), and a field's default
+    // builds this, which may run on any thread, so it cannot be `#[main_thread]` (spec §22.5);
+    // a static's is built as the program starts, on the main thread.
     pub Probe() {
         unsafe {
             SECOND.items.push(7)
+            n = SECOND.items.len()
         }
-        n = SECOND.items.len()
     }
 }
 
@@ -27,8 +29,11 @@ struct Holder {
 struct Witness {
     pub n: usize
 
+    // `unsafe`: a field's default builds this, and a default may run on any thread, so it
+    // cannot be `#[main_thread]` (spec §22.5); a static's is built as the program starts, on
+    // the main thread, which the block vouches for.
     pub Witness() {
-        n = FIRST.p.n
+        n = unsafe { FIRST.p.n }
     }
 }
 

@@ -1,0 +1,92 @@
+// A thread is started with a function pointer and one word of context, and gives back one word
+// that names it, zero when there is none.
+extern fn thread_start(entry: fn(^mut u8), context: ^mut u8) -> usize
+
+extern fn thread_join(handle: usize)
+
+extern fn thread_detach(handle: usize)
+
+/// A running thread (spec §22.3). `join` waits for it. Dropping a handle that was not joined
+/// lets the thread go on by itself, and it ends with the program as every thread does.
+///
+/// Start one with `spawn`.
+pub struct Thread {
+    m_handle: usize = 0
+
+    pub(module) Thread(handle: usize) {
+        m_handle = handle
+    }
+
+    /// Wait until the thread has finished, which is after everything it wrote is visible to
+    /// the caller. Joining twice does nothing the second time.
+    pub fn join(&mut self) {
+        if m_handle == 0 {
+            return
+        }
+        let handle = m_handle
+        m_handle = 0
+        unsafe {
+            thread_join(handle)
+        }
+    }
+}
+
+impl Drop for Thread {
+    fn drop(&mut self) {
+        if m_handle != 0 {
+            unsafe {
+                thread_detach(m_handle)
+            }
+        }
+    }
+}
+
+/// What a thread is started with: the function and the one value it is given.
+struct Start<A> {
+    pub(module) entry: fn(A)
+    pub(module) argument: A
+}
+
+/// Run `entry(argument)` on a new thread, and return the handle that joins it.
+///
+/// `argument` moves to the thread, through an allocation on the heap that the thread frees
+/// as it starts: a thread outlives every region, so nothing it holds may live in one
+/// (§22.6). To give it more than one value, pass a struct or a tuple of them.
+///
+/// ```dz
+/// fn count(n: u32) { … }
+///
+/// let mut t = spawn(count, 100)
+/// t.join()
+/// ```
+///
+/// What crosses is checked, so no data race follows (§1.1): `argument` is `Send`, so it holds
+/// no `Rc`, no view and no raw pointer (§22.2), and `entry` is a plain `fn(A)`, which a
+/// `#[main_thread]` function is not, so it touches no plain static and calls no C that needs
+/// the main thread (§22.5).
+pub fn spawn<A: Send>(entry: fn(A), argument: A) -> Thread {
+    let size = sizeof(Start<A>)
+    let align = alignof(Start<A>)
+    let allocator: ^mut Allocator = unsafe { Allocators::Global }
+    let block = unsafe { allocator.alloc(size, align) }
+    let start = unsafe { block as ^mut Start<A> }
+    unsafe {
+        construct(start[0], Start<A>{ entry: entry, argument: argument })
+    }
+    let run: fn(^mut u8) = start_thread<A>
+    let handle = unsafe { thread_start(run, block) }
+    return Thread(handle)
+}
+
+/// The function a new thread runs: take the start block apart, give the memory back, then
+/// call. The block goes first so that a thread that never returns does not hold it.
+fn start_thread<A>(block: ^mut u8) {
+    let start = unsafe { block as ^mut Start<A> }
+    let entry = unsafe { start[0].entry }
+    let argument = unsafe { move_out(start[0].argument) }
+    let allocator: ^mut Allocator = unsafe { Allocators::Global }
+    unsafe {
+        allocator.free(block, sizeof(Start<A>), alignof(Start<A>))
+    }
+    entry(argument)
+}

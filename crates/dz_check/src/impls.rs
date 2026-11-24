@@ -250,7 +250,7 @@ impl Ctx<'_> {
             match &m.kind {
                 MemberKind::Fn(f) => {
                     // A method of an implementation is as visible as the trait it belongs to.
-                    let mut s = self.fn_sig(f, Vis::Public, None);
+                    let mut s = self.fn_sig(f, &m.attrs, Vis::Public, None);
                     for p in &mut s.params {
                         p.ty = ty::substitute_with(&p.ty, &empty, Some(&self_ty));
                     }
@@ -647,6 +647,12 @@ impl TypeTable {
         if Some(r.trait_sym) == self.copy_trait {
             return self.copyable(t);
         }
+        // So are `Send` and `Share`, with `std`'s own implementations as exceptions (§22.2).
+        match self.crossing_of(r.trait_sym) {
+            Some(crate::threads::Crossing::Send) => return self.sendable(t),
+            Some(crate::threads::Crossing::Share) => return self.shareable(t),
+            None => {}
+        }
         // A trait satisfies itself, which is what `^Trait` will need.
         if t.named() == Some(r.trait_sym) {
             return true;
@@ -676,6 +682,9 @@ impl TypeTable {
     pub fn implements_directly(&self, t: &Ty, r: &TraitRef) -> bool {
         if Some(r.trait_sym) == self.copy_trait {
             return self.copyable(t);
+        }
+        if self.crossing_of(r.trait_sym).is_some() {
+            return self.implements(t, r);
         }
         if let Some(name) = self.prelude_names.get(&r.trait_sym) {
             if self.builtin_implements(t, name, &r.args) {

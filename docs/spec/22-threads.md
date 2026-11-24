@@ -1,6 +1,6 @@
 # 22. Threads
 
-`[DECIDED — D-0096, D-0112; not built yet: T-0011]` Threads keep the promise Dazzle makes on
+`[DECIDED — D-0096, D-0112; partly built: §22.2, §22.5 and §22.9 to §22.11 are, the parallel loop and `join!` are not (T-0011)]` Threads keep the promise Dazzle makes on
 one thread (§1.1): **a program with no `unsafe` has no undefined behaviour**, data races
 included. They do it without changing single-threaded code: everything §5 to §14 allow on one
 thread stays allowed, a `&mut` beside a `&` included (D-0094). The stricter rule of this
@@ -29,7 +29,8 @@ point into; and **bookkeeping shared without atomics**, such as a count.
 ## 22.2 `Send` and `Share`
 
 Two traits say what may cross, and the compiler works both out from a type's fields, as it
-works out whether a type is plain (§6.3):
+works out whether a type is plain (§6.3). Both are `std`'s, and nothing implements them
+outside it (DZ0596):
 
 - **`Send`**: a value may move to another thread, or be lent to it as `&mut`.
 - **`Share`**: a value may be read through `&` by several threads at once.
@@ -41,7 +42,12 @@ them are both; an `own ^mut T` counts as `T`, so a `Box<T>` is what `T` is. A ra
 `kills` clauses by hand (§6.7): `Mutex<T>`, the atomics, `Once<T>` and channels are `Share`;
 `List`, `String`, `HashMap` and the other containers are what their elements are, though
 they hold a `^mut Allocator`, because what a parallel call grows is placed for it (§22.6);
-`Rc<T>` and `Weak<T>` are §22.4's.
+`Rc<T>` and `Weak<T>` are §22.4's. A type whose `drop` is `#[main_thread]` (§22.5) is
+neither, and neither is anything holding one, so it only ever dies on the main thread. A
+`#[main_thread] fn` is neither; a plain `fn` is both.
+
+Where a value is not `Send` or `Share`, the error names the field that stops it: "its field
+`m_header` holds a raw pointer".
 
 Generic code names them as bounds, `fn sum<T: Share + Add>(…)`, since a generic body is
 checked where it is written (§8).
@@ -157,9 +163,28 @@ is never run by a parallel loop, `join!` or `spawn!`, and becomes a value only o
 type written with it, `#[main_thread] fn(w: &World)`.
 
 Needing nothing: a `const`; a `#[thread_local]` static, of which each thread has its own
-(§7.7), dropped when its thread ends; a static whose type is `Share`, a `Mutex` or an atomic;
-and a static touched only inside `unsafe`, which vouches for it there, as for a `kills` clause.
-`Allocators::Global` is such a one, so allocating runs anywhere.
+(§7.7), dropped when its thread ends; a static whose type synchronises, a `Mutex` or an
+atomic; and a static touched only inside `unsafe`, which vouches for it there, as for a `kills`
+clause. `Allocators::Global` is such a one, so allocating runs anywhere. A plain `u64` is
+`Share`, but a static of one is written by assignment, never through `&`, so it is the main
+thread's; which types synchronise is `std`'s to say, with a trait of its own no program names.
+
+**Where it is held** (DZ0592, DZ0593):
+
+- A call through a value of type `#[main_thread] fn(…)` is the main thread's, as a call by
+  name is; any function fits that type, and only one that runs anywhere fits a plain `fn(…)`
+  (DZ0594). A C function pointer is a `#[main_thread] fn`.
+- A method that implements a trait's, or overrides a `virtual` one, may need the main thread
+  only where the method it implements says `#[main_thread]`, since a call through the trait or
+  the base may run anywhere (DZ0595). A `virtual` method and a trait's default body may say it
+  without needing it, for what replaces them.
+- **A `drop` may be `#[main_thread]`**, as one that gives back what a GPU or a window made
+  must be. A value of such a type, or of anything holding one, must die on the main thread: it
+  is neither `Send` nor `Share`, and a function that makes one, by a literal or a call, or
+  takes one by value, is `#[main_thread]` itself. Lent by `&`, it is no one's to drop.
+- A field's default runs wherever its struct is built, so it may need nothing of the main
+  thread; a constructor that does is called from a function that is `#[main_thread]`.
+- A constructor may be `#[main_thread]`, as a function may.
 
 ## 22.6 Placement
 
@@ -260,3 +285,29 @@ may start as (§7.7).
 
 There is **no poisoned state**, since a panic on any thread ends the program (§22.3). A mutex
 is **not reentrant**: locking one the thread already holds waits forever.
+
+## 22.11 Starting a thread
+
+`[PROPOSED — D-0117]` **`spawn(entry, value)`** runs `entry(value)` on a new thread and returns a
+**`Thread`**, the handle that joins it. It is the function `spawn!` (§22.3) is to write; the macro
+is not built.
+
+```dz
+struct Job { pub first: u32, pub last: u32 }
+
+fn sum_range(job: Job) { … }
+
+let mut t = spawn(sum_range, Job{ first: 0, last: 100 })
+t.join()
+```
+
+`value` moves to the thread, into an allocation on the heap that the thread frees as it starts
+(§22.6). A thread takes one value, so a struct or a tuple gives it more. `join()` waits for the
+thread to finish, and everything it wrote is then visible; joining again does nothing. A
+`Thread` dropped without being joined **detaches**: the thread runs on, and ends with the
+program. A thread returns nothing; it shares through an atomic (§22.9) or a `Mutex<T>` (§22.10).
+
+What crosses is checked, so a program with no `unsafe` that starts threads has no data
+race: `spawn<A: Send>` takes a value that holds no `Rc`, view or raw pointer (§22.2), and its
+`entry` is a plain `fn(A)`, which a `#[main_thread]` function is not (§22.5). What the value
+holds is placed on the heap, never in a region of the code that started the thread (§22.6).

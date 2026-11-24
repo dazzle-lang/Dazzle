@@ -1,0 +1,30 @@
+// expect: DZ0592, DZ0531
+// A value whose drop is the main thread's is not `Send`, so it never reaches another thread
+// to die there (spec §22.2, §22.5); and a function that takes one by value is the main
+// thread's, so no plain `fn` could hand it over either.
+
+static FREED: u32 = 0
+
+struct Texture {
+    pub id: u32 = 0
+}
+
+impl Drop for Texture {
+    #[main_thread]
+    fn drop(&mut self) {
+        FREED += 1
+    }
+}
+
+fn keep(_t: Texture) {
+}
+
+#[main_thread]
+fn start() {
+    let mut t = spawn(keep, Texture{})
+    t.join()
+}
+
+fn main() {
+    start()
+}

@@ -1,0 +1,21 @@
+// expect: DZ0595
+// A call through the base's `virtual` method may run on any thread.
+
+static HITS: u32 = 0
+
+struct Widget {
+    pub n: i32 = 0
+
+    pub virtual fn update(&mut self) {}
+}
+
+struct Button : Widget {
+    pub override fn update(&mut self) {
+        HITS += 1
+    }
+}
+
+fn main() {
+    let mut b = Button{}
+    b.update()
+}

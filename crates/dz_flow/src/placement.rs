@@ -1698,7 +1698,7 @@ impl<'a> Cx<'a> {
             let value_sig;
             let (sig, program) = match callee {
                 Callee::Value(v) => {
-                    let Ty::Fn { params, ret, kills } = self.body.ty(*v) else { continue };
+                    let Ty::Fn { params, ret, kills, .. } = self.body.ty(*v) else { continue };
                     value_sig = dz_check::ties::fn_type_sig(params, ret, kills);
                     (&value_sig, true)
                 }

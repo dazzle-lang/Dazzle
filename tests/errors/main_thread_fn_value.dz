@@ -1,0 +1,14 @@
+// expect: DZ0594
+// A plain `fn()` may be called on any thread, so a main-thread function is not one.
+
+static COUNT: u64 = 0
+
+#[main_thread]
+fn bump() {
+    COUNT += 1
+}
+
+fn main() {
+    let f: fn() = bump
+    f()
+}

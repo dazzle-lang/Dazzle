@@ -105,6 +105,7 @@ fn consumed(store: &mut Store) -> i32 kills store.names@items {
 }
 
 // P8: into a static's list.
+#[main_thread]
 fn into_static() -> i32 kills KEPT {
     let mut names = List<String>()
     names.push(String::from("p8 into a static, long enough to need memory"))

@@ -312,3 +312,12 @@ impl<T> Iterable for Deque<T> {
         return DequeIter<T>(&self)
     }
 }
+
+// What it holds decides whether it crosses to another thread, not its `^mut Allocator`: what a
+// thread is given is placed on the heap or in that thread's own pool, never in a region another
+// thread may be growing (spec §22.2, §22.6).
+impl<T: Send> Send for Deque<T> {
+}
+
+impl<T: Share> Share for Deque<T> {
+}

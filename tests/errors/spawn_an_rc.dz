@@ -1,0 +1,9 @@
+// expect: DZ0531
+// Every `Rc` of one value shares a count, so one never crosses to another thread (spec §22.4).
+
+fn read(r: Rc<u32>) {}
+
+fn main() {
+    let mut t = spawn(read, Rc<u32>(1))
+    t.join()
+}
