@@ -20,7 +20,7 @@
 struct Rng {
     m_state: u64 = 0
 
-    Rng(seed: u64) {
+    pub Rng(seed: u64) {
         m_state = seed
     }
 
@@ -59,7 +59,7 @@ struct Grid {
     pub height: i32 = 0
     m_walls:    List<bool>
 
-    Grid(width: i32, height: i32, rng: &mut Rng) {
+    pub Grid(width: i32, height: i32, rng: &mut Rng) {
         self.width = width
         self.height = height
         let cells = (width * height) as usize

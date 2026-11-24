@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use dz_check::{TraitRef, TypeTable};
+use dz_check::{NoDefault, TraitRef, TypeTable};
 use dz_diag::{codes, Diagnostic, Diagnostics};
 use dz_hir::ty::{self, Ty};
 use dz_hir::{Body, BodyOwner, Callee, ExprKind, Hir, StmtKind};
@@ -822,6 +822,11 @@ impl Worklist<'_> {
                 _ => {}
             }
         }
+        for s in &b.stmts {
+            if let StmtKind::Let { local: Some(l), init: None } = &s.kind {
+                self.refuse_default_binding(b, *l);
+            }
+        }
         // `for x in it` calls the iterator's `valid`, `get` and `advance` (spec §10.4).
         if let Some(iterate) = self.table.prelude_trait_named("Iterate") {
             for s in &b.stmts {
@@ -932,26 +937,71 @@ impl Worklist<'_> {
         let params = self.table.type_params(owner);
         for id in defaults_built(template) {
             let Some(i) = params.iter().position(|p| p.param.id == id) else { continue };
-            let Some(Ty::Named { sym: elem, .. }) = args.get(i) else { continue };
-            if !self.table.struct_sig(*elem).is_some_and(|s| s.no_default) {
+            let Some(arg) = args.get(i) else { continue };
+            let module = self.res.symbol(owner).module;
+            if !matches!(
+                self.table.missing_default(self.res, arg, module, Some(owner)),
+                Some(NoDefault::Struct(_))
+            ) {
                 continue;
             }
-            let shown = dz_check::type_name(self.res, &args[i]);
+            let shown = dz_check::type_name(self.res, arg);
             let tname = self.res.symbol(owner).name.clone();
             self.diags.push(
                 Diagnostic::error(
                     codes::NO_DEFAULT_TO_BUILD,
                     format!("`{tname}::{name}` builds a `{shown}` at its default, and it has none"),
                 )
-                .at(at.0, at.1, format!("`{shown}` has no constructor taking no arguments"))
+                .at(at.0, at.1, format!("`{shown}` has no default `{tname}` can build"))
                 .with_help(format!(
-                    "`{shown}` is an imported C++ class whose constructors all take arguments; \
-                     build each element with one and add it (`push`, `insert`), or give the \
-                     class a default constructor (spec §15.2)"
+                    "`{shown}` has no public constructor taking no arguments; build each \
+                     element with a constructor and add it (`push`, `insert`), or give it \
+                     such a constructor (spec §6.2, §15.2)"
                 )),
             );
             return;
         }
+    }
+
+    /// `let x: T` in a generic body, in an instance whose `T` has no default that body can
+    /// build: `DZ0590` at the binding (spec §6.2). The checker has already judged every
+    /// binding whose type names no parameter.
+    fn refuse_default_binding(&mut self, b: &Body, l: dz_hir::LocalId) {
+        let Some(template) = self.hir.find(&b.owner) else { return };
+        if !template.local(l).ty.has_params() {
+            return;
+        }
+        let Some(module) = self.res.module_of_file(b.file) else { return };
+        let within = match &b.owner {
+            BodyOwner::Method { owner, .. }
+            | BodyOwner::Ctor { owner, .. }
+            | BodyOwner::Copy(owner)
+            | BodyOwner::Drop(owner) => Some(*owner),
+            BodyOwner::ImplMethod { imp, .. } => match &self.table.impls()[*imp as usize].self_ty {
+                Ty::Named { sym, .. } => Some(*sym),
+                _ => None,
+            },
+            _ => None,
+        };
+        let local = b.local(l);
+        let Some(NoDefault::Struct(_)) =
+            self.table.missing_default(self.res, &local.ty, module, within)
+        else {
+            return;
+        };
+        let shown = dz_check::type_name(self.res, &local.ty);
+        self.diags.push(
+            Diagnostic::error(
+                codes::NO_DEFAULT_TO_BUILD,
+                format!("this instance builds a `{shown}` at its default, and it has none here"),
+            )
+            .at(b.file, local.span, format!("`{shown}` has no default this function can build"))
+            .with_help(
+                "a type with constructors is default-built only through one that takes no \
+                 arguments and is visible where it is built; instantiate this with another \
+                 type, or give the binding a value (spec §6.2)",
+            ),
+        );
     }
 
     fn too_deep(&mut self, name: String, at: (FileId, Span)) {

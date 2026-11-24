@@ -8,7 +8,7 @@ pub view struct Chars {
     m_text: &str
     m_at: usize = 0
 
-    Chars(text: &str) {
+    pub Chars(text: &str) {
         m_text = text
     }
 

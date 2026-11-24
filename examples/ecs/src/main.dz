@@ -19,7 +19,7 @@ struct World {
     tie @entities = m_entities@items, m_entities[*]
     tie @components = positions@items, velocities@items, health@items
 
-    World() {
+    pub World() {
         m_entities = SlotMap<Entity>()
         positions = SparseSet<Position>()
         velocities = SparseSet<Velocity>()

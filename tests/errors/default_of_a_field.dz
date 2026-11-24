@@ -1,0 +1,19 @@
+// expect: DZ0590
+// A struct with no constructor defaults through its fields, so one of them can stop it.
+
+struct Sealed {
+    pub n: i32 = 0
+
+    Sealed() {
+        n = 1
+    }
+}
+
+struct Outer {
+    pub inner: Sealed
+}
+
+fn main() {
+    let o: Outer
+    println!("{}", o.inner.n)
+}

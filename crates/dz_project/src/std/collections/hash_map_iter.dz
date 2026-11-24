@@ -6,7 +6,7 @@ pub view struct HashMapIter<K: Hash + Eq, V> {
     /// What the map holds, so an entry outlives the iterator it came from (spec 6.7).
     tie @items = m_map
 
-    HashMapIter(map: &HashMap<K, V>) {
+    pub HashMapIter(map: &HashMap<K, V>) {
         m_map = map
         m_slot = first_entry_from(map, 0)
     }

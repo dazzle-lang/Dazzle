@@ -7,7 +7,7 @@ pub view struct DequeIter<T> {
     /// What the deque holds, so an element outlives the iterator it came from (spec §6.7).
     tie @items = m_deque
 
-    DequeIter(deque: &Deque<T>) {
+    pub DequeIter(deque: &Deque<T>) {
         m_deque = deque
     }
 }

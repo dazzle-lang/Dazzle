@@ -369,7 +369,7 @@ pub view struct Split {
     /// The text being split, so a piece outlives the iterator it came from (spec §6.7).
     tie @text = m_text
 
-    Split(text: &str, separator: &str) {
+    pub Split(text: &str, separator: &str) {
         m_text = text
         m_separator = separator
         self.find_end()
@@ -421,7 +421,7 @@ pub view struct Lines {
     /// The text, so a line outlives the iterator it came from (spec §6.7).
     tie @text = m_text
 
-    Lines(text: &str) {
+    pub Lines(text: &str) {
         m_text = text
         self.find_end()
     }
@@ -469,7 +469,7 @@ pub view struct SplitWhitespace {
     /// The text, so a word outlives the iterator it came from (spec §6.7).
     tie @text = m_text
 
-    SplitWhitespace(text: &str) {
+    pub SplitWhitespace(text: &str) {
         m_text = text
         self.find_word(0)
     }

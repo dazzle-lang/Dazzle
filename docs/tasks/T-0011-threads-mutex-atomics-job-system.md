@@ -15,14 +15,16 @@ for atomic counts on `Rc` and `Weak` in parallel programs. Thread-local drops on
 ECS (T-0246) are implemented. T-0248 tracks ThreadSanitizer in CI. The notes below
 record the earlier plan.
 
-**Progress.** Atomics are done (`Atomic<T>`, D-0113, §22.9, r146). **Next: the mutex**, then
-threads and the job system. `Send` and `Share` (§22.2) are not built.
+**Progress.** Atomics are done (`Atomic<T>`, D-0113, §22.9, r146), and so is the mutex
+(`Mutex<T>`, §22.10, r147; its API is proposed in D-0114). **Next: threads**, then the job
+system. `Send` and `Share` (§22.2) are not built.
 
 ## Where the code is
 
 | Piece | Location |
 |---|---|
 | `Atomic<T>` and its native operations | `crates/dz_project/src/std/sync/atomic.dz`; `crates/dz_cpp/src/runtime.rs` (`NATIVE_H`, `NATIVE_CPP`); the static exception is `is_static_initialiser` in `crates/dz_check/src/check.rs` |
+| `Mutex<T>` and its native lock | `crates/dz_project/src/std/sync/mutex.dz`, `mutex_guard.dz`; `crates/dz_cpp/src/runtime.rs` (`mutex_lock`, `mutex_unlock`) |
 | Static lifetime and generated entry hooks | `crates/dz_cpp/src/lib.rs` (`static_decl`, `thread_statics`) and `crates/dz_cpp/src/runtime.rs` (`register_thread_cleanup`) |
 | Reference counts and memory tracker | `crates/dz_project/src/std/memory/` (`rc_block.dz`, `rc.dz`, `weak.dz`, `tracker.dz`) |
 | Type-keyed storage and milestone proof | `crates/dz_project/src/std/collections/type_map.dz` and `tests/bench_programs/ecs` |

@@ -21,7 +21,7 @@ pub trait Allocator {
 pub struct List<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
-    List(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub List(capacity: usize = 0, loc: SourceLocation = #location) {
         m_allocator = unsafe { #placement }   // where the compiler put this list
         ...
     }
@@ -720,7 +720,7 @@ struct Pool {
     m_allocator: ^mut Allocator = Allocators::Global
     m_data: ^mut u8 = null
 
-    Pool() {
+    pub Pool() {
         m_allocator = unsafe { #placement }     // this pool's region, its caller's, or the heap
         let a = unsafe { m_allocator or return }
         m_data = a.alloc(4096, 16)

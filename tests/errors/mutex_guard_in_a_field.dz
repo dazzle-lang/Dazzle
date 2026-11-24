@@ -1,0 +1,8 @@
+// expect: DZ0517
+// A guard is a view, so it is never kept in a field, where it could outlive its scope.
+
+struct Holder {
+    pub held: MutexGuard<i32>
+}
+
+fn main() {}

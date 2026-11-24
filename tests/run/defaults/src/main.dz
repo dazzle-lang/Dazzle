@@ -82,7 +82,7 @@ struct Boxed<T: Clone> {
     pub value: T
     pub scale: i32
 
-    Boxed(value: T, scale: i32 = default_times()) {
+    pub Boxed(value: T, scale: i32 = default_times()) {
         self.value = value
         self.scale = scale
     }

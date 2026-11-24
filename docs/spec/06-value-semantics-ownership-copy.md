@@ -8,7 +8,7 @@ A struct has at most one of each — a constructor, a `drop` and a `clone`:
 
 ```dz
 struct Buffer<T> {
-    Buffer(capacity: u32) { ... }   // constructor: name matches the struct, no return type
+    pub Buffer(capacity: u32) { ... }   // constructor: name matches the struct, no return type
 }
 
 impl<T> Drop for Buffer<T> {        // destructor
@@ -42,7 +42,7 @@ whatever C++ needs from these three (§6.6).
 let f: File          // fully constructed, fields at their declared defaults
 let n: i32           // 0
 let p: ^Player       // null
-let b: Buffer<u8>    // all fields at defaults: a valid, empty buffer
+let v: Vec3          // all fields at defaults: x, y and z are 0
 ```
 
 A field's default is its `= expr` initialiser if it has one, otherwise the zero value of
@@ -50,9 +50,20 @@ its type. Defaults are evaluated in declaration order. A reference has no zero v
 view struct holding one has no defaults: it is built by a literal or a constructor, which
 binds the reference first (§6.7).
 
-`let f: File` is legal only if `File` can be default-initialised — that is, if it has no
-constructor, or has one callable with zero arguments. Otherwise the error names the
-constructor you have to call. `[PROPOSED]`
+`let f: File` is legal only if `File` can be default-initialised **where it is written**, as
+in C++ (`DZ0590`) `[DECIDED — D-0115]`:
+
+- a type with constructors needs one callable with no arguments and visible there (§4), so a
+  private constructor keeps `let x: T` out, and so does having only constructors that take
+  arguments;
+- a type without constructors needs a default for each field: its declared one, or its type's,
+  judged from the type that declares the field;
+- an array or a tuple needs one for each element;
+- `Box`, `Rc` and `Weak` default to `null` (§14.5).
+
+A generic body is checked once, so its `let x: T` is asked of each instance. A constructor
+assigns, at its top level and before any `return`, every field with no declared default whose
+type has no default there, a field of a type parameter included.
 
 This is what makes the comment in your `Buffer::clone` true *and checkable*: `clone` always
 runs on a defaults-initialised object, so an early `return` out of it leaves a valid empty
@@ -599,7 +610,7 @@ pub view struct HashMapKeys<K: Hash + Eq, V> {
     m_slot: usize = 0
     tie @items = m_map
 
-    HashMapKeys(map: &HashMap<K, V>) {
+    pub HashMapKeys(map: &HashMap<K, V>) {
         m_map = map                     // binds: the first statements
         m_slot = first_entry_from(map, 0)
     }

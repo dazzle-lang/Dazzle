@@ -23,7 +23,7 @@ pub struct SlotMap<T> {
     tie [*] = m_values[*]
 
     /// An empty map, with room for `capacity` values already allocated when it is given.
-    SlotMap(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub SlotMap(capacity: usize = 0, loc: SourceLocation = #location) {
         m_values = List<T>(capacity, loc)
         m_slot_of = List<u32>(capacity, loc)
         m_slots = List<SlotMapSlot>(capacity, loc)

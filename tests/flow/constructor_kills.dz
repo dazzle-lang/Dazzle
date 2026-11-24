@@ -7,7 +7,7 @@
 pub struct Registry {
     pub id: usize
 
-    Registry(all: &mut List<i32>) kills all@items {
+    pub Registry(all: &mut List<i32>) kills all@items {
         all.push(1)
         id = all.len()
     }

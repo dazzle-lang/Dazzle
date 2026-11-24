@@ -95,6 +95,16 @@ impl BodyBuilder {
         self.base_init = Some(e);
     }
 
+    /// Where this body's first `return` is written, `or return` included: past it, a
+    /// statement may not have run.
+    pub(crate) fn first_return(&self) -> Option<u32> {
+        self.exprs
+            .iter()
+            .filter(|e| matches!(e.kind, hir::ExprKind::Return(_)))
+            .map(|e| e.span.start)
+            .min()
+    }
+
     /// Is this body a constructor's? Only a constructor builds its base.
     pub(crate) fn owner_is_ctor(&self) -> bool {
         matches!(self.owner, BodyOwner::Ctor { .. })

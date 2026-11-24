@@ -8,7 +8,7 @@
 view struct Peek {
     m_text: &str
 
-    Peek(text: &str) {
+    pub Peek(text: &str) {
         m_text = text
     }
 }
@@ -22,7 +22,7 @@ impl Drop for Peek {
 view struct Quiet {
     m_text: &str
 
-    Quiet(text: &str) {
+    pub Quiet(text: &str) {
         m_text = text
     }
 }

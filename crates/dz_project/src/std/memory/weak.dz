@@ -16,7 +16,7 @@ pub struct Weak<T> {
     pub(module) m_value: ^mut T = null
 
     /// A weak reference to what `rc` owns; null when `rc` is.
-    Weak(rc: &Rc<T>) {
+    pub Weak(rc: &Rc<T>) {
         m_header = rc.m_header
         m_value = rc.m_value
         let h = unsafe { m_header or return }

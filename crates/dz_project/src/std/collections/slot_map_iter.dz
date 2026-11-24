@@ -6,7 +6,7 @@ pub view struct SlotMapIter<T> {
     /// What the map holds, so a value outlives the iterator it came from (spec 6.7).
     tie @items = m_map
 
-    SlotMapIter(map: &SlotMap<T>) {
+    pub SlotMapIter(map: &SlotMap<T>) {
         m_map = map
     }
 }

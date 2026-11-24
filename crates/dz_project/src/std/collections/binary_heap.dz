@@ -13,12 +13,12 @@ pub struct BinaryHeap<T: Ord> {
     tie @values = m_items[*]
 
     /// An empty heap, with room for `capacity` elements already allocated when it is given.
-    BinaryHeap(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub BinaryHeap(capacity: usize = 0, loc: SourceLocation = #location) {
         m_items = List<T>(capacity, loc)
     }
 
     /// A heap of `items`, built in place in `n` steps rather than `n log n` pushes.
-    BinaryHeap(items: List<T>) {
+    pub BinaryHeap(items: List<T>) {
         m_items = items
         let n = m_items.len()
         let mut at = n / 2

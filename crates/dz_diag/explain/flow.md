@@ -295,7 +295,7 @@ struct Window {
     m_handle: own ^mut u8 = null    // what a C library's create_window returned
     pub width: i32
 
-    Window(width: i32) {
+    pub Window(width: i32) {
         self.width = width
     }
 }
@@ -311,7 +311,7 @@ struct Window {
     m_handle: own ^mut u8 = null    // what a C library's create_window returned
     pub width: i32
 
-    Window(width: i32) {
+    pub Window(width: i32) {
         self.width = width
     }
 }

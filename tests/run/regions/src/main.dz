@@ -189,12 +189,12 @@ struct Bag {
     pub items: List<i32>
     pub label: String
 
-    Bag() {
+    pub Bag() {
         items = List<i32>()
         label = String::from("empty")
     }
 
-    Bag(n: i32) {
+    pub Bag(n: i32) {
         items = List<i32>()
         for i in 0..n {
             items.push(i)
@@ -204,7 +204,7 @@ struct Bag {
 
     // A parameter taken by reference: the heap overload passes it on as it is, where a
     // value is moved (`static_cast<T&&>` of a reference was `T&&&`).
-    Bag(from: &List<i32>, extra: i32) {
+    pub Bag(from: &List<i32>, extra: i32) {
         items = List<i32>()
         for &x in from {
             items.push(x)

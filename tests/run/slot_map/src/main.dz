@@ -11,7 +11,7 @@ struct Enemy {
     pub name: const &str = ""
     pub hp: i32 = 0
 
-    Enemy(name: const &str, hp: i32) {
+    pub Enemy(name: const &str, hp: i32) {
         self.name = name
         self.hp = hp
     }

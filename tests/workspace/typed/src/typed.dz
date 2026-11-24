@@ -34,7 +34,7 @@ pub struct Counter {
     pub origin: Vec3
     pub cursor: ^Vec3 = null
 
-    Counter(start: u32, label: &str = "counter") {
+    pub Counter(start: u32, label: &str = "counter") {
         m_count = start
         shared = 0
     }
@@ -104,9 +104,9 @@ fn struct_literals() -> Vec3 {
     return partial
 }
 
-fn default_initialisation() -> Counter {
+fn default_initialisation() -> Vec3 {
     // Every value is initialised, so this is a complete object (spec §6.2).
-    let c: Counter
+    let c: Vec3
     return c
 }
 
@@ -333,7 +333,7 @@ pub struct Owner {
     m_slot: own ^mut i32
     pub tag: i32
 
-    Owner(slot: ^mut i32) {
+    pub Owner(slot: ^mut i32) {
         m_slot = slot
     }
 
@@ -470,7 +470,7 @@ trait Weigh : Describe {
 struct Crate {
     m_weight: i32
 
-    Crate(w: i32) {
+    pub Crate(w: i32) {
         m_weight = w
     }
 }
@@ -753,7 +753,7 @@ struct Scratch {
     m_allocator: ^mut Allocator = null
     m_bytes: ^mut u8 = null
 
-    Scratch() {
+    pub Scratch() {
         m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or return }
         m_bytes = a.alloc(64, 8)
@@ -1066,7 +1066,7 @@ fn inherited_members_are_reachable(d: &Dialog) -> i32 {
 pub struct Sized {
     pub w: i32 = 0
 
-    Sized(width: i32) {
+    pub Sized(width: i32) {
         w = width
     }
 }
@@ -1074,19 +1074,19 @@ pub struct Sized {
 pub struct Boxed : Sized {
     pub depth: i32 = 0
 
-    Boxed(width: i32, d: i32) : Sized(width) {
+    pub Boxed(width: i32, d: i32) : Sized(width) {
         depth = d
     }
 }
 
 // A base argument may be built by statements: an `or` fallback, a block-valued `if`.
 pub struct Fallback : Sized {
-    Fallback(width: i32?, wide: bool) : Sized(width or if wide { 10 } else { 1 }) {}
+    pub Fallback(width: i32?, wide: bool) : Sized(width or if wide { 10 } else { 1 }) {}
 }
 
 // A base with no constructor may still be named, which is default-initialisation.
 pub struct Explicitly : Widget {
-    Explicitly() : Widget() {}
+    pub Explicitly() : Widget() {}
 }
 
 fn builds_through_constructors() -> i32 {
@@ -1748,12 +1748,12 @@ struct Extent {
     pub w: f32
     pub h: f32
 
-    Extent(w: f32, h: f32 = 1.0) {
+    pub Extent(w: f32, h: f32 = 1.0) {
         self.w = w
         self.h = h
     }
 
-    Extent(size: Vec2) {
+    pub Extent(size: Vec2) {
         self.w = size.x
         self.h = size.y
     }
@@ -1762,7 +1762,7 @@ struct Extent {
 struct Framed : Extent {
     pub border: i32
 
-    Framed(size: Vec2) : Extent(size) {
+    pub Framed(size: Vec2) : Extent(size) {
         self.border = 1
     }
 }
@@ -1780,7 +1780,7 @@ fn constructors_by_argument() -> f32 {
 struct Holder<T: Clone> {
     pub held: T
 
-    Holder(held: T) {
+    pub Holder(held: T) {
         self.held = held
     }
 
@@ -1790,13 +1790,13 @@ struct Holder<T: Clone> {
 }
 
 struct IntHolder : Holder<i32> {
-    IntHolder(n: i32) : Holder(n) {}
+    pub IntHolder(n: i32) : Holder(n) {}
 }
 
 struct Labelled<T: Clone> : Holder<T> {
     pub label: const &str = ""
 
-    Labelled(v: T) : Holder(v) {}
+    pub Labelled(v: T) : Holder(v) {}
 }
 
 fn holder_value(h: &Holder<i32>) -> i32 {
@@ -2205,7 +2205,7 @@ view struct Teller {
 
     tie @book = m_ledger
 
-    Teller(ledger: &mut Ledger, step: i32) {
+    pub Teller(ledger: &mut Ledger, step: i32) {
         m_ledger = ledger
         m_step = step
         m_ledger.total += step
@@ -2640,4 +2640,74 @@ static TYPED_COUNTER: Atomic<u32> = Atomic<u32>(0)
 fn atomics(flag: &Atomic<bool>) -> u32 {
     flag.store(true)
     return TYPED_COUNTER.add(1)
+}
+
+// §22.10: a `Mutex` starts from constants, and is written through the guard `lock` gives.
+static TYPED_LOCK: Mutex<i32> = Mutex<i32>(0)
+
+fn locked_add(by: i32) -> i32 {
+    let mut held = TYPED_LOCK.lock()
+    let value = held.get_mut()
+    value += by
+    return value
+}
+
+// §4: a private constructor is reached through the type's own functions, a `pub(module)` one
+// anywhere in the module, and a `protected` one from a type that inherits.
+struct Sealed {
+    pub n: i32 = 0
+
+    Sealed(start: i32) {
+        n = start
+    }
+
+    pub(module) Sealed() {
+        n = 2
+    }
+
+    protected Sealed(a: i32, b: i32) {
+        n = a + b
+    }
+
+    pub fn of(start: i32) -> Sealed {
+        return Sealed(start)
+    }
+}
+
+struct SealedChild : Sealed {
+    pub SealedChild() : Sealed(1, 2) {
+    }
+}
+
+fn constructor_visibility() -> i32 {
+    let a = Sealed::of(1)
+    let b = Sealed()
+    let c = SealedChild()
+    return a.n + b.n + c.n
+}
+
+// §6.2: `let x: T` needs a constructor taking no arguments, visible here. A handle defaults to
+// `null`, and a constructor may give a field whose type has no default its value.
+struct DefaultBuilt {
+    pub n: i32 = 0
+
+    pub DefaultBuilt() {
+        n = 1
+    }
+}
+
+struct HoldsSealed {
+    pub inner: Sealed
+
+    pub HoldsSealed(start: i32) {
+        inner = Sealed::of(start)
+    }
+}
+
+fn defaults_that_exist() -> i32 {
+    let a: DefaultBuilt
+    let b: [2]DefaultBuilt
+    let c: Box<DefaultBuilt>
+    let held = HoldsSealed(3)
+    return a.n + b[1].n + held.inner.n + (c == null) as i32
 }

@@ -6,7 +6,7 @@ struct Panel<T: Clone> {
     pub value: T
     pub shown: bool = true
 
-    Panel(value: T) {
+    pub Panel(value: T) {
         self.value = value
     }
 
@@ -27,7 +27,7 @@ struct Panel<T: Clone> {
 struct Button : Panel<i32> {
     pub label: const &str = ""
 
-    Button(label: const &str, clicks: i32) : Panel(clicks) {
+    pub Button(label: const &str, clicks: i32) : Panel(clicks) {
         self.label = label
     }
 
@@ -44,7 +44,7 @@ struct Button : Panel<i32> {
 struct Slider<T: Clone> : Panel<T> {
     pub step: T
 
-    Slider(start: T, step: T) : Panel(start) {
+    pub Slider(start: T, step: T) : Panel(start) {
         self.step = step
     }
 

@@ -13,7 +13,7 @@ pub struct BitSet {
 
     /// An empty set, with room for the integers below `capacity` already allocated when it
     /// is given.
-    BitSet(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub BitSet(capacity: usize = 0, loc: SourceLocation = #location) {
         m_words = List<u64>((capacity + 63) / 64, loc)
     }
 

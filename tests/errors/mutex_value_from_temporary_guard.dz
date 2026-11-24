@@ -1,0 +1,9 @@
+// expect: DZ0407
+// A guard that is not kept unlocks at the end of the statement, so nothing may hold on to
+// what it gave out.
+
+fn main() {
+    let m = Mutex<i32>(1)
+    let v = m.lock().get_mut()
+    v = 2
+}

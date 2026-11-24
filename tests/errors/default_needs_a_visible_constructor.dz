@@ -1,0 +1,15 @@
+// expect: DZ0590
+// A private constructor keeps `let x: T` out, as C++ does: there is no default to build here.
+
+struct Sealed {
+    pub n: i32 = 0
+
+    Sealed() {
+        n = 1
+    }
+}
+
+fn main() {
+    let s: Sealed
+    println!("{}", s.n)
+}

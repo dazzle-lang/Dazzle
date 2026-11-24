@@ -34,7 +34,7 @@ union Choice<T> {
 // A countdown hands out values: only `for n in` fits it.
 struct Countdown {
     left: i32
-    Countdown(n: i32) {
+    pub Countdown(n: i32) {
         left = n
     }
 }

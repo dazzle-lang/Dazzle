@@ -80,7 +80,7 @@ pub struct {p} {{
     pub label:  String
     pub tags:   List<i64>
 
-    {p}(id: i64) {{
+    pub {p}(id: i64) {{
         self.id = id
         weight = (id * {a} + {b}) % 1009
         label = format!("p{i}_{k}_{{}}", id)

@@ -1,0 +1,19 @@
+// expect: DZ0506
+// A derived type may not call a base constructor that is private to the base.
+
+struct Base {
+    pub n: i32 = 0
+
+    Base(start: i32) {
+        n = start
+    }
+}
+
+struct Derived : Base {
+    pub Derived() : Base(1) {}
+}
+
+fn main() {
+    let d = Derived()
+    println!("{}", d.n)
+}

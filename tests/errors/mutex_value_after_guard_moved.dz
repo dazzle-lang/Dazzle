@@ -1,0 +1,12 @@
+// expect: DZ0413
+// Moving a guard ends the references it gave out, as moving any owner does.
+
+fn take(_g: MutexGuard<i32>) {}
+
+fn main() {
+    let m = Mutex<i32>(1)
+    let mut held = m.lock()
+    let v = held.get_mut()
+    take(held)
+    v = 2
+}

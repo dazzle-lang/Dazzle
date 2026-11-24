@@ -24,7 +24,7 @@ pub struct Buffer<T> {                // private by default; pub / pub(module) /
     m_len:  u32                       // fields default-initialise; no uninitialised memory
     tie @items = m_data               // a public name for the memory it owns (§6.7)
 
-    Buffer(cap: u32) { ... }          // constructor; no allocator: the compiler places memory
+    pub Buffer(cap: u32) { ... }          // constructor; no allocator: the compiler places memory
 
     pub fn length(&self) -> u32 { return m_len }                    // &self     = reads
     pub fn resize(&mut self, n: u32) kills self@items { ... }       // &mut self = mutates

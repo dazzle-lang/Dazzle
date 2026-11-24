@@ -9,7 +9,7 @@ struct Rect {
     pub w: f32 = 3.0
     pub h: f32 = 2.0
 
-    Rect(w: f32, h: f32) {
+    pub Rect(w: f32, h: f32) {
         self.w = w
         self.h = h
     }

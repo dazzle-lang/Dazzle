@@ -20,7 +20,7 @@
 struct Rng {
     m_state: u64 = 0
 
-    Rng(seed: u64) {
+    pub Rng(seed: u64) {
         m_state = seed
     }
 
@@ -222,7 +222,7 @@ view struct Parser {
     /// What the program holds, so a name's text outlives the parser (spec 6.7).
     tie @source = m_source
 
-    Parser(source: &String, tokens: &[]Token) {
+    pub Parser(source: &String, tokens: &[]Token) {
         m_source = source
         m_tokens = tokens
     }

@@ -1,0 +1,9 @@
+read 5
+written 6
+holds 1
+still held by the mutex
+dropped 1
+total true
+pair true
+log true
+one at a time true

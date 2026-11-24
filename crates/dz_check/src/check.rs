@@ -2073,8 +2073,72 @@ impl<'a, 'c> Body<'a, 'c> {
                 ),
             );
         }
+        if self.hir.owner_is_ctor() {
+            self.require_field_values(f);
+        }
         self.pop();
         root
+    }
+
+    /// A field a constructor does not assign is built at its default, so one with neither a
+    /// declared default nor a default its type can give must be assigned, at the body's top level and
+    /// before any `return` (spec §6.2). A field of a type parameter counts, since the
+    /// parameter may be such a type.
+    fn require_field_values(&mut self, f: &FnDecl) {
+        let Some(owner) = self.self_ty else { return };
+        let Some(sig) = self.cx.table.struct_sig(owner) else { return };
+        let Some(body) = &f.body else { return };
+        let module = self.cx.res.symbol(owner).module;
+        let needed: Vec<String> = sig
+            .fields
+            .iter()
+            .filter(|x| !x.has_default && x.declared_in.is_none())
+            .filter(|x| {
+                self.cx.table.missing_default(self.cx.res, &x.ty, module, Some(owner)).is_some()
+            })
+            .map(|x| x.name.clone())
+            .collect();
+        if needed.is_empty() {
+            return;
+        }
+        let exit = self.hir.first_return().unwrap_or(u32::MAX);
+        let single = |p: &Path| match p.segments.as_slice() {
+            [seg] if seg.generics.is_empty() => Some(seg.name.name.clone()),
+            _ => None,
+        };
+        let mut assigned = HashSet::new();
+        for s in body.stmts.iter().take_while(|s| s.span.start < exit) {
+            let StmtKind::Assign { target, op: AssignOp::Assign, .. } = &s.kind else { continue };
+            let name = match &target.kind {
+                ExprKind::Path(p) => single(p).filter(|n| {
+                    matches!(self.local(n).map(|l| l.slot), Some(Slot::SelfField { .. }))
+                }),
+                ExprKind::Field { base, name, .. } => match &base.kind {
+                    ExprKind::Path(p) if single(p).as_deref() == Some("self") => {
+                        Some(name.name.clone())
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            assigned.extend(name);
+        }
+        let missing: Vec<String> = needed
+            .into_iter()
+            .filter(|n| !assigned.contains(n))
+            .map(|n| format!("`{n}`"))
+            .collect();
+        let Some(first) = missing.first().map(|n| n.trim_matches('`').to_owned()) else { return };
+        self.cx.error_help(
+            codes::NO_DEFAULT_TO_BUILD,
+            f.name.span,
+            format!("this constructor leaves {} with no value", missing.join(", ")),
+            "a field whose type has no default to build here",
+            format!(
+                "assign it at the top of the constructor, before any `return`: `{first} = …`, \
+                 or give the field a default where it is declared (spec §6.2)"
+            ),
+        );
     }
 
     /// Check a constructor's base initialiser, and require one where the base needs it.
@@ -2186,6 +2250,8 @@ impl<'a, 'c> Body<'a, 'c> {
             ctors.iter().map(|c| self.cx.instantiate_sig(b, &base_args, c)).collect();
         let index = self.pick_ctor(&ctors, &init.args, init.span, &bname);
         let sig = ctors[index].clone();
+        // Reached from a derived type, which is what `protected` allows (spec §4, §7.3).
+        self.check_member_visible(b, &bname, sig.vis, sig.span, init.span, "constructor");
         let args = self.check_args(&sig, &init.args, init.span, &bname);
         self.in_base_init = false;
         let ty = Ty::Named { sym: b, args: base_args };
@@ -2315,6 +2381,24 @@ impl<'a, 'c> Body<'a, 'c> {
                                 "declared with no value",
                                 "a reference field must refer to something from the start; \
                                  give the binding a value: `let x = …` (spec §6.2, §6.7)",
+                            );
+                        } else if let Some(crate::NoDefault::Struct(s)) = self
+                            .cx
+                            .table
+                            .missing_default(self.cx.res, d, self.cx.module, self.self_ty)
+                        {
+                            let name = self.cx.res.symbol(s).name.clone();
+                            self.cx.error_help(
+                                codes::NO_DEFAULT_TO_BUILD,
+                                l.pat.span,
+                                format!("`{name}` has no default to build here"),
+                                "declared with no value",
+                                format!(
+                                    "a type with constructors is default-built only through one \
+                                     that takes no arguments and is visible here; give the \
+                                     binding a value, `let x = …`, made by a constructor or \
+                                     function of `{name}` (spec §6.2)"
+                                ),
                             );
                         }
                         (d.clone(), None)
@@ -6543,6 +6627,16 @@ impl<'a, 'c> Body<'a, 'c> {
                     let name = self.cx.res.symbol(sym).name.clone();
                     let index = self.pick_ctor(&ctors, args, span, &name);
                     if let Some(sig) = ctors.get(index).cloned() {
+                        // A constructor is a member, private unless it says otherwise, so a
+                        // type can make its values only through its own functions (spec §4).
+                        self.check_member_visible(
+                            sym,
+                            &name,
+                            sig.vis,
+                            sig.span,
+                            callee.span,
+                            "constructor",
+                        );
                         // A generic struct's parameters are solved exactly as a generic
                         // function's are: written (`Buffer<f32>(8)`) or inferred from the
                         // arguments (spec §8.1). The result is the instantiation.
@@ -9378,13 +9472,14 @@ impl<'a, 'c> Body<'a, 'c> {
             hir::ExprKind::ArrayLit(parts) | hir::ExprKind::Tuple(parts) => {
                 parts.iter().all(|p| self.is_static_initialiser(*p))
             }
-            // `std`'s `Atomic` keeps its field private, so it has no literal to write. Its
-            // constructor only stores the value and reads no other static (spec §7.7, §22.9).
+            // `std`'s `Atomic` and `Mutex` keep their fields private, so they have no literal
+            // to write. Their constructors only store the value and read no other static
+            // (spec §7.7, §22.9, §22.10).
             hir::ExprKind::Call { callee: hir::Callee::Ctor { owner, .. }, args } => {
                 let symbol = self.cx.res.symbol(*owner);
                 symbol.module == self.cx.res.prelude
-                    && symbol.name == "Atomic"
-                    && args.iter().all(|a| self.is_constant(*a))
+                    && matches!(symbol.name.as_str(), "Atomic" | "Mutex")
+                    && args.iter().all(|a| self.is_static_initialiser(*a))
             }
             _ => false,
         }

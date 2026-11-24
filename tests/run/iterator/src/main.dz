@@ -12,7 +12,7 @@ struct Buffer<T> {
     m_cap:  usize
     m_allocator: ^mut Allocator = Allocators::Global
 
-    Buffer(cap: usize) {
+    pub Buffer(cap: usize) {
         m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         unsafe {
@@ -70,7 +70,7 @@ struct Movie {
 struct List<T> {
     m_buffer: Buffer<T>
 
-    List(cap: usize) {
+    pub List(cap: usize) {
         m_buffer = Buffer<T>(cap)
     }
 

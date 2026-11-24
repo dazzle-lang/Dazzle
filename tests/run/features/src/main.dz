@@ -21,7 +21,7 @@ pub struct Counter {
     m_count:   u32
     pub label: const &str
 
-    Counter(start: u32, label: const &str = "counter") {
+    pub Counter(start: u32, label: const &str = "counter") {
         m_count = start
         self.label = label
     }

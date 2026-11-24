@@ -2,6 +2,54 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Constructor visibility (D-0115, r148; 2026-11-23)
+
+Found while building `Mutex<T>`: its guard's `pub(module)` constructor could be called from
+any module, because the constructor call never checked visibility. The user chose private by
+default, as for every other member (§4).
+
+- **The checker.** A constructor call and a `: Base(…)` initialiser both go through
+  `check_member_visible`, so the error is the existing `DZ0506`, naming the constructor.
+- **The migration.** Every constructor with no keyword became `pub`, so no program lost access:
+  128 in `std`, `examples` and the test corpora, the programs embedded in Rust tests and
+  `dz explain`, the spec's examples, and the project `tools/bench_scale.py` generates. The
+  lexer, parser, formatter and expansion corpora are untouched, since they do not check types.
+
+`tests/errors/constructor_*` cover a private, a `protected` and a `pub(module)` constructor
+reached from outside, and a private base. A two-module matrix, run by hand, covered overloads,
+generics, factories, trait implementations and field defaults.
+
+That matrix also found that default initialisation built a value with no call at all. The user
+chose C++'s and Rust's answer (T-0262): `missing_default` decides whether a type can be built at
+its default from a given place, and a `let`, a constructor's fields and each generic instance
+ask it, all as `DZ0590`. `tests/errors/default_*` and `constructor_leaves_*` pin it.
+
+It left one bug visible, T-0263: the emitted C++ default-initialised every field before a
+constructor's or a move's body, so a field's zero-argument constructor ran when it should not.
+That was fixed on its own (r149, D-0116; `docs/log/tooling.md`).
+
+## `Mutex<T>` (T-0011, r147; 2026-11-23)
+
+The second of T-0011's pieces. D-0096 gave it no API, so the shape is a proposal (D-0114,
+§22.10): `lock()` returns a view struct, `MutexGuard<T>`, that unlocks when dropped.
+
+- **`std`** (`std/sync/mutex.dz`, `mutex_guard.dz`). `get` and `get_mut` are `in self@held`, a
+  tie on the guard's own `bool`. A tie on its `&Mutex` field would name what the view views, and
+  so let a reference outlive the guard (§6.7). The result really points into the mutex, so a
+  pointer cast under `unsafe` vouches for the shorter tie. The same `bool` makes a moved-from guard
+  safe: a move resets the source to its defaults and still runs its drop (§6.4), which on the
+  first version unlocked through a null reference.
+- **The runtime** (`NATIVE_CPP`). One word, zero when unlocked, so a `Mutex` needs no OS setup
+  or teardown and can start in a static: a three-state futex on Linux, `SRWLOCK` on Windows,
+  `os_unfair_lock` on macOS, and a yielding spin lock elsewhere.
+- **The checker.** `is_static_initialiser` accepts `Mutex<T>(v)`, for a `v` a static may start
+  as.
+
+`tests/run/mutex` has eight native threads on a counter, a two-field invariant and a growing
+`List`. `tests/errors/mutex_*` pin the ways a reference could outlive the lock. Checked by hand
+on g++ and clang++: warning-clean at `-O2`, five clean runs under ThreadSanitizer, and 60
+contended runs with no hang.
+
 ## `Atomic<T>` (T-0011, r146; 2026-11-23)
 
 The first of T-0011's four pieces. The user chose one generic type and sequentially

@@ -26,7 +26,7 @@ static DROPS: i32 = 0
 struct Sprite {
     pub id: i32 = 0
 
-    Sprite(id: i32) {
+    pub Sprite(id: i32) {
         self.id = id
     }
 }

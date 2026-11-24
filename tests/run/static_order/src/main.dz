@@ -12,7 +12,7 @@ struct Probe {
     pub n: usize
 
     // `unsafe`: a constructor cannot yet say what it kills (T-0122).
-    Probe() {
+    pub Probe() {
         unsafe {
             SECOND.items.push(7)
         }
@@ -27,7 +27,7 @@ struct Holder {
 struct Witness {
     pub n: usize
 
-    Witness() {
+    pub Witness() {
         n = FIRST.p.n
     }
 }

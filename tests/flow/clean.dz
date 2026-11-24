@@ -5,7 +5,7 @@
 pub struct Res {
     m_p: own ^mut i32
 
-    Res(p: ^mut i32) {
+    pub Res(p: ^mut i32) {
         m_p = p
     }
 

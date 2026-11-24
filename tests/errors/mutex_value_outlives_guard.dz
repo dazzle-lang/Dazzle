@@ -1,0 +1,13 @@
+// expect: DZ0413
+// A reference from a guard ends with the guard: past it, the value is another thread's.
+
+fn leak(m: &Mutex<i32>) -> &mut i32 {
+    let mut held = m.lock()
+    return held.get_mut()
+}
+
+fn main() {
+    let m = Mutex<i32>(1)
+    let v = leak(&m)
+    v = 2
+}

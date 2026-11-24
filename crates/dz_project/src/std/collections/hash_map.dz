@@ -28,7 +28,7 @@ pub struct HashMap<K: Hash + Eq, V> {
     tie [*] = m_keys[*], m_values[*]
 
     /// An empty map, with room for `capacity` entries already allocated when it is given.
-    HashMap(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub HashMap(capacity: usize = 0, loc: SourceLocation = #location) {
         m_allocator = unsafe { #placement }
         if capacity > 0 {
             self.grow_to(capacity, loc)

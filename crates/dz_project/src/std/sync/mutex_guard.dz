@@ -1,0 +1,43 @@
+/// A held `Mutex`: the lock is released when this is dropped (spec §22.10). What `get` and
+/// `get_mut` return is tied to the guard itself rather than to the mutex, so it cannot be
+/// used once the guard is gone and the value is another thread's again.
+pub view struct MutexGuard<T> {
+    m_mutex: &Mutex<T>
+    // False once moved from, which resets a value to its defaults and still runs its drop
+    // (§6.4), so only the guard that holds the lock releases it. Also what the results are
+    // tied to: a tie on the view field would name the mutex, and so outlive the guard (§6.7).
+    m_held:  bool = false
+
+    tie @held = m_held
+
+    pub(module) MutexGuard(mutex: &Mutex<T>) {
+        m_mutex = mutex
+        mutex.acquire()
+        m_held = true
+    }
+
+    /// The value, to read.
+    pub fn get(&self) -> &T in self@held {
+        // The value is in the mutex, and the result is deliberately tied to something
+        // shorter, the guard, since the lock is what makes it safe to reach. The cast is
+        // what vouches for that (§6.7).
+        return unsafe {
+            m_mutex.value() as ^T or unreachable
+        }
+    }
+
+    /// The value, to change.
+    pub fn get_mut(&mut self) -> &mut T in self@held {
+        return unsafe {
+            m_mutex.value() as ^mut T or unreachable
+        }
+    }
+}
+
+impl<T> Drop for MutexGuard<T> {
+    fn drop(&mut self) {
+        if m_held {
+            m_mutex.release()
+        }
+    }
+}

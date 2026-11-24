@@ -43,7 +43,7 @@ pub struct Sized {
     pub w: i32 = 0
     pub h: i32 = 0
 
-    Sized(width: i32, height: i32) {
+    pub Sized(width: i32, height: i32) {
         w = width
         h = height
     }
@@ -56,7 +56,7 @@ pub struct Sized {
 pub struct Boxed : Sized {
     pub depth: i32 = 0
 
-    Boxed(width: i32, height: i32, d: i32) : Sized(width, height) {
+    pub Boxed(width: i32, height: i32, d: i32) : Sized(width, height) {
         depth = d
     }
 }
@@ -72,7 +72,7 @@ fn positive(n: i32) -> i32? {
 pub struct Guarded : Sized {
     pub label: i32 = 0
 
-    Guarded(width: i32, height: i32) : Sized(positive(width) or 1, if height > 0 { height } else { 1 }) {
+    pub Guarded(width: i32, height: i32) : Sized(positive(width) or 1, if height > 0 { height } else { 1 }) {
         label = width
     }
 }

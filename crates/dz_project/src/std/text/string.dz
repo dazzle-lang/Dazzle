@@ -17,7 +17,7 @@ pub struct String {
     tie @text = m_store
 
     /// A copy of `s`.
-    String(s: &str = "", loc: SourceLocation = #location) {
+    pub String(s: &str = "", loc: SourceLocation = #location) {
         m_allocator = unsafe { #placement }
         self.push_str(s, loc)
     }

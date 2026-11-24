@@ -1,0 +1,20 @@
+// expect: DZ0590
+// A generic body is checked once, so whether `T` has a default is asked of each instance.
+
+struct Sealed {
+    pub n: i32 = 0
+
+    Sealed() {
+        n = 1
+    }
+}
+
+fn built<T>() -> T {
+    let x: T
+    return x
+}
+
+fn main() {
+    let s = built<Sealed>()
+    println!("{}", s.n)
+}

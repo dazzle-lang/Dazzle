@@ -10,7 +10,7 @@ struct W {
     pub b: List<i32>
     tie @lists = a@items, b@items
 
-    W() {
+    pub W() {
         a = List<i32>()
         b = List<i32>()
     }

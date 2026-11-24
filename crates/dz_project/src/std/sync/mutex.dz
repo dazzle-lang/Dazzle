@@ -1,0 +1,70 @@
+// One word, zero when unlocked, so a `Mutex` needs no setup and may start in a `static`.
+extern fn mutex_lock(state: ^mut usize)
+
+extern fn mutex_unlock(state: ^mut usize)
+
+/// A value only one thread reaches at a time (spec §22.10). `lock` waits for its turn and
+/// gives back a guard, and the value is reached through the guard until it is dropped:
+///
+/// ```dz
+/// static SCORE: Mutex<i32> = Mutex<i32>(0)
+///
+/// fn add(points: i32) {
+///     let mut held = SCORE.lock()
+///     let score = held.get_mut()
+///     score += points
+/// }                                   // unlocked here
+/// ```
+///
+/// Not reentrant: locking it again on a thread that holds it waits forever. There is no
+/// poisoned state, since a panic on any thread ends the program (§22.3).
+pub struct Mutex<T> {
+    m_state: usize = 0
+    m_value: T
+
+    pub Mutex(value: T) {
+        m_value = value
+    }
+
+    /// Wait until no other thread holds the lock, and take it.
+    pub fn lock(&self) -> MutexGuard<T> {
+        return MutexGuard<T>(&self)
+    }
+
+    /// Take the lock for a guard being built.
+    pub(module) fn acquire(&self) {
+        unsafe {
+            mutex_lock(self.state())
+        }
+    }
+
+    /// Give the lock back, for a guard being dropped.
+    pub(module) fn release(&self) {
+        unsafe {
+            mutex_unlock(self.state())
+        }
+    }
+
+    /// The value, for a guard, which is what makes reaching it safe.
+    pub(module) fn value(&self) -> ^mut T {
+        let p: ^T = &m_value
+        return unsafe {
+            p as ^mut T
+        }
+    }
+
+    /// The lock word as the native calls write it. `&` is deep (§5.2), and this type is the
+    /// exception §22.1 names: the write is the lock's own.
+    fn state(&self) -> ^mut usize {
+        let p: ^usize = &m_state
+        return unsafe {
+            p as ^mut usize
+        }
+    }
+}
+
+// A copy would be a second lock over a second value, so a `Mutex` is not plain data. Nothing
+// is left to do when one is dropped: a guard is a view of it, so none can outlive it.
+impl<T> Drop for Mutex<T> {
+    fn drop(&mut self) {}
+}

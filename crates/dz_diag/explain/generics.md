@@ -251,12 +251,12 @@ struct Span {
     pub from: i32
     pub to: i32
 
-    Span(from: i32, to: i32 = 0) {
+    pub Span(from: i32, to: i32 = 0) {
         self.from = from
         self.to = to
     }
 
-    Span(len: i32) {
+    pub Span(len: i32) {
         self.from = 0
         self.to = len
     }
@@ -273,12 +273,12 @@ struct Span {
     pub from: i32
     pub to: i32
 
-    Span(from: i32, to: i32 = 0) {
+    pub Span(from: i32, to: i32 = 0) {
         self.from = from
         self.to = to
     }
 
-    Span(len: i32) {
+    pub Span(len: i32) {
         self.from = 0
         self.to = len
     }
@@ -441,7 +441,7 @@ reason a type that has a constructor is not built with a struct literal.
 struct Shape {
     pub sides: i32
 
-    Shape(sides: i32) {
+    pub Shape(sides: i32) {
         self.sides = sides
     }
 }
@@ -449,7 +449,7 @@ struct Shape {
 struct Square : Shape {
     pub side: f32 = 1.0
 
-    Square(side: f32) {
+    pub Square(side: f32) {
         self.side = side
     }
 }
@@ -461,7 +461,7 @@ fn main() {}
 struct Shape {
     pub sides: i32
 
-    Shape(sides: i32) {
+    pub Shape(sides: i32) {
         self.sides = sides
     }
 }
@@ -469,7 +469,7 @@ struct Shape {
 struct Square : Shape {
     pub side: f32 = 1.0
 
-    Square(side: f32) : Shape(4) {
+    pub Square(side: f32) : Shape(4) {
         self.side = side
     }
 }
@@ -708,13 +708,13 @@ constructor yet to return from (spec §7.3). Supply a fallback instead of `or re
 struct Sized {
     pub w: i32 = 0
 
-    Sized(width: i32) {
+    pub Sized(width: i32) {
         w = width
     }
 }
 
 struct Boxed : Sized {
-    Boxed(width: i32?) : Sized(width or return) {}
+    pub Boxed(width: i32?) : Sized(width or return) {}
 }
 
 fn main() {
@@ -726,13 +726,13 @@ fn main() {
 struct Sized {
     pub w: i32 = 0
 
-    Sized(width: i32) {
+    pub Sized(width: i32) {
         w = width
     }
 }
 
 struct Boxed : Sized {
-    Boxed(width: i32?) : Sized(width or 0) {}
+    pub Boxed(width: i32?) : Sized(width or 0) {}
 }
 
 fn main() {

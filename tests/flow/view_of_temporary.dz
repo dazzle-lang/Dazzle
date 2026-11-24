@@ -6,7 +6,7 @@
 struct Named {
     pub name: String
 
-    Named() {
+    pub Named() {
         name = String("x")
     }
 }

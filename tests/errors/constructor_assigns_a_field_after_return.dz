@@ -1,0 +1,26 @@
+// expect: DZ0590
+// An assignment after a `return` may not run, so it does not give the field a value.
+
+struct Sized {
+    pub n: i32 = 0
+
+    pub Sized(start: i32) {
+        n = start
+    }
+}
+
+struct Holder {
+    pub inner: Sized
+
+    pub Holder(early: bool) {
+        if early {
+            return
+        }
+        inner = Sized(1)
+    }
+}
+
+fn main() {
+    let h = Holder(true)
+    println!("{}", h.inner.n)
+}

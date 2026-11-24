@@ -46,7 +46,7 @@ pub struct Game {
     /// Every point scored, from the bricks broken: the rules' own check on `score`.
     pub broken_points: i32 = 0
 
-    Game(width: f32, height: f32) {
+    pub Game(width: f32, height: f32) {
         self.width = width
         self.height = height
         paddle = Rect{ x: width / 2 - 50, y: height - 40, w: 100, h: 14 }

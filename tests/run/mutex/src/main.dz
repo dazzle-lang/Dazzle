@@ -1,0 +1,111 @@
+const WORKERS: i32 = 8
+
+const PASSES: i32 = 5000
+
+struct Pair {
+    pub a: i64 = 0
+    pub b: i64 = 0
+}
+
+struct Log {
+    pub items: List<i32> = List<i32>()
+}
+
+struct Noisy {
+    pub id: i32 = 0
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        // A moved-from value is back at its defaults, and still dropped (spec §6.4).
+        if id != 0 {
+            println!("dropped {}", id)
+        }
+    }
+}
+
+static TOTAL: Mutex<i64> = Mutex<i64>(0)
+
+static PAIR: Mutex<Pair> = Mutex<Pair>(Pair{})
+
+static LOG: Mutex<Log> = Mutex<Log>(Log{})
+
+static TORN: Atomic<bool> = Atomic<bool>(false)
+
+static INSIDE: Atomic<i32> = Atomic<i32>(0)
+
+/// Each critical section would show a lost update, a torn pair, a corrupted list or two
+/// threads inside at once if the lock let any of them happen.
+fn work(id: i32) {
+    for pass in 0..PASSES {
+        {
+            let mut held = TOTAL.lock()
+            let total = held.get_mut()
+            total += 1
+        }
+        {
+            let mut held = PAIR.lock()
+            if INSIDE.add(1) != 0 {
+                TORN.store(true)
+            }
+            let pair = held.get_mut()
+            pair.a += 1
+            pair.b -= 1
+            if pair.a + pair.b != 0 {
+                TORN.store(true)
+            }
+            INSIDE.sub(1)
+        }
+        if pass % 10 == 0 {
+            let mut held = LOG.lock()
+            let log = held.get_mut()
+            log.items.push(id)
+        }
+    }
+}
+
+fn single_thread() {
+    let m = Mutex<i32>(5)
+    {
+        let held = m.lock()
+        println!("read {}", held.get())
+    }
+    {
+        let mut held = m.lock()
+        let v = held.get_mut()
+        v = 6
+    }
+    // The first guard was released, or this would wait forever.
+    let held = m.lock()
+    println!("written {}", held.get())
+}
+
+fn owned_value() {
+    let m = Mutex<Noisy>(Noisy{ id: 1 })
+    {
+        let held = m.lock()
+        println!("holds {}", held.get().id)
+    }
+    println!("still held by the mutex")
+}
+
+fn main() {
+    single_thread()
+    owned_value()
+    native::run_workers(work, WORKERS)
+
+    let total = (WORKERS * PASSES) as i64
+    {
+        let held = TOTAL.lock()
+        println!("total {}", held.get() == total)
+    }
+    {
+        let held = PAIR.lock()
+        println!("pair {}", held.get().a == total && held.get().b == -total)
+    }
+    {
+        let held = LOG.lock()
+        println!("log {}", held.get().items.len() == (WORKERS * (PASSES / 10)) as usize)
+    }
+    println!("one at a time {}", !TORN.load())
+}

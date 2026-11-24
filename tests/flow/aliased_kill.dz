@@ -25,7 +25,7 @@ pub struct World {
     pub score: i32 = 0
     pub names: List<String>
 
-    World() {
+    pub World() {
         names = List<String>()
     }
 

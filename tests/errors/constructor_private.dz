@@ -1,0 +1,15 @@
+// expect: DZ0506
+// A private constructor is reached only from the type's own functions.
+
+struct Sealed {
+    pub n: i32 = 0
+
+    Sealed(start: i32) {
+        n = start
+    }
+}
+
+fn main() {
+    let s = Sealed(1)
+    println!("{}", s.n)
+}

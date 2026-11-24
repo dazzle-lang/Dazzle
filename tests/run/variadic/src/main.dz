@@ -51,7 +51,7 @@ fn biggest<T: Ord + Clone>(first: T, rest: ..T) -> T in first@home {
 struct Bag {
     pub total: i32 = 0
 
-    Bag(start: i32, extra: ..i32) {
+    pub Bag(start: i32, extra: ..i32) {
         total = start + sum(..extra)
     }
 

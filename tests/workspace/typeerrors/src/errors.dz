@@ -483,7 +483,7 @@ fn pointer_cast_outside_unsafe(p: ^i32) -> ^u8 {
 struct Unsafely {
     m_allocator: ^mut Allocator = null
 
-    Unsafely() {
+    pub Unsafely() {
         m_allocator = #placement
     }
 }
@@ -752,7 +752,7 @@ fn writes_a_panel(p: &mut Panel) {
 pub struct Measured {
     pub w: i32 = 0
 
-    Measured(width: i32) {
+    pub Measured(width: i32) {
         w = width
     }
 }
@@ -760,19 +760,19 @@ pub struct Measured {
 pub struct ForgetsTheBase : Measured {
     pub extra: i32 = 0
 
-    ForgetsTheBase(e: i32) {
+    pub ForgetsTheBase(e: i32) {
         extra = e
     }
 }
 
 // A base initialiser names the one base the struct declares, and nothing else.
 pub struct InitialisesTheWrongBase : Panel {
-    InitialisesTheWrongBase() : Measured(1) {}
+    pub InitialisesTheWrongBase() : Measured(1) {}
 }
 
 // The base is built before the constructor begins, so there is nothing to return from.
 pub struct ReturnsFromTheBase : Measured {
-    ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
+    pub ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
 }
 
 // A type with a constructor is built by calling it, not with a literal.
@@ -1241,12 +1241,12 @@ struct Interval {
     pub lo: i32
     pub hi: i32
 
-    Interval(lo: i32, hi: i32 = 0) {
+    pub Interval(lo: i32, hi: i32 = 0) {
         self.lo = lo
         self.hi = hi
     }
 
-    Interval(width: i32) {
+    pub Interval(width: i32) {
         self.lo = 0
         self.hi = width
     }
@@ -1573,7 +1573,7 @@ view struct LateBound {
     m_n: i32 = 0
     m_crate: &Crate
 
-    LateBound(c: &Crate) {
+    pub LateBound(c: &Crate) {
         m_n = 1
         m_crate = c
     }
@@ -1587,7 +1587,7 @@ view struct SelfBound {
     m_crates: [2]Crate
     m_first: &Crate
 
-    SelfBound() {
+    pub SelfBound() {
         m_first = &m_crates[0]
     }
 }
@@ -1829,3 +1829,38 @@ fn atomic_add_on_bool(a: &Atomic<bool>) {
 }
 
 static ATOMIC_FROM_A_CALL: Atomic<i32> = Atomic<i32>(a_runtime_value())
+
+// §22.10: `get` reads, and a static `Mutex` is built from constants.
+fn write_through_a_guards_get(m: &Mutex<i32>) {
+    let held = m.lock()
+    let value = held.get()
+    value = 1
+}
+
+static MUTEX_FROM_A_CALL: Mutex<i32> = Mutex<i32>(a_runtime_value())
+
+// §4: a constructor with no keyword is private to its type.
+struct PrivatelyBuilt {
+    pub n: i32 = 0
+
+    PrivatelyBuilt(start: i32) {
+        n = start
+    }
+}
+
+fn builds_a_private_one() {
+    let _s = PrivatelyBuilt(1)
+}
+
+// §6.2: no default to build where its only constructor is private, or a constructor leaves a
+// field with no default unassigned.
+fn default_builds_a_private_one() {
+    let _s: PrivatelyBuilt
+}
+
+struct LeavesAFieldEmpty {
+    pub inner: PrivatelyBuilt
+
+    pub LeavesAFieldEmpty() {
+    }
+}

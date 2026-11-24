@@ -1,0 +1,15 @@
+// expect: DZ0506
+// `protected` reaches the types that inherit, and nothing else.
+
+struct Base {
+    pub n: i32 = 0
+
+    protected Base(start: i32) {
+        n = start
+    }
+}
+
+fn main() {
+    let b = Base(1)
+    println!("{}", b.n)
+}

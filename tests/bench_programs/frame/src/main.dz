@@ -19,7 +19,7 @@
 struct Rng {
     m_state: u64 = 0
 
-    Rng(seed: u64) {
+    pub Rng(seed: u64) {
         m_state = seed
     }
 
@@ -84,7 +84,7 @@ struct Renderer {
     /// The draw list and the commands in it.
     tie @commands = m_commands@items, m_commands[*]
 
-    Renderer() {}
+    pub Renderer() {}
 
     pub fn begin(&mut self) kills self@commands {
         m_commands.clear()

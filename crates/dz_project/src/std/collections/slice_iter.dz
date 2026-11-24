@@ -6,7 +6,7 @@ pub view struct SliceIter<T> {
     /// What the slice views, so an element outlives the iterator it came from (spec §6.7).
     tie @items = m_slice
 
-    SliceIter(slice: &[]T) {
+    pub SliceIter(slice: &[]T) {
         m_slice = slice
     }
 }

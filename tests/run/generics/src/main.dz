@@ -6,7 +6,7 @@
 struct Tracked {
     pub id: i32
 
-    Tracked(n: i32) {
+    pub Tracked(n: i32) {
         id = n
     }
 }
@@ -24,7 +24,7 @@ impl Drop for Tracked {
 struct Score {
     pub value: i32
 
-    Score(v: i32) {
+    pub Score(v: i32) {
         value = v
     }
 }
@@ -78,7 +78,7 @@ struct Buffer<T> {
     m_allocator: ^mut Allocator = Allocators::Global
 
     // The raw-memory work is `unsafe` (spec §5.2); what `Buffer` offers its users is not.
-    Buffer(cap: usize) {
+    pub Buffer(cap: usize) {
         m_allocator = unsafe { #placement }
         let a = unsafe { m_allocator or panic!("a Buffer needs an allocator") }
         // Allocating is safe; calling the bytes `T`s is the part nothing checks.
@@ -151,7 +151,7 @@ impl<T> Drop for Buffer<T> {
 struct Countdown {
     m_at: i32
 
-    Countdown(from: i32) {
+    pub Countdown(from: i32) {
         m_at = from
     }
 }

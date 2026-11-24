@@ -7,6 +7,7 @@ Four levels. Default is private. `[DECIDED]`
 | Top-level declaration | visible within its module | not allowed | same as private | exported from the module |
 | Struct field | visible only inside the struct's own methods | also inside the methods of the structs that inherit it | visible anywhere in the module | visible to importers |
 | Method | visible only inside the struct's own methods | also inside the methods of the structs that inherit it | visible anywhere in the module | visible to importers |
+| Constructor | callable only inside the struct's own functions | also by the structs that inherit it, as `: Base(…)` | callable anywhere in the module | callable by importers |
 | Enum / union variant | always as visible as its type | — | — | — |
 
 **`protected` is a different axis from the other three**, which is why it is spelled on its
@@ -32,6 +33,24 @@ pub struct SpriteBatch {
     fn flush(&mut self) { ... }          // private helper
 }
 ```
+
+**A constructor is a member like any other** `[DECIDED — D-0115]`, so one with no keyword is
+private, and a type can make its values only through functions of its own:
+
+```dz
+pub struct Handle {
+    m_id: u32 = 0
+
+    Handle(id: u32) { m_id = id }             // only Handle's own functions
+
+    pub fn open(path: &str) -> Handle {
+        return Handle(lookup(path))
+    }
+}
+```
+
+It governs default initialisation too: `let h: Handle` needs a constructor taking no arguments
+that is visible where it is written (§6.2).
 
 **Why no file-private.** It was considered and rejected: it adds a fourth level, forces
 every helper to think about two boundaries instead of one, and its main benefit —

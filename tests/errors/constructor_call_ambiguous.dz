@@ -6,14 +6,14 @@
 
 struct Span {
     pub from: i32
-    pub to: i32
+    pub to:   i32
 
-    Span(from: i32, to: i32 = 0) {
+    pub Span(from: i32, to: i32 = 0) {
         self.from = from
         self.to = to
     }
 
-    Span(len: i32) {
+    pub Span(len: i32) {
         self.from = 0
         self.to = len
     }

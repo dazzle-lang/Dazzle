@@ -8,11 +8,11 @@
 struct Holder<T> {
     m_count: usize = 0
 
-    Holder(value: T) {
+    pub Holder(value: T) {
         m_count = 1
     }
 
-    Holder(items: List<T>) {
+    pub Holder(items: List<T>) {
         m_count = items.len()
     }
 }

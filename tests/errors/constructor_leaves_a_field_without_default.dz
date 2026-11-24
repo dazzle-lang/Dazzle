@@ -1,0 +1,21 @@
+// expect: DZ0590
+// A constructor gives a value to every field whose type has no default.
+
+struct Sized {
+    pub n: i32 = 0
+
+    pub Sized(start: i32) {
+        n = start
+    }
+}
+
+struct Holder {
+    pub inner: Sized
+
+    pub Holder() {}
+}
+
+fn main() {
+    let h = Holder()
+    println!("{}", h.inner.n)
+}

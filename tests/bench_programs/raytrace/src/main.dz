@@ -17,7 +17,7 @@
 struct Rng {
     m_state: u64 = 0
 
-    Rng(seed: u64) {
+    pub Rng(seed: u64) {
         m_state = seed
     }
 

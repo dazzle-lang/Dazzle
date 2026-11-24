@@ -820,26 +820,26 @@ error[DZ0501]: expected `&mut Panel`, found `&Framed`
     │                    ^ this is `&Framed`
 
 error[DZ0543]: `ForgetsTheBase` must construct its base `Measured`
-    ┌─ typeerrors/src/errors.dz:763:5
+    ┌─ typeerrors/src/errors.dz:763:9
     │
-763 │     ForgetsTheBase(e: i32) {
-    │     ^^^^^^^^^^^^^^ no base initialiser
+763 │     pub ForgetsTheBase(e: i32) {
+    │         ^^^^^^^^^^^^^^ no base initialiser
     │
     = help: `Measured` has a constructor, so it cannot be left to default — write `ForgetsTheBase(…) : Measured(…) { … }` (spec §7.3)
 
 error[DZ0541]: `Measured` is not this type's base
-    ┌─ typeerrors/src/errors.dz:770:33
+    ┌─ typeerrors/src/errors.dz:770:37
     │
-770 │     InitialisesTheWrongBase() : Measured(1) {}
-    │                                 ^^^^^^^^ its base is `Panel`
+770 │     pub InitialisesTheWrongBase() : Measured(1) {}
+    │                                     ^^^^^^^^ its base is `Panel`
     │
     = help: a base initialiser constructs the one base the struct declares: write `: Panel(…)` (spec §7.3)
 
 error[DZ0552]: a base initialiser cannot `return`
-    ┌─ typeerrors/src/errors.dz:775:57
+    ┌─ typeerrors/src/errors.dz:775:61
     │
-775 │     ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
-    │                                                         ^^^^^^ the base is built before the constructor begins
+775 │     pub ReturnsFromTheBase(width: i32?) : Measured(width or return) {}
+    │                                                             ^^^^^^ the base is built before the constructor begins
     │
     = help: give the argument a value to fall back on — `x or 0`, `x or { … }` — or `panic` (spec §7.3)
 
@@ -1930,10 +1930,10 @@ error[DZ0569]: `const i32` is not a type
      = help: `const` before a type says its memory is static, and only text has that so far: `const &str`, a literal or a constant's (spec §5.3)
 
 error[DZ0574]: this constructor does not bind `m_crate` first
-     ┌─ typeerrors/src/errors.dz:1576:5
+     ┌─ typeerrors/src/errors.dz:1576:9
      │
-1576 │     LateBound(c: &Crate) {
-     │     ^^^^^^^^^ a reference field left with nothing to refer to
+1576 │     pub LateBound(c: &Crate) {
+     │         ^^^^^^^^^ a reference field left with nothing to refer to
      │
      = help: a reference has no default, so `LateBound`'s constructor begins by binding each reference field, before any other statement: `m_crate = …` (spec §6.7)
 
@@ -2268,3 +2268,46 @@ error[DZ0553]: `ATOMIC_FROM_A_CALL` must be built from constants
      │                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ computed when the program starts
      │
      = help: a `static` starts as a literal, a `const`, `null`, `none`, or a struct, array or variant literal of those; fill it in from `main` if it needs more (spec §7.7)
+
+error[DZ0507]: cannot assign to `value`
+     ┌─ typeerrors/src/errors.dz:1837:5
+     │
+1837 │     value = 1
+     │     ^^^^^ not mutable
+     │
+     = help: declare it as `let mut value` to allow assignment
+
+error[DZ0553]: `MUTEX_FROM_A_CALL` must be built from constants
+     ┌─ typeerrors/src/errors.dz:1840:40
+     │
+1840 │ static MUTEX_FROM_A_CALL: Mutex<i32> = Mutex<i32>(a_runtime_value())
+     │                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ computed when the program starts
+     │
+     = help: a `static` starts as a literal, a `const`, `null`, `none`, or a struct, array or variant literal of those; fill it in from `main` if it needs more (spec §7.7)
+
+error[DZ0506]: constructor `PrivatelyBuilt::PrivatelyBuilt` is not visible here
+     ┌─ typeerrors/src/errors.dz:1852:14
+     │
+1846 │     PrivatelyBuilt(start: i32) {
+     │     -------------- declared here
+     ·
+1852 │     let _s = PrivatelyBuilt(1)
+     │              ^^^^^^^^^^^^^^ private constructor
+     │
+     = help: this constructor is private to `PrivatelyBuilt`; mark it `pub` or `pub(module)` (spec §4)
+
+error[DZ0590]: `PrivatelyBuilt` has no default to build here
+     ┌─ typeerrors/src/errors.dz:1858:9
+     │
+1858 │     let _s: PrivatelyBuilt
+     │         ^^ declared with no value
+     │
+     = help: a type with constructors is default-built only through one that takes no arguments and is visible here; give the binding a value, `let x = …`, made by a constructor or function of `PrivatelyBuilt` (spec §6.2)
+
+error[DZ0590]: this constructor leaves `inner` with no value
+     ┌─ typeerrors/src/errors.dz:1864:9
+     │
+1864 │     pub LeavesAFieldEmpty() {
+     │         ^^^^^^^^^^^^^^^^^ a field whose type has no default to build here
+     │
+     = help: assign it at the top of the constructor, before any `return`: `inner = …`, or give the field a default where it is declared (spec §6.2)

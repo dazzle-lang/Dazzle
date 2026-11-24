@@ -12,7 +12,7 @@ struct SparseSet<T> {
 
     tie @values = m_values[*]
 
-    SparseSet() {
+    pub SparseSet() {
         m_sparse = List<usize>()
         m_entities = List<Key<Entity>>()
         m_values = List<T>()

@@ -12,7 +12,7 @@ pub struct HashSet<T: Hash + Eq> {
     tie [*] = m_map[*]
 
     /// An empty set, with room for `capacity` elements already allocated when it is given.
-    HashSet(capacity: usize = 0, loc: SourceLocation = #location) {
+    pub HashSet(capacity: usize = 0, loc: SourceLocation = #location) {
         m_map = HashMap<T, bool>(capacity, loc)
     }
 

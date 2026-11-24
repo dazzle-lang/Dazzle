@@ -332,7 +332,7 @@ pub const CONTEXTS: &[(&str, &str)] = &[
     ),
     (
         "constructor",
-        "struct NAME_s {\n    pub v: i32\n\n    NAME_s() {\n        let mut r = 0\n        BODY\n        v = r\n    }\n}\n\nfn NAME() -> i32 {\n    let s = NAME_s()\n    return s.v\n}",
+        "struct NAME_s {\n    pub v: i32\n\n    pub NAME_s() {\n        let mut r = 0\n        BODY\n        v = r\n    }\n}\n\nfn NAME() -> i32 {\n    let s = NAME_s()\n    return s.v\n}",
     ),
     (
         "trait_method",

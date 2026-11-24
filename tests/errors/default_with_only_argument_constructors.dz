@@ -1,0 +1,15 @@
+// expect: DZ0590
+// Declaring a constructor that takes arguments means the type has no default.
+
+struct Sized {
+    pub n: i32 = 0
+
+    pub Sized(start: i32) {
+        n = start
+    }
+}
+
+fn main() {
+    let s: Sized
+    println!("{}", s.n)
+}

@@ -26,7 +26,7 @@
 struct Rng {
     m_state: u64 = 0
 
-    Rng(seed: u64) {
+    pub Rng(seed: u64) {
         m_state = seed
     }
 
@@ -187,7 +187,7 @@ view struct Parser {
     m_bytes: &[]u8
     m_at:    usize = 0
 
-    Parser(text: &str) {
+    pub Parser(text: &str) {
         m_text = text
         m_bytes = text as &[]u8
     }

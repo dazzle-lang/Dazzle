@@ -89,6 +89,15 @@ impl TraitRef {
 }
 
 #[derive(Clone, Debug)]
+pub enum NoDefault {
+    /// This struct has no constructor callable with no arguments from where it is built.
+    Struct(SymbolId),
+    /// A type parameter, which only an instance can answer for.
+    Param,
+}
+
+/// One field of a struct, as the rest of the checker reads it.
+#[derive(Clone, Debug)]
 pub struct FieldSig {
     pub name: String,
     pub ty: Ty,
@@ -840,6 +849,99 @@ impl TypeTable {
     /// exactly when this is true (spec §7.3, 18.32).
     pub fn inherits_from(&self, sym: SymbolId, base: SymbolId) -> bool {
         sym != base && self.with_bases(sym).contains(&base)
+    }
+
+    /// What stops code in `module`, inside the functions of `within`, from building a `t` at
+    /// its default (spec §6.2). A type with constructors needs one callable with no arguments
+    /// and visible from there, as in C++. One without is its fields, each judged from the
+    /// type that declares it, which is what builds it. `Box`, `Rc` and `Weak` default to
+    /// `null` whatever their constructors take (§14.5).
+    pub fn missing_default(
+        &self,
+        res: &Resolution,
+        t: &Ty,
+        module: ModuleId,
+        within: Option<SymbolId>,
+    ) -> Option<NoDefault> {
+        self.missing_default_within(res, t, module, within, 0)
+    }
+
+    fn missing_default_within(
+        &self,
+        res: &Resolution,
+        t: &Ty,
+        module: ModuleId,
+        within: Option<SymbolId>,
+        depth: usize,
+    ) -> Option<NoDefault> {
+        // A struct cannot hold itself inline; the bound only keeps a checker bug from looping.
+        if depth > 32 {
+            return None;
+        }
+        match t {
+            Ty::Param(_) => Some(NoDefault::Param),
+            Ty::Array { elem, .. } => {
+                self.missing_default_within(res, elem, module, within, depth + 1)
+            }
+            Ty::Tuple(parts) => parts
+                .iter()
+                .find_map(|p| self.missing_default_within(res, p, module, within, depth + 1)),
+            Ty::Named { sym, args } => {
+                let sig = self.struct_sig(*sym)?;
+                let symbol = res.symbol(*sym);
+                let handle = symbol.module == res.prelude
+                    && matches!(symbol.name.as_str(), "Box" | "Rc" | "Weak");
+                if sig.is_union || handle {
+                    return None;
+                }
+                if sig.no_default {
+                    return Some(NoDefault::Struct(*sym));
+                }
+                if !sig.ctors.is_empty() {
+                    let reachable = |c: &FnSig| {
+                        within == Some(*sym)
+                            || match c.vis {
+                                Vis::Public => true,
+                                Vis::Protected => {
+                                    within.is_some_and(|w| self.inherits_from(w, *sym))
+                                }
+                                Vis::Module => symbol.module == module,
+                                Vis::Private => false,
+                            }
+                    };
+                    let has = sig.ctors.iter().any(|c| c.required() == 0 && reachable(c));
+                    return (!has).then_some(NoDefault::Struct(*sym));
+                }
+                if let Some(base) = sig.base {
+                    let base = Ty::Named { sym: base, args: sig.base_args.clone() };
+                    let base = ty::substitute(&base, &self.param_map(*sym, args));
+                    let found = self.missing_default_within(
+                        res,
+                        &base,
+                        symbol.module,
+                        Some(*sym),
+                        depth + 1,
+                    );
+                    if found.is_some() {
+                        return found;
+                    }
+                }
+                self.field_types(*sym, args, &sig.fields).iter().zip(&sig.fields).find_map(
+                    |(ft, f)| {
+                        if f.has_default || f.declared_in.is_some() {
+                            return None;
+                        }
+                        self.missing_default_within(res, ft, symbol.module, Some(*sym), depth + 1)
+                    },
+                )
+            }
+            _ => None,
+        }
+    }
+
+    /// A generic type's parameters, by id, mapped to `args`.
+    fn param_map(&self, sym: SymbolId, args: &[Ty]) -> HashMap<u32, Ty> {
+        self.type_params(sym).iter().zip(args).map(|(p, a)| (p.param.id, a.clone())).collect()
     }
 
     /// Does anything `sym` inherits from declare a `drop`, or is otherwise move-only in

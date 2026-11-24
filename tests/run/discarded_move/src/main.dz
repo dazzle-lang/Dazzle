@@ -10,7 +10,7 @@ struct Token {
     pub id:  i32
     m_owned: own ^mut i32 = null
 
-    Token(id: i32) {
+    pub Token(id: i32) {
         self.id = id
     }
 }

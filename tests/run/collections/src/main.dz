@@ -13,7 +13,7 @@ struct Token {
     pub id: i32 = 0
     pub live: bool = false
 
-    Token(id: i32) {
+    pub Token(id: i32) {
         self.id = id
         live = true
     }

@@ -4,7 +4,7 @@
 
 struct Countdown {
     left: i32
-    Countdown(n: i32) {
+    pub Countdown(n: i32) {
         left = n
     }
 }

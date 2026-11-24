@@ -17,7 +17,7 @@ pub struct World {
     tie @systems = m_systems@items
     tie @stored = m_storages@values
 
-    World() {
+    pub World() {
         // Entity 0 holds the world's resources, singleton components of its own.
         m_resource = self.spawn()
     }

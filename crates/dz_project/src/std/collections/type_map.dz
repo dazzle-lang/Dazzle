@@ -8,7 +8,7 @@
         tie @items = m_entries@items, m_slots@items, m_slots[*]
         tie @values = m_entries[*]@value
 
-        TypeMap() {}
+        pub TypeMap() {}
 
         /// How many types have a value.
         pub fn len(&self) -> usize {

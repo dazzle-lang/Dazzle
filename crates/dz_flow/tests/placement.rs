@@ -631,7 +631,7 @@ struct Bag {
     pub items: List<i32>
     pub spare: List<i32>
 
-    Bag(n: i32) {
+    pub Bag(n: i32) {
         items = List<i32>()
         for i in 0..n {
             items.push(i)
@@ -644,7 +644,7 @@ struct Looping {
     pub items: List<i32>
 
     // Rebuilt on every pass: the placement would grow with each.
-    Looping(n: i32) {
+    pub Looping(n: i32) {
         items = List<i32>()
         for _ in 0..n {
             items = List<i32>()
@@ -664,7 +664,7 @@ struct Giving {
     pub items: List<i32>
 
     // Passed away by value: whoever takes it may keep it anywhere.
-    Giving() {
+    pub Giving() {
         count = consume(List<i32>())
         items = List<i32>()
     }
@@ -922,7 +922,7 @@ fn a_parameter_that_stays_in_the_call_takes_the_callers_region() {
 struct Holder {
     pub kept: List<i32>
 
-    Holder() {
+    pub Holder() {
         kept = List<i32>()
     }
 
@@ -1173,7 +1173,7 @@ struct Renderer {
 
     tie @commands = m_commands@items, m_commands[*]
 
-    Renderer() {}
+    pub Renderer() {}
 
     pub fn begin(&mut self) kills self@commands {
         m_commands.clear()
@@ -1196,7 +1196,7 @@ struct Popper {
 
     tie @items = m_items@items, m_items[*]
 
-    Popper() {}
+    pub Popper() {}
 
     pub fn add(&mut self, s: String) kills self@items sends s to self {
         m_items.push(s)
@@ -1213,7 +1213,7 @@ struct Eager {
 
     tie @items = m_items@items, m_items[*]
 
-    Eager() {}
+    pub Eager() {}
 
     pub fn replace(&mut self, s: String) kills self@items sends s to self {
         m_items.clear()
@@ -1636,7 +1636,7 @@ struct Names {
     tie @names = m_names@items
     tie [*] = m_names[*]
 
-    Names() {
+    pub Names() {
         m_names = List<String>()
     }
 
@@ -1667,7 +1667,7 @@ struct Pile {
     // The whole list: a method that kills it may replace it, elements and all.
     tie @all = m_names
 
-    Pile() {
+    pub Pile() {
         m_names = List<String>()
     }
 
@@ -1852,7 +1852,7 @@ struct Bag {
     pub items: List<i32>
     pub label: String
 
-    Bag(n: i32) {
+    pub Bag(n: i32) {
         items = List<i32>()
         for i in 0..n {
             items.push(i)
@@ -1865,7 +1865,7 @@ struct Taken {
     pub items: List<i32>
 
     // Holds what it is given, which was built wherever its caller built it.
-    Taken(items: List<i32>) {
+    pub Taken(items: List<i32>) {
         self.items = items
     }
 }
@@ -1873,7 +1873,7 @@ struct Taken {
 struct Noisy {
     pub items: List<i32>
 
-    Noisy() {
+    pub Noisy() {
         items = List<i32>()
     }
 }

@@ -10,7 +10,7 @@ pub view struct BitSetIter {
     /// The set's words, so the iterator cannot outlive them (spec §6.7).
     tie @items = m_words
 
-    BitSetIter(words: &[]u64) {
+    pub BitSetIter(words: &[]u64) {
         m_words = words
         if words.len > 0 {
             m_bits = words[0]

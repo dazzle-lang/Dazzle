@@ -1395,7 +1395,7 @@ the function builds, which is the allocator parameter D-0091 took out of the lan
 struct Pool {
     m_allocator: ^mut Allocator = null
 
-    Pool(allocator: ^mut Allocator = unsafe { #placement }) {
+    pub Pool(allocator: ^mut Allocator = unsafe { #placement }) {
         m_allocator = allocator
     }
 }
@@ -1410,7 +1410,7 @@ fn main() {
 struct Pool {
     m_allocator: ^mut Allocator = null
 
-    Pool() {
+    pub Pool() {
         m_allocator = unsafe { #placement }
     }
 }
@@ -1848,14 +1848,50 @@ fn main() {
 
 ## DZ0590
 
-A method that builds an element at its default, `List::resize`, which makes the new
-elements as `T()`, cannot be called where the element is an imported C++ class whose
-constructors all take arguments: there is no default to build (spec §15.2). Every Dazzle
-type has a default, so only such a class meets this. A `List` of one is otherwise a list
-like any other: build each element with a constructor and add it, `push` or `insert`, or give
-the class a default constructor in C++.
+A type with constructors can be built at its default only through one that takes no arguments
+and is visible where it is built (spec §6.2), as in C++. So `let x: T` is refused when `T`'s
+constructors are private or all take arguments, and so is the same thing reached another way:
+an array, a tuple or a field of `T`, a constructor that leaves such a field unassigned, or a
+generic body such as `List::resize` instantiated with `T`. Give the value one: call a
+constructor or a function of the type, and for a `List`, add each element with `push`.
 
-No example: it takes a vendored C++ library (`tests/run/cppinterop`'s `Anchored` is one).
+```dz
+struct Ticket {
+    pub id: i32 = 0
+
+    Ticket(id: i32) {
+        self.id = id
+    }
+
+    pub fn issue() -> Ticket {
+        return Ticket(1)
+    }
+}
+
+fn main() {
+    let t: Ticket
+    println!("{}", t.id)
+}
+```
+
+```dz
+struct Ticket {
+    pub id: i32 = 0
+
+    Ticket(id: i32) {
+        self.id = id
+    }
+
+    pub fn issue() -> Ticket {
+        return Ticket(1)
+    }
+}
+
+fn main() {
+    let t = Ticket::issue()
+    println!("{}", t.id)
+}
+```
 
 ## DZ0591
 

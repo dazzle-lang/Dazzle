@@ -8,11 +8,11 @@
 struct Stack<T> {
     m_items: List<T>
 
-    Stack(capacity: usize) {
+    pub Stack(capacity: usize) {
         m_items = List<T>(capacity)
     }
 
-    Stack(items: List<T>) {
+    pub Stack(items: List<T>) {
         m_items = items
     }
 

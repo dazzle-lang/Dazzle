@@ -9,7 +9,7 @@ pub view struct Indexed<view I: Iterate> {
     m_inner: I
     m_count: usize = 0
 
-    Indexed(inner: I) {
+    pub Indexed(inner: I) {
         m_inner = inner
     }
 }

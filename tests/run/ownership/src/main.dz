@@ -10,7 +10,7 @@ pub struct Handle {
     m_slot:    own ^mut i32
     pub label: const &str
 
-    Handle(slot: ^mut i32, label: const &str) {
+    pub Handle(slot: ^mut i32, label: const &str) {
         m_slot = slot
         self.label = label
         unsafe {
@@ -46,7 +46,7 @@ impl Drop for Handle {
 pub struct Counted {
     pub n: i32
 
-    Counted(n: i32) {
+    pub Counted(n: i32) {
         self.n = n
     }
 }

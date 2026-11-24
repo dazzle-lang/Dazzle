@@ -13,7 +13,7 @@ struct Shelf<T> {
     m_cap:     usize
 
     // The constructor: named after the struct, no return type.
-    Shelf(label: const &str, cap: usize) {
+    pub Shelf(label: const &str, cap: usize) {
         self.label = label
         m_data = self.take(cap)
         m_cap = cap

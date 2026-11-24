@@ -231,3 +231,32 @@ order. Weaker orderings are not in the language yet.
 An `Atomic` is not plain data (§6.3), so using one by value moves it; two copies would be two
 separate counters. `clone` makes a new one from a single read. A `static` of one may start as
 `Atomic<T>(c)` for a constant `c` (§7.7).
+
+## 22.10 `Mutex<T>`
+
+`[PROPOSED — D-0114]` **`Mutex<T>`** owns a value that one thread at a time may reach.
+`lock()` waits for its turn and returns a **`MutexGuard<T>`**; dropping the guard releases the
+lock.
+
+```dz
+static SCORE: Mutex<i32> = Mutex<i32>(0)
+
+fn add(points: i32) {
+    let mut held = SCORE.lock()
+    let score = held.get_mut()
+    score += points
+}                                   // unlocked here
+```
+
+`get()` gives the value as `&T` and `get_mut()` as `&mut T`. Each is **tied to the guard**, so
+it cannot be used once the guard is dropped, moved or assigned over, and a guard that was not
+kept gives out nothing that outlives its statement (`m.lock().get()` bound to a name is
+`DZ0407`).
+
+A guard is a view (§6.7): it lives in a local, a parameter or a result, never in a field or a
+container, and its mutex cannot be moved or dropped while it exists. A `Mutex` is not plain
+data, so it is never copied. A `static` of one may start as `Mutex<T>(v)`, for a `v` a static
+may start as (§7.7).
+
+There is **no poisoned state**, since a panic on any thread ends the program (§22.3). A mutex
+is **not reentrant**: locking one the thread already holds waits forever.

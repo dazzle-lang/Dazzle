@@ -21,7 +21,7 @@ struct Renderer {
 
     tie @commands = m_commands@items, m_commands[*]
 
-    Renderer() {}
+    pub Renderer() {}
 
     pub fn begin(&mut self) kills self@commands {
         m_commands.clear()

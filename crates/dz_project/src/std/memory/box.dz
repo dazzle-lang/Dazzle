@@ -26,7 +26,7 @@ pub struct Box<T> {
     /// `value`, moved into an allocation from wherever the compiler places the box: its
     /// contents live where it lives (spec §14.6). The allocation is a `BoxHeader` and then
     /// the value, at the value's alignment.
-    Box(value: T, loc: SourceLocation = #location) {
+    pub Box(value: T, loc: SourceLocation = #location) {
         let allocator: ^mut Allocator = unsafe { #placement }
         let a = unsafe { allocator or panic!("a Box needs an allocator") }
         let align = if alignof(T) > alignof(BoxHeader) {

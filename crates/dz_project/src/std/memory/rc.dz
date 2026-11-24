@@ -20,7 +20,7 @@ pub struct Rc<T> {
 
     /// A new value, in one allocation with its counts, on the heap: a `Weak` can outlive
     /// any scope the `Rc` is made in (spec §14.6).
-    Rc(value: T, loc: SourceLocation = #location) {
+    pub Rc(value: T, loc: SourceLocation = #location) {
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
         let block = unsafe { Allocators::Global.alloc(size, align, loc) as ^mut RcBlock<T> }

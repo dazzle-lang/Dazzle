@@ -7,13 +7,13 @@
 struct Sized {
     pub w: i32 = 0
 
-    Sized(width: i32) {
+    pub Sized(width: i32) {
         w = width
     }
 }
 
 struct Boxed : Sized {
-    Boxed(width: i32?) : Sized(width or return) {}
+    pub Boxed(width: i32?) : Sized(width or return) {}
 }
 
 fn main() {

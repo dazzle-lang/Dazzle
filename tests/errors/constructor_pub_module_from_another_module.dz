@@ -1,0 +1,8 @@
+// expect: DZ0506
+// `pub(module)` stops at the module: this one is `std`'s, and only `lock` may build a guard.
+
+fn main() {
+    let m = Mutex<i32>(1)
+    let held = MutexGuard<i32>(&m)
+    println!("{}", held.get())
+}

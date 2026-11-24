@@ -1,0 +1,11 @@
+// expect: DZ0413
+// A guard is a view of its mutex, so the mutex cannot go while it is held: the guard's drop
+// unlocks it at the end of the block.
+
+fn take(_m: Mutex<i32>) {}
+
+fn main() {
+    let m = Mutex<i32>(1)
+    let _held = m.lock()
+    take(m)
+}

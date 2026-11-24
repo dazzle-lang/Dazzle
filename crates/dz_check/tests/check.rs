@@ -239,7 +239,7 @@ fn a_payload_default_is_checked_against_its_field() {
 #[test]
 fn a_default_body_meets_bounds_through_self_and_its_associated_types() {
     let tally =
-        "struct Tally<T: Tr> {\n pub n: i32 = 0\n\n Tally(count: i32) {\n  n = count\n }\n}\n\n";
+        "struct Tally<T: Tr> {\n pub n: i32 = 0\n\n pub Tally(count: i32) {\n  n = count\n }\n}\n\n";
     let decls = format!("trait Tr {{\n fn size(&self) -> i32\n}}\n\n{tally}");
     let through_self = format!(
         "trait Tr {{\n fn size(&self) -> i32\n fn tally(&self) -> Tally<Self> {{\n  return Tally<Self>(self.size())\n }}\n}}\n\n{tally}"
@@ -735,15 +735,15 @@ fn an_impl_belongs_with_its_trait_or_its_type() {
 /// it. It used to take the first constructor whatever the arguments said.
 #[test]
 fn constructors_are_resolved_by_argument() {
-    let decl = "struct R {\n pub w: f32\n R(w: f32, h: f32 = 1.0) {\n  self.w = w * h\n }\n \
-                R(n: i32) {\n  self.w = n as f32\n }\n R(n: i64, m: i64) {\n  self.w = 0.0\n }\n}\n";
+    let decl = "struct R {\n pub w: f32\n pub R(w: f32, h: f32 = 1.0) {\n  self.w = w * h\n }\n \
+                pub R(n: i32) {\n  self.w = n as f32\n }\n pub R(n: i64, m: i64) {\n  self.w = 0.0\n }\n}\n";
     for call in ["R(2.0)", "R(2.0, 3.0)", "R(2)", "R(2 as i64, 3)"] {
         let codes = snippet(&format!("{decl}fn f() -> f32 {{\n return {call}.w\n}}\n"));
         assert!(codes.is_empty(), "`{call}` reaches one constructor, got {codes:?}");
     }
     let ambiguous = snippet(
-        "struct S {\n pub a: i32\n S(a: i32, b: i32 = 0) {\n  self.a = a + b\n }\n \
-         S(a: i32) {\n  self.a = a\n }\n}\nfn f() -> i32 {\n return S(1).a\n}\n",
+        "struct S {\n pub a: i32\n pub S(a: i32, b: i32 = 0) {\n  self.a = a + b\n }\n \
+         pub S(a: i32) {\n  self.a = a\n }\n}\nfn f() -> i32 {\n return S(1).a\n}\n",
     );
     assert_eq!(ambiguous, vec![dz_diag::codes::AMBIGUOUS_CALL], "both take one `i32`");
 }
