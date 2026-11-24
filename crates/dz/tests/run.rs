@@ -1839,7 +1839,7 @@ fn main() {
 /// result `let r = f() or return` names `r` in, when `r` is moved out before anything can
 /// leave its block; a literal returned from a `!->` function, built in the result rather
 /// than moved in; and a literal's field moved in over its default rather than assigned.
-/// Not where something could leave the block first (`continue`), nor a field whose
+/// Not where something could leave the block first (`continue`), nor over a field whose
 /// declaration gives it a default, nor anything with a `drop` of the program's own: the
 /// drops print as they did. A failing call's result holds a default value, which the
 /// failing branch destroys: `Pre`'s allocates, and nothing leaks.
@@ -1879,7 +1879,12 @@ fn a_moved_out_value_leaves_no_husk_to_destroy() {
     assert!(make.contains("::dz::rt::Res<Rec>(::dz::rt::BuiltBy{}"), "{make}");
     assert!(make.contains("::new (static_cast<void*>(&_dz_lit1.tags))"), "{make}");
     let pre = body("make_pre");
-    assert!(pre.contains(".text = ::dz::rt::mv(s);"), "a declared default is assigned:\n{pre}");
+    // A declared default that allocates is never built over, which would leak it: it is not
+    // built at all, the value going straight into the field (T-0263).
+    assert!(
+        pre.contains("::dz::rt::fields_tag{}") && !pre.contains("::new"),
+        "a declared default is built over:\n{pre}"
+    );
     assert!(body("collect").contains("::dz::rt::NoDrop<::dz::rt::Res<Rec>>"));
     assert!(!body("collect_some").contains("NoDrop"), "`continue` leaves before the move");
     let first = body("first_pre");
@@ -2762,6 +2767,7 @@ const WARNING_CLEAN: &[&str] = &[
     "trait_generic_methods",
     "default_bodies",
     "implicit_as",
+    "field_init",
     "ref_fields",
     "region_arena",
     "regions",

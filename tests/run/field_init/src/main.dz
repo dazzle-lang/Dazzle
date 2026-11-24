@@ -1,0 +1,319 @@
+// A field is built once, from the value it is given: a default nothing asked for does not
+// run first (T-0263). What does ask for one: a field a literal leaves out, and a `clone`, which
+// runs on a value at its defaults (spec §6.6). A move runs none: its source keeps a constant
+// default and is otherwise left empty (spec §6.4, D-0116).
+
+struct Counted {
+    pub n: i32 = 0
+    pub Counted() {
+        println!("  Counted()")
+        n = 1
+    }
+}
+
+fn counted(tag: &str) -> Counted {
+    println!("  counted({})", tag)
+    let c = Counted()
+    return c
+}
+
+// A literal writes `inner`, and a move takes it from the source.
+struct Holder {
+    pub inner: Counted = Counted()
+    pub id: i32 = 0
+}
+
+impl Drop for Holder {
+    fn drop(&mut self) {
+        println!("  drop Holder {} inner.n={}", id, inner.n)
+    }
+}
+
+// A constructor's opening assignments are the fields' initialisers.
+struct Stored {
+    pub first: Counted = Counted()
+    pub id: i32 = 0
+    pub Stored(c: Counted, i: i32) {
+        first = c
+        id = i
+        println!("  body of Stored")
+    }
+}
+
+// Written out of declaration order, so the second assignment stays an assignment.
+struct OutOfOrder {
+    pub a: Counted = Counted()
+    pub b: Counted = Counted()
+    pub OutOfOrder(x: Counted, y: Counted) {
+        b = y
+        a = x
+    }
+}
+
+// A value with effects does not run ahead of a later field's default.
+fn make_value() -> Counted {
+    println!("  make_value")
+    return Counted()
+}
+
+fn make_default() -> i32 {
+    println!("  make_default")
+    return 9
+}
+
+struct Ordered {
+    pub a: Counted = Counted()
+    pub later: i32 = make_default()
+    pub Ordered() {
+        a = make_value()
+    }
+}
+
+// A value that needs the object is not a field initialiser.
+struct ReadsSelf {
+    pub a: i32 = 4
+    pub c: Counted = Counted()
+    pub ReadsSelf() {
+        c.n = a + 1
+    }
+}
+
+// A move-only parameter goes straight into its field.
+struct Owner {
+    pub label: i32 = 0
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        if label != 0 {
+            println!("  drop Owner {}", label)
+        }
+    }
+}
+
+struct Keeps {
+    pub o: Owner
+    pub c: Counted = Counted()
+    pub Keeps(owner: Owner) {
+        o = owner
+        c = Counted()
+    }
+}
+
+// A derived type's move builds its base from the source.
+struct Base {
+    pub b: Counted = Counted()
+}
+
+impl Drop for Base {
+    fn drop(&mut self) {}
+}
+
+struct Derived : Base {
+    pub d: Counted = Counted()
+}
+
+impl Drop for Derived {
+    fn drop(&mut self) {}
+}
+
+// A field may be called what the move constructor calls its parameter.
+struct Named {
+    pub other: i32 = 3
+}
+
+impl Drop for Named {
+    fn drop(&mut self) {}
+}
+
+// `clone` runs on a value at its defaults.
+struct Cloned {
+    pub c: Counted = Counted()
+    pub seen: i32 = 0
+}
+
+impl Clone for Cloned {
+    fn clone(&mut self, other: &Self) {
+        seen = c.n
+        c.n = other.c.n
+    }
+}
+
+// A plain struct, with a field left out ahead of the one written.
+struct Gap {
+    pub a: i32 = 2
+    pub c: Counted = Counted()
+}
+
+// A derived type writing a field of its own; its base is built at its defaults.
+struct PlainBase {
+    pub b: Counted = Counted()
+}
+
+struct PlainDerived : PlainBase {
+    pub mine: Counted = Counted()
+    pub id: i32 = 0
+}
+
+// A move runs no code of the program's, whatever holds the value (spec §6.4, D-0116). A
+// default that is a constant is still written back.
+struct Constant {
+    pub kept: i32 = 42
+    pub c: Counted = Counted()
+}
+
+impl Drop for Constant {
+    fn drop(&mut self) {
+        println!("  drop Constant kept={} c.n={}", kept, c.n)
+    }
+}
+
+struct Nested {
+    pub pair: (Counted, i32)
+    pub many: [2]Counted
+    pub maybe: Counted?
+}
+
+impl Drop for Nested {
+    fn drop(&mut self) {
+        println!("  drop Nested {} {} {}", pair.0.n, many[1].n, maybe != none)
+    }
+}
+
+union Shape {
+    Round{ c: Counted = Counted(), size: i32 = 3 }
+    Flat{ w: i32 = 0 }
+}
+
+struct HoldsShape {
+    pub shape: Shape
+}
+
+impl Drop for HoldsShape {
+    fn drop(&mut self) {
+        switch shape {
+            case Round(r) {
+                println!("  drop HoldsShape Round {} {}", r.c.n, r.size)
+            }
+            case Flat(f) {
+                println!("  drop HoldsShape Flat {}", f.w)
+            }
+        }
+    }
+}
+
+fn moved_through<T>(value: T) -> T in value@home {
+    let kept = value
+    return kept
+}
+
+struct Generic<T> {
+    pub value: T
+    pub id: i32 = 0
+}
+
+impl<T> Drop for Generic<T> {
+    fn drop(&mut self) {}
+}
+
+fn main() {
+    println!("literal writes every field")
+    let mut a = Holder{ inner: counted("written"), id: 1 }
+    println!("literal leaves a field out")
+    let left = Holder{ id: 2 }
+    println!("move, which runs no constructor")
+    a.inner.n = 7
+    let b = a
+    println!("  moved: b.inner.n={}", b.inner.n)
+
+    println!("constructor")
+    let s = Stored(counted("arg"), 5)
+    println!("  {} {}", s.first.n, s.id)
+
+    println!("constructor out of order")
+    let o = OutOfOrder(counted("x"), counted("y"))
+    println!("  {} {}", o.a.n, o.b.n)
+
+    println!("value before a later default")
+    let ord = Ordered()
+    println!("  {} {}", ord.a.n, ord.later)
+
+    println!("constructor reading the object")
+    let r = ReadsSelf()
+    println!("  {}", r.c.n)
+
+    println!("move-only parameter")
+    let k = Keeps(Owner{ label: 8 })
+    println!("  {} {}", k.o.label, k.c.n)
+
+    println!("derived move")
+    let d = Derived{}
+    let e = d
+    println!("  {} {}", e.b.n, e.d.n)
+
+    println!("field named other")
+    let n = Named{ other: 6 }
+    let m = n
+    println!("  {}", m.other)
+
+    println!("clone")
+    let mut c = Cloned{}
+    c.c.n = 11
+    let cl = c.clone()
+    println!("  seen={} n={}", cl.seen, cl.c.n)
+
+    println!("generic")
+    let g = Generic<Counted>{ value: counted("generic"), id: 1 }
+    println!("  {}", g.value.n)
+
+    println!("a field left out ahead of a written one")
+    let gap = Gap{ c: counted("gap") }
+    println!("  {} {}", gap.a, gap.c.n)
+
+    println!("derived literal")
+    let pd = PlainDerived{ mine: counted("mine"), id: 3 }
+    println!("  {} {} {}", pd.b.n, pd.mine.n, pd.id)
+
+    println!("a constant default comes back, one that runs code does not")
+    let mut k1 = Constant{ kept: 1 }
+    k1.c.n = 5
+    let k2 = k1
+    println!("  moved {} {}", k2.kept, k2.c.n)
+
+    println!("moved inside a tuple, an array and an optional")
+    let n1 = Nested{ pair: (Counted(), 2), many: [Counted(), Counted()], maybe: Counted() }
+    let n2 = n1
+    println!("  moved {} {} {}", n2.pair.1, n2.many[0].n, n2.maybe != none)
+
+    println!("a union literal builds its payload once")
+    let gap_shape = Shape::Round{ size: 5 }
+    switch gap_shape {
+        case Round(r) {
+            println!("  {} {}", r.c.n, r.size)
+        }
+        case Flat(f) {
+            println!("  flat {}", f.w)
+        }
+    }
+    let written = Shape::Round{ c: counted("payload"), size: 6 }
+    switch written {
+        case Round(r) {
+            println!("  {} {}", r.c.n, r.size)
+        }
+        case Flat(f) {
+            println!("  flat {}", f.w)
+        }
+    }
+
+    println!("a union keeps its variant, emptied")
+    let u1 = HoldsShape{ shape: Shape::Round{ c: Counted(), size: 8 } }
+    let _u2 = u1
+    println!("  moved")
+
+    println!("a generic move")
+    let through = moved_through(Counted())
+    println!("  {}", through.n)
+
+    println!("end")
+    println!("  {}", left.id)
+}

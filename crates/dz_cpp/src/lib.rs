@@ -286,6 +286,8 @@ pub fn emit_selected(
             views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
+            lifted_stmts: 0,
+            lifted_params: Vec::new(),
             inline_instances: options.inline_instances,
             qualify_all: false,
             mode,
@@ -483,6 +485,8 @@ pub fn emit_selected(
             views: Vec::new(),
             inline_defs: String::new(),
             inline_only: false,
+            lifted_stmts: 0,
+            lifted_params: Vec::new(),
             inline_instances: options.inline_instances,
             qualify_all: false,
             mode,
@@ -807,6 +811,10 @@ struct Emitter<'a> {
     /// module after the one that defines them, which needs only those, in its header
     /// (T-0187). The rest used to be emitted again for every such module and thrown away.
     inline_only: bool,
+    /// How many opening statements of the constructor about to be emitted its
+    /// member-initialiser list already did, and the parameters those moved (T-0263).
+    lifted_stmts: usize,
+    lifted_params: Vec<LocalId>,
     /// [`Options::inline_instances`].
     inline_instances: bool,
     /// Name every type with its namespace, even this module's own. Set inside a union's
@@ -2971,27 +2979,63 @@ impl<'a> Emitter<'a> {
         // The same types `struct_bodies` gives move members to: a `copy` of its own counts,
         // since a C++ default move would leave its plain fields unreset (§6.4).
         if has_drop || has_copy || !copyable {
-            // A moved-from value is left at its defaults, never unspecified (§6.4), so
-            // the steal is followed by a reset rather than by whatever C++ would leave.
+            // A moved-from value is reset, never unspecified (§6.4), so the steal is
+            // followed by a reset rather than by whatever C++ would leave.
             let _ = writeln!(self.header, "    {name}({name}&& other);");
             let _ = writeln!(self.header, "    {name}& operator=({name}&& other);");
             self.header.push_str(
-                "\n    // Spec §6.4: the source of a move goes back to its defaults, so\n\
-                 \x20   // running its `drop` afterwards is safe and does nothing.\n\
+                "\n    // Spec §6.4: the source of a move is reset, running no code of the\n\
+                 \x20   // program's, so running its `drop` afterwards is safe and does nothing.\n\
                  \x20   void reset_to_defaults__() {\n",
             );
-            for (i, (fname, fty)) in fields.iter().enumerate() {
-                // A move-only member was reset by its own move constructor, and its
-                // assignment is deleted, so touching it again would not even compile.
-                if !self.table.copyable(fty) && !matches!(fty, Ty::OwnPtr { .. }) {
-                    continue;
-                }
-                let _ = writeln!(self.header, "        {fname} = {};", defaults[i]);
-            }
+            // A base with a move constructor of its own reset its fields as it was moved.
+            let base_resets = base.is_some_and(|b| {
+                let base_args = self.table.args_as(sym, args, b);
+                self.moves_itself(b, &base_args)
+            });
+            let first = if base_resets { inherited } else { 0 };
+            let lines = self.reset_lines(sym, &fields, &defaults, first);
+            self.header.push_str(&lines);
             self.header.push_str("    }\n");
-        } else if needs_special {
-            let _ = writeln!(self.header, "    {name}({name}&&) = default;");
-            let _ = writeln!(self.header, "    {name}& operator=({name}&&) = default;");
+        } else {
+            if needs_special {
+                let _ = writeln!(self.header, "    {name}({name}&&) = default;");
+                let _ = writeln!(self.header, "    {name}& operator=({name}&&) = default;");
+            }
+            // C++'s own move leaves this type's source as it was, and building a default to
+            // assign over it would run the code a move must not (spec §6.4, D-0116).
+            if self.zero_value_is_seen(&Ty::Named { sym, args: args.to_vec() }) {
+                let lines = self.reset_lines(sym, &fields, &defaults, 0);
+                let _ = write!(self.header, "    void empty_fields__() {{\n{lines}    }}\n");
+            }
+        }
+        if self.literal_ctor(sym, args) {
+            let mut params = Vec::new();
+            let mut list = Vec::new();
+            let mut inits = Vec::new();
+            // Declaring it takes away the default constructor C++ would otherwise give.
+            if !needs_special {
+                let _ = writeln!(self.header, "    {name}() = default;");
+            }
+            for (i, (fname, fty)) in fields.iter().enumerate().skip(inherited) {
+                let ty = self.member_ty(fty);
+                let default = match defaults[i].as_str() {
+                    "{}" => format!("::dz::rt::value_init<{ty}>()"),
+                    d => d.to_owned(),
+                };
+                params.push(format!("class _dz_F{i}"));
+                list.push(format!("_dz_F{i} _dz_f{i}"));
+                inits.push(format!(
+                    "{fname}(::dz::rt::field_value<{ty}>(_dz_f{i}, [&]() -> {ty} {{ return {default}; }}))"
+                ));
+            }
+            let _ = writeln!(
+                self.header,
+                "    template <{}>\n    {name}(::dz::rt::fields_tag, {})\n        : {} {{}}",
+                params.join(", "),
+                list.join(", "),
+                inits.join(",\n          ")
+            );
         }
         self.handle_upcast_ctor(sym, args, &name);
 
@@ -3103,9 +3147,17 @@ impl<'a> Emitter<'a> {
                     self.current_fn = format!("{name}::{name}");
                     // `: UiElement(w)` is a C++ member-initialiser list, which is the only
                     // place a base can be constructed (spec §7.3, 18.32).
-                    let init = self.base_init(&owner);
+                    let mut init = self.base_init(&owner);
+                    let opening = self.ctor_opening_inits(&owner, sym);
+                    if !opening.is_empty() {
+                        init.push_str(if init.is_empty() { " : " } else { ", " });
+                        init.push_str(&opening.join(", "));
+                    }
                     let head = format!("{inline}{name}::{name}({params}){init} {{");
                     self.emit_body(&owner, &head);
+                    // `emit_body` writes nothing in some passes, and leaves these set.
+                    self.lifted_stmts = 0;
+                    self.lifted_params.clear();
                     if let Some((_, def)) = self.heap_ctor(&owner, &name) {
                         let _ = writeln!(self.out, "{inline}{name}::{def}\n");
                     }
@@ -3204,8 +3256,303 @@ impl<'a> Emitter<'a> {
         if self.table.struct_sig(sym).is_some_and(|s| s.drop.is_some() || s.copy.is_some())
             || !self.table.copyable(&self.self_type(sym))
         {
-            self.move_members(&name, sym);
+            self.move_members(&name, sym, args);
         }
+    }
+
+    /// Whether `sym` has a move constructor of its own, which resets its source (spec §6.6).
+    fn moves_itself(&self, sym: SymbolId, args: &[Ty]) -> bool {
+        self.table.struct_sig(sym).is_some_and(|s| s.drop.is_some() || s.copy.is_some())
+            || !self.table.copyable(&Ty::Named { sym, args: args.to_vec() })
+    }
+
+    /// Whether a field's default runs code of the program's when it is built: a `= expr`
+    /// with a call in it, or a zero value that reaches a zero-argument constructor. Such a
+    /// default must not be built just to be overwritten (T-0263). `std`'s types count as
+    /// not, since what they build at their defaults owns nothing and says nothing.
+    fn default_is_seen(&self, owner: SymbolId, index: usize, ty: &Ty) -> bool {
+        match self.find_body(&BodyOwner::FieldDefault { owner, index }) {
+            Some(body) => body_value(body).map_or(true, |v| self.runs_code(body, v)),
+            None => self.zero_value_is_seen(ty),
+        }
+    }
+
+    /// [`Self::default_is_seen`] for a field of a union variant's payload.
+    fn payload_default_is_seen(
+        &self,
+        owner: SymbolId,
+        variant: usize,
+        index: usize,
+        ty: &Ty,
+    ) -> bool {
+        match self.find_body(&BodyOwner::PayloadDefault { owner, variant, index }) {
+            Some(body) => body_value(body).map_or(true, |v| self.runs_code(body, v)),
+            None => self.zero_value_is_seen(ty),
+        }
+    }
+
+    /// Whether a literal of this union builds its payload straight into place (T-0263): a
+    /// default of its first variant, which the literal would otherwise build first, or of
+    /// any variant's payload, runs code of the program's.
+    fn union_builds_in_place(&self, sym: SymbolId, args: &[Ty]) -> bool {
+        if self.res.symbol(sym).module == self.res.prelude {
+            return false;
+        }
+        let Some(ItemSig::Union { variants, .. }) = self.table.get(sym) else { return false };
+        variants.iter().enumerate().any(|(vi, v)| match v.carries {
+            Some(c) => self.zero_value_is_seen(&Ty::Named { sym: c, args: Vec::new() }),
+            None => self
+                .table
+                .payload_types(sym, args, v)
+                .iter()
+                .enumerate()
+                .any(|(i, t)| self.payload_default_is_seen(sym, vi, i, t)),
+        })
+    }
+
+    /// The statements that reset a moved-from value's fields from index `first` on (spec
+    /// §6.4, D-0116): a default that is a constant is written, and a field whose default
+    /// runs code is left empty, so a move runs none of the program's code.
+    fn reset_lines(
+        &self,
+        sym: SymbolId,
+        fields: &[(String, Ty)],
+        defaults: &[String],
+        first: usize,
+    ) -> String {
+        let declared_in = self.declaring_types(sym);
+        let mut out = String::new();
+        for (i, (fname, fty)) in fields.iter().enumerate().skip(first) {
+            // A move-only member was reset by its own move constructor, and its
+            // assignment is deleted, so touching it again would not even compile.
+            if !self.table.copyable(fty) && !matches!(fty, Ty::OwnPtr { .. }) {
+                continue;
+            }
+            let owner = declared_in.get(i).copied().flatten().unwrap_or(sym);
+            if self.default_is_seen(owner, i, fty) {
+                let _ = writeln!(out, "        ::dz::rt::leave_empty({fname});");
+            } else {
+                let _ = writeln!(out, "        {fname} = {};", defaults[i]);
+            }
+        }
+        out
+    }
+
+    fn zero_value_is_seen(&self, ty: &Ty) -> bool {
+        match ty {
+            Ty::Named { sym, args } => {
+                if self.res.symbol(*sym).module == self.res.prelude {
+                    return false;
+                }
+                // A union's default is its first variant, at its defaults (spec §6.2).
+                if let Some(ItemSig::Union { variants, .. }) = self.table.get(*sym) {
+                    let Some(v) = variants.first() else { return false };
+                    if let Some(c) = v.carries {
+                        return self.zero_value_is_seen(&Ty::Named { sym: c, args: Vec::new() });
+                    }
+                    let tys = self.table.payload_types(*sym, args, v);
+                    return tys
+                        .iter()
+                        .enumerate()
+                        .any(|(i, t)| self.payload_default_is_seen(*sym, 0, i, t));
+                }
+                let Some(s) = self.table.struct_sig(*sym) else { return false };
+                nullary_ctor(s).is_some()
+                    || self.table.field_types(*sym, args, &s.fields).iter().enumerate().any(
+                        |(i, t)| {
+                            let owner = s.fields[i].declared_in.unwrap_or(*sym);
+                            self.default_is_seen(owner, i, t)
+                        },
+                    )
+            }
+            Ty::Optional(inner) | Ty::Fallible(inner) | Ty::Array { elem: inner, .. } => {
+                self.zero_value_is_seen(inner)
+            }
+            Ty::Tuple(parts) => parts.iter().any(|t| self.zero_value_is_seen(t)),
+            _ => false,
+        }
+    }
+
+    /// Whether a literal of this type is a C++ aggregate, built by listing its fields.
+    fn literal_is_aggregate(&self, sym: SymbolId, ty: &Ty) -> bool {
+        self.table.struct_sig(sym).is_some_and(|s| {
+            s.ctors.is_empty()
+                && s.copy.is_none()
+                && s.drop.is_none()
+                && s.base.is_none()
+                && !s.polymorphic
+        }) && self.table.copyable(ty)
+            // A copy into a placement is a constructor of its own (T-0140).
+            && self.placed_copy(ty).is_none()
+    }
+
+    /// Whether this type's literals go through its `fields_tag` constructor (T-0263): it is
+    /// not an aggregate, so a literal would build every field at its default and assign
+    /// over it, and a default here runs code the program can see. Every other type keeps
+    /// the cheaper literal it has. It takes the type's own fields: a base is built at its
+    /// defaults, and a member-initialiser list cannot name a base's fields.
+    fn literal_ctor(&self, sym: SymbolId, args: &[Ty]) -> bool {
+        let Some(s) = self.table.struct_sig(sym) else { return false };
+        if !s.ctors.is_empty()
+            || self.is_foreign(sym)
+            || self.thin_impl(sym).is_some()
+            || self.literal_is_aggregate(sym, &Ty::Named { sym, args: args.to_vec() })
+        {
+            return false;
+        }
+        let tys = self.table.field_types(sym, args, &s.fields);
+        tys.iter().enumerate().skip(s.inherited).any(|(i, t)| self.default_is_seen(sym, i, t))
+    }
+
+    /// The text of each field up to the last one written, for an aggregate literal that
+    /// leaves out a field ahead of one it writes, whose default would otherwise be built
+    /// and overwritten (T-0263). `None` where that is not needed, or a default left out
+    /// cannot be written at the literal: it reads the object, or names a type parameter.
+    fn aggregate_gap_defaults(
+        &mut self,
+        sym: SymbolId,
+        args: &[Ty],
+        values: &[(usize, String)],
+    ) -> Option<Vec<(usize, String)>> {
+        let s = self.table.struct_sig(sym)?;
+        let tys = self.table.field_types(sym, args, &s.fields);
+        let has_default: Vec<bool> = s.fields.iter().map(|f| f.has_default).collect();
+        if !values.iter().any(|(i, _)| self.default_is_seen(sym, *i, &tys[*i])) {
+            return None;
+        }
+        let last = values.iter().map(|v| v.0).max()?;
+        let mut out = Vec::new();
+        for i in 0..=last {
+            if values.iter().any(|v| v.0 == i) {
+                continue;
+            }
+            let t = self.member_ty(&tys[i]);
+            if !has_default[i] {
+                out.push((i, format!("::dz::rt::value_init<{t}>()")));
+                continue;
+            }
+            let body = self.find_body(&BodyOwner::FieldDefault { owner: sym, index: i })?;
+            let reads_self = body
+                .exprs
+                .iter()
+                .any(|x| matches!(x.kind, hir::ExprKind::Local(l) if body.local(l).name == "self"));
+            if reads_self || !args.is_empty() {
+                return None;
+            }
+            let d = self.field_default(sym, i)?;
+            out.push((i, format!("static_cast<{t}>({d})")));
+        }
+        Some(out)
+    }
+
+    /// Whether a constructor's opening assignment can read `e` from a member-initialiser
+    /// list, before the body's own bindings exist: a literal, a parameter, or a call of
+    /// those. A value that keeps an allocator may be placed in a region of the body's.
+    fn liftable_value(&self, body: &hir::Body, e: ExprId, consumed: &[LocalId], top: bool) -> bool {
+        use hir::ExprKind as K;
+        let param = |l: LocalId| body.params.contains(&l) && body.local(l).name != "self";
+        match &body.expr(e).kind {
+            K::Int(_) | K::Float(_) | K::Bool(_) | K::Char(_) | K::Str(_) => true,
+            K::Local(l) => param(*l) && !self.table.needs_drop(&body.local(*l).ty),
+            K::Move(inner) => match body.expr(*inner).kind {
+                K::Local(l) if param(l) => {
+                    !self.table.needs_drop(&body.local(l).ty) || (top && consumed.contains(&l))
+                }
+                _ => false,
+            },
+            K::Call { callee: hir::Callee::Ctor { .. } | hir::Callee::Fn { .. }, args } => {
+                !dz_flow::placement::keeps_allocator(self.table, self.res, body.ty(e))
+                    && args.iter().all(|a| self.liftable_value(body, *a, consumed, false))
+            }
+            _ => false,
+        }
+    }
+
+    /// A constructor's opening `field = value` statements, as member initialisers, so the
+    /// field is built from its value and its default never runs (T-0263). Sets
+    /// `lifted_stmts` to how many statements these replace.
+    ///
+    /// Only where a default would have run code the program can see, so every other
+    /// constructor is emitted as it was. C++ builds fields in declaration order, so the
+    /// statements must be in it, and a value with effects must not run ahead of a later
+    /// field's default that also has them.
+    fn ctor_opening_inits(&mut self, owner: &BodyOwner, sym: SymbolId) -> Vec<String> {
+        use hir::ExprKind as K;
+        let Some(body) = self.find_body(owner) else { return Vec::new() };
+        let Some(s) = self.table.struct_sig(sym) else { return Vec::new() };
+        let tys = self.table.field_types(sym, &self.args_for(sym), &s.fields);
+        let names: Vec<String> = s.fields.iter().map(|f| sanitize(&f.name)).collect();
+        let inherited = s.inherited;
+        let consumed = consumed_params(body, self.table);
+        let mut picked: Vec<(usize, ExprId)> = Vec::new();
+        for st in &body.block(body.root).stmts {
+            let hir::StmtKind::Assign { target, op: AssignOp::Assign, value, bind: false } =
+                body.stmt(*st).kind
+            else {
+                break;
+            };
+            let K::Field { base, index } = body.expr(target).kind else { break };
+            if !is_self_expr(body, base)
+                || index < inherited
+                || picked.last().is_some_and(|p| p.0 >= index)
+                || !self.liftable_value(body, value, &consumed, true)
+            {
+                break;
+            }
+            picked.push((index, value));
+        }
+        loop {
+            let lifted: Vec<usize> = picked.iter().map(|p| p.0).collect();
+            let early = picked.iter().position(|&(i, v)| {
+                expr_effects(body, v)
+                    && (i + 1..tys.len())
+                        .any(|j| !lifted.contains(&j) && self.default_is_seen(sym, j, &tys[j]))
+            });
+            match early {
+                Some(p) => picked.truncate(p),
+                None => break,
+            }
+        }
+        let Some(last) = picked.iter().rposition(|&(i, _)| self.default_is_seen(sym, i, &tys[i]))
+        else {
+            return Vec::new();
+        };
+        picked.truncate(last + 1);
+
+        let param_names = param_names(body);
+        let mut inits = Vec::new();
+        let mut params = Vec::new();
+        for &(index, value) in &picked {
+            let moved_param = match body.expr(value).kind {
+                K::Move(inner) => match body.expr(inner).kind {
+                    K::Local(l) if consumed.contains(&l) => Some(l),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let text = if let Some(l) = moved_param {
+                params.push(l);
+                let arg = incoming_name(&param_names[l.index()], self.table, &body.local(l).ty);
+                format!("::dz::rt::mv({arg})")
+            } else {
+                let target = tys[index].clone();
+                let (pre, v) = self.in_body(body, |e| e.stored(&target, value));
+                if !pre.trim().is_empty() {
+                    return Vec::new();
+                }
+                if self.table.copyable(body.ty(value))
+                    || !matches!(body.expr(value).kind, K::Move(_))
+                {
+                    v
+                } else {
+                    format!("::dz::rt::mv({v})")
+                }
+            };
+            inits.push(format!("{}({text})", names[index]));
+        }
+        self.lifted_stmts = picked.len();
+        self.lifted_params = params;
+        inits
     }
 
     /// The copy into a placement of a type with no `copy` of its own (T-0140): each field
@@ -3254,23 +3601,41 @@ impl<'a> Emitter<'a> {
     }
 
     /// The move constructor and move assignment of spec §6.6: steal each field, then put
-    /// the source back at its defaults so running its `drop` is safe and does nothing.
-    fn move_members(&mut self, name: &str, sym: SymbolId) {
+    /// the source back as §6.4 says, so running its `drop` is safe and does nothing.
+    fn move_members(&mut self, name: &str, sym: SymbolId, args: &[Ty]) {
         let fields = self.field_list(sym);
         let arenas = self.arena_fields(sym);
-        self.line(&format!("{}{name}::{name}({name}&& other) {{", self.def_prefix));
-        self.indent += 1;
-        // Every field is moved, never copied: a copyable field such as a `String` or a `List`
-        // would otherwise be copied in full and then reset, on every move. Moving a plain
-        // value is copying it, so this is the same for a number or a pointer. An owner
-        // arena goes with its field's elements, which are in it (T-0120).
+        let inherited = self.table.struct_sig(sym).map_or(0, |s| s.inherited);
+        // Built from the source in the member-initialiser list, so no field is first built
+        // at its default, which may run a constructor of the program's (T-0263). Every field
+        // is moved, never copied: a copyable field such as a `String` or a `List` would
+        // otherwise be copied in full and then reset, on every move. Moving a plain value is
+        // copying it, so this is the same for a number or a pointer. An owner arena goes
+        // with its field's elements, which are in it (T-0120). `decltype(other.f)` rather
+        // than `decltype(f)`, since a field may be called `other`.
+        let mut inits = Vec::new();
+        if let Some(b) = self.table.struct_sig(sym).and_then(|s| s.base) {
+            let base_args = self.table.args_as(sym, args, b);
+            let b = if base_args.is_empty() {
+                self.qualify(b)
+            } else {
+                self.qualify_instance(b, &base_args)
+            };
+            inits.push(format!("{b}(static_cast<{b}&&>(other))"));
+        }
         for (index, (f, _)) in fields.iter().enumerate() {
             if arenas.contains(&index) {
                 let slot = arena_slot_name(f);
-                self.line(&format!("{slot} = static_cast<decltype({slot})&&>(other.{slot});"));
+                inits.push(format!("{slot}(static_cast<decltype(other.{slot})&&>(other.{slot}))"));
             }
-            self.line(&format!("{f} = static_cast<decltype({f})&&>(other.{f});"));
+            if index >= inherited {
+                inits.push(format!("{f}(static_cast<decltype(other.{f})&&>(other.{f}))"));
+            }
         }
+        let inits =
+            if inits.is_empty() { String::new() } else { format!(" : {}", inits.join(", ")) };
+        self.line(&format!("{}{name}::{name}({name}&& other){inits} {{", self.def_prefix));
+        self.indent += 1;
         self.line("other.reset_to_defaults__();");
         self.indent -= 1;
         self.line("}");
@@ -3463,15 +3828,53 @@ impl<'a> Emitter<'a> {
         self.header.push_str("    };\n\n");
         // The first variant, at its defaults, is what `let s: Shape` holds (spec §6.2).
         let _ = writeln!(self.header, "    {name}() : {first}() {{}}");
+        // A default that runs code cannot be built for a moved-from union, since a move runs
+        // none of the program's code (spec §6.4, D-0116): it keeps its variant, emptied.
+        let default_seen = self.zero_value_is_seen(&Ty::Named { sym, args: args.to_vec() });
+        if default_seen {
+            let mut empty = String::from("    void empty_fields__() {\n        switch (kind) {\n");
+            for (vi, v) in variants.iter().enumerate() {
+                let n = sanitize(&v.name);
+                let mut stmts = String::new();
+                if v.carries.is_some() {
+                    let _ = write!(stmts, "::dz::rt::leave_empty({n}); ");
+                }
+                for (fi, f) in v.fields.iter().enumerate().filter(|_| v.carries.is_none()) {
+                    if !self.table.copyable(&f.ty) && !matches!(f.ty, Ty::OwnPtr { .. }) {
+                        continue;
+                    }
+                    let field = sanitize(&f.name);
+                    if self.payload_default_is_seen(sym, vi, fi, &f.ty) {
+                        let _ = write!(stmts, "::dz::rt::leave_empty({n}.{field}); ");
+                    } else {
+                        let owner =
+                            BodyOwner::PayloadDefault { owner: sym, variant: vi, index: fi };
+                        let d = self.default_value(&owner).unwrap_or_else(|| "{}".to_owned());
+                        let _ = write!(stmts, "{n}.{field} = {d}; ");
+                    }
+                }
+                let _ = writeln!(empty, "            case Kind::{n}: {stmts}break;");
+            }
+            empty.push_str("        }\n    }\n");
+            self.header.push_str(&empty);
+        }
         self.union_method_decls(u, sym);
         if trivial {
+            // The tag alone, for a literal to build a payload whose defaults run code.
+            if self.union_builds_in_place(sym, args) {
+                let _ = writeln!(
+                    self.header,
+                    "    {name}(::dz::rt::no_payload, Kind k) : kind(k) {{}}"
+                );
+            }
             self.header.push_str("};\n\n");
             self.assert_trivially_copyable(&name, sym, args);
             return;
         }
 
         let copyable = self.table.copyable(&Ty::Named { sym, args: args.to_vec() });
-        let reset_moved = self.drops_silently(&Ty::Named { sym, args: args.to_vec() })
+        let reset_moved = !default_seen
+            && self.drops_silently(&Ty::Named { sym, args: args.to_vec() })
             && variants.first().is_some_and(|v| {
                 v.carries.is_none() && v.fields.iter().all(|f| self.table.plain(&f.ty))
             });
@@ -4215,9 +4618,11 @@ impl<'a> Emitter<'a> {
         // above it once it is known which it uses (see `source_location`). A nested body
         // keeps its own.
         let outer_sites = self.site_consts.replace(Vec::new());
+        // The statements the member-initialiser list already did (`ctor_opening_inits`).
+        let lifted = std::mem::take(&mut self.lifted_stmts);
         let (text, ()) = self.in_body(body, |e| {
             e.tie_guards(owner, body);
-            e.block_into(body.root, Dest::None)
+            e.block_from(body.root, Dest::None, lifted)
         });
         // `dz_flow` proved every Dazzle path returns, but C++ cannot see that through an
         // exhaustive `switch` with no `default` — and a `-Wreturn-type` warning in generated
@@ -4389,7 +4794,11 @@ impl<'a> Emitter<'a> {
         }
         for p in &body.params {
             let local = body.local(*p);
-            if local.name == "self" || !self.table.needs_drop(&local.ty) {
+            // One moved into its field by the member-initialiser list has no use left here.
+            if local.name == "self"
+                || !self.table.needs_drop(&local.ty)
+                || self.lifted_params.contains(p)
+            {
                 continue;
             }
             let ty = self.cpp_ty(&local.ty);
@@ -4672,6 +5081,11 @@ impl<'a> Emitter<'a> {
 
     /// Emit a block's statements, sending the value of its final expression to `dest`.
     fn block_into(&mut self, id: BlockId, dest: Dest<'_>) {
+        self.block_from(id, dest, 0);
+    }
+
+    /// [`Self::block_into`], leaving out the block's first `skip` statements.
+    fn block_from(&mut self, id: BlockId, dest: Dest<'_>, skip: usize) {
         let body = self.cur();
         // A region is declared first in its block, so C++ destroys it after every value
         // the block placed in it has been dropped (spec §14.6, T-0117).
@@ -4685,7 +5099,7 @@ impl<'a> Emitter<'a> {
         self.unsafe_depth += marked;
         let stmts = &body.block(id).stmts;
         let last = stmts.len().saturating_sub(1);
-        for (i, s) in stmts.iter().enumerate() {
+        for (i, s) in stmts.iter().enumerate().skip(skip) {
             if i == last && !matches!(dest, Dest::None) {
                 if let hir::StmtKind::Expr(e) = &body.stmt(*s).kind {
                     let ty = body.ty(*e);
@@ -6125,7 +6539,7 @@ impl<'a> Emitter<'a> {
                     format!("::dz::rt::mv({v})")
                 } else if is_place(body, *inner) {
                     // A copyable type has no move constructor to do the resetting, so the
-                    // shim does it: the source is left at its defaults like any other
+                    // shim does it: the source is reset like any other
                     // moved-from value (spec §6.4, §18.33).
                     format!("::dz::rt::take({v})")
                 } else {
@@ -6388,15 +6802,7 @@ impl<'a> Emitter<'a> {
         // neither is one with a base or a `virtual` method (spec §7.3, 18.32): a base
         // subobject would have to be initialised first, and the field order written here
         // does not account for it.
-        let aggregate = self.table.struct_sig(sym).is_some_and(|s| {
-            s.ctors.is_empty()
-                && s.copy.is_none()
-                && s.drop.is_none()
-                && s.base.is_none()
-                && !s.polymorphic
-        }) && self.table.copyable(&node_ty)
-            // A copy into a placement is a constructor of its own (T-0140).
-            && self.placed_copy(&node_ty).is_none();
+        let aggregate = self.literal_is_aggregate(sym, &node_ty);
         if self.standard >= 20 && aggregate {
             let mut parts = Vec::new();
             for (i, v) in &values {
@@ -6414,8 +6820,20 @@ impl<'a> Emitter<'a> {
         // then assigned each field, which the C++ compiler did not always see through
         // (T-0222).
         let leading = values.iter().map(|v| v.0).eq(0..values.len());
-        if aggregate && leading && !self.is_foreign(sym) && self.thin_impl(sym).is_none() {
-            let mut parts = Vec::new();
+        let by_position = aggregate && !self.is_foreign(sym) && self.thin_impl(sym).is_none();
+        let type_args = match &node_ty {
+            Ty::Named { args, .. } => args.clone(),
+            _ => Vec::new(),
+        };
+        // A field left out ahead of a written one whose default runs code is spelled out,
+        // so that default is not built just to be assigned over (T-0263).
+        let gaps = if by_position && !leading {
+            self.aggregate_gap_defaults(sym, &type_args, &values)
+        } else {
+            None
+        };
+        if by_position && (leading || gaps.is_some()) {
+            let mut parts = gaps.unwrap_or_default();
             for (i, v) in &values {
                 // A braced list refuses a narrowing conversion that the assignment allowed:
                 // a block whose value is an untyped `0`, in an `f32` field, is an `int32_t`.
@@ -6424,9 +6842,34 @@ impl<'a> Emitter<'a> {
                 let numeric = matches!(field, Ty::Int(_) | Ty::Float(_));
                 if numeric && written.as_ref() != Some(field) {
                     let cpp = self.cpp_ty(field);
-                    parts.push(format!("static_cast<{cpp}>({v})"));
+                    parts.push((*i, format!("static_cast<{cpp}>({v})")));
                 } else {
-                    parts.push(v.clone());
+                    parts.push((*i, v.clone()));
+                }
+            }
+            parts.sort_by_key(|p| p.0);
+            let parts: Vec<String> = parts.into_iter().map(|p| p.1).collect();
+            return format!("{ty}{{{}}}", parts.join(", "));
+        }
+
+        // A type whose defaults run code is built by its `fields_tag` constructor, so a
+        // field written here never runs its default first (T-0263). It takes the type's own
+        // fields, so a literal writing an inherited one is built as below.
+        let inherited = self.table.struct_sig(sym).map_or(0, |s| s.inherited);
+        if self.literal_ctor(sym, &type_args) && values.iter().all(|v| v.0 >= inherited) {
+            let tys = self
+                .table
+                .struct_sig(sym)
+                .map(|s| self.table.field_types(sym, &type_args, &s.fields))
+                .unwrap_or_default();
+            let mut parts = vec!["::dz::rt::fields_tag{}".to_owned()];
+            for (i, field) in tys.iter().enumerate().skip(inherited) {
+                match values.iter().find(|v| v.0 == i) {
+                    Some((_, v)) => {
+                        let t = self.member_ty(field);
+                        parts.push(format!("[&]() -> {t} {{ return {v}; }}"));
+                    }
+                    None => parts.push("::dz::rt::field_unset{}".to_owned()),
                 }
             }
             return format!("{ty}{{{}}}", parts.join(", "));
@@ -6516,8 +6959,16 @@ impl<'a> Emitter<'a> {
         };
         // A carried struct is built whole, so its field defaults run: the union's own
         // constructor built only its first member, and this one may not be that.
+        let in_place = self.union_builds_in_place(owner, &union_args);
         if let Some(carried) = carries {
             let value = self.struct_literal(carried, payload, Ty::plain(carried));
+            if in_place {
+                return format!(
+                    "[&] {{ {ty} {tmp}(::dz::rt::no_payload{{}}, {ty}::Kind::{name}); \
+                     ::new (static_cast<void*>(&{tmp}.{name})) decltype({tmp}.{name})({value}); \
+                     return {tmp}; }}()"
+                );
+            }
             let _ = write!(out, "{tmp}.{name} = {value}; return {tmp}; }}()");
             return out;
         }
@@ -6532,8 +6983,10 @@ impl<'a> Emitter<'a> {
         // position: `become` built it empty and each field was then assigned a temporary,
         // which was dropped empty, a `Box` each in a parser's `Binary` (T-0231). As for a
         // struct literal, only where the fields written are the first ones, so the rest keep
-        // their defaults.
-        if !self.table.union_is_trivial(owner, &union_args) {
+        // their defaults. Also any payload whose defaults run code, so that a field written
+        // here does not run its default first (T-0263); a field left out ahead of a written
+        // one then has its default spelled here.
+        if in_place || !self.table.union_is_trivial(owner, &union_args) {
             let types = match self.table.get(owner) {
                 Some(ItemSig::Union { variants, .. }) => variants
                     .get(index)
@@ -6543,9 +6996,20 @@ impl<'a> Emitter<'a> {
             };
             let given: Vec<usize> =
                 payload.iter().enumerate().filter(|(_, p)| p.is_some()).map(|(i, _)| i).collect();
-            if given.iter().copied().eq(0..given.len()) {
+            let leading = given.iter().copied().eq(0..given.len());
+            if leading || (in_place && union_args.is_empty()) {
                 let values = self.literal_fields(payload, |_| None, true);
                 let mut parts = Vec::new();
+                for gap in (0..given.last().map_or(0, |l| l + 1)).filter(|i| !given.contains(i)) {
+                    let field = types.get(gap).cloned().unwrap_or(Ty::Error);
+                    let cpp = self.cpp_ty(&field);
+                    let default = BodyOwner::PayloadDefault { owner, variant: index, index: gap };
+                    let text = match self.default_value(&default) {
+                        Some(d) => format!("static_cast<{cpp}>({d})"),
+                        None => format!("::dz::rt::value_init<{cpp}>()"),
+                    };
+                    parts.push((gap, text));
+                }
                 for (i, v) in values {
                     // Braces refuse a narrowing the assignment allowed (`struct_literal`).
                     let field = types.get(i).cloned().unwrap_or(Ty::Error);
@@ -6554,11 +7018,13 @@ impl<'a> Emitter<'a> {
                         && written.as_ref() != Some(&field)
                     {
                         let cpp = self.cpp_ty(&field);
-                        parts.push(format!("static_cast<{cpp}>({v})"));
+                        parts.push((i, format!("static_cast<{cpp}>({v})")));
                     } else {
-                        parts.push(v);
+                        parts.push((i, v));
                     }
                 }
+                parts.sort_by_key(|p| p.0);
+                let parts: Vec<String> = parts.into_iter().map(|p| p.1).collect();
                 return format!(
                     "[&] {{ {ty} {tmp}(::dz::rt::no_payload{{}}, {ty}::Kind::{name}); \
                      ::new (static_cast<void*>(&{tmp}.{name})) {ty}::{name}_t{{{}}}; \
@@ -8159,6 +8625,18 @@ fn makes_pointers_by_cast(body: &hir::Body) -> bool {
     })
 }
 
+/// Whether `e` is the receiver, `self` or `*self`.
+fn is_self_expr(body: &hir::Body, e: hir::ExprId) -> bool {
+    use hir::ExprKind as K;
+    match body.expr(e).kind {
+        K::Local(l) => body.local(l).name == "self",
+        K::Deref(inner) => {
+            matches!(body.expr(inner).kind, K::Local(l) if body.local(l).name == "self")
+        }
+        _ => false,
+    }
+}
+
 /// Whether `body` is a constructor that does nothing but store its parameters into fields,
 /// `SliceIter(slice) { m_slice = slice }`: what C++ would write inside the class. Such a
 /// body goes in the header, as `#[inline]` would put it, which a constructor cannot be
@@ -8171,13 +8649,7 @@ fn only_stores_params(body: &hir::Body) -> bool {
     if !matches!(body.owner, BodyOwner::Ctor { .. }) {
         return false;
     }
-    let is_self = |e: hir::ExprId| match body.expr(e).kind {
-        K::Local(l) => body.local(l).name == "self",
-        K::Deref(inner) => {
-            matches!(body.expr(inner).kind, K::Local(l) if body.local(l).name == "self")
-        }
-        _ => false,
-    };
+    let is_self = |e: hir::ExprId| is_self_expr(body, e);
     let param = |e: hir::ExprId| {
         let e = match body.expr(e).kind {
             K::Move(inner) => inner,

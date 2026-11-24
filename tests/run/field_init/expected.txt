@@ -1,0 +1,87 @@
+literal writes every field
+  counted(written)
+  Counted()
+literal leaves a field out
+  Counted()
+move, which runs no constructor
+  moved: b.inner.n=7
+constructor
+  counted(arg)
+  Counted()
+  body of Stored
+  1 5
+constructor out of order
+  counted(x)
+  Counted()
+  counted(y)
+  Counted()
+  Counted()
+  1 1
+value before a later default
+  Counted()
+  make_default
+  make_value
+  Counted()
+  1 9
+constructor reading the object
+  Counted()
+  5
+move-only parameter
+  Counted()
+  8 1
+derived move
+  Counted()
+  Counted()
+  1 1
+field named other
+  6
+clone
+  Counted()
+  Counted()
+  seen=1 n=11
+generic
+  counted(generic)
+  Counted()
+  1
+a field left out ahead of a written one
+  counted(gap)
+  Counted()
+  2 1
+derived literal
+  Counted()
+  counted(mine)
+  Counted()
+  1 1 3
+a constant default comes back, one that runs code does not
+  Counted()
+  moved 1 5
+moved inside a tuple, an array and an optional
+  Counted()
+  Counted()
+  Counted()
+  Counted()
+  moved 2 1 true
+a union literal builds its payload once
+  Counted()
+  1 5
+  counted(payload)
+  Counted()
+  1 6
+a union keeps its variant, emptied
+  Counted()
+  moved
+a generic move
+  Counted()
+  1
+end
+  2
+  drop HoldsShape Round 1 8
+  drop HoldsShape Round 0 3
+  drop Nested 1 1 true
+  drop Nested 0 0 false
+  drop Constant kept=1 c.n=5
+  drop Constant kept=42 c.n=0
+  drop Owner 8
+  drop Holder 1 inner.n=7
+  drop Holder 2 inner.n=1
+  drop Holder 0 inner.n=0

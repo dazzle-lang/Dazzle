@@ -572,7 +572,7 @@ static SCRATCH: TempArena = TempArena{}
 - **Every static with something to drop is dropped when the program ends**, after `main`
   returns or on `exit`, in an order the program can rely on: a module's statics before
   those of the modules it uses, so a drop can still read what its module depends on, and
-  within a module in reverse order of declaration. Each is left at its default, as a
+  within a module in reverse order of declaration. Each is reset, as a
   moved-from value is (§6.4), so a drop that runs later and reads a static already dropped
   sees an empty value, never freed memory. `[DECIDED — D-0094]`
 - **A function that touches a plain static is `#[main_thread]`** (§22.5), as is every

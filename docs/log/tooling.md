@@ -2347,3 +2347,32 @@ walking it, codegen leaves it out (`ctor_takes_abstract`), and nothing only it u
 Tested on both compilers, debug and release, under `--track-memory`:
 `an_rc_of_an_abstract_base_holds_a_derived_value`, and a case in each of `typed/` and
 `typeerrors/`.
+
+## A field is built once, and a move runs no code of the program's (r149, D-0116; 2026-11-23)
+
+Every field has a default member initialiser, and several places then assigned over it, so a
+field's zero-argument constructor ran for nothing:
+
+- **The move constructor** now builds each field, and its base, from the source in the
+  member-initialiser list, then resets the source. A base that resets itself is no longer
+  reset a second time by the derived type. A field may now be called `other`.
+- **A struct literal** of a type whose defaults run code goes through a `fields_tag`
+  constructor template, which takes a function per field and builds the value in place. An
+  aggregate that leaves a field out ahead of a written one spells that default at the literal.
+- **A union literal** whose defaults run code builds its payload in place, as a non-trivial
+  union's already did.
+- **A constructor's opening `field = value` statements** become initialisers, where the
+  value is a literal, a parameter or a call of those, in declaration order, and does not run
+  ahead of a later default that also has effects.
+
+**The reset (the language change, §6.4).** It evaluated a field's declared default, so one
+move of a struct with `name: String = String("long text")` allocated as much as building a
+second value. It now writes a constant default and leaves anything else empty, through
+`::dz::rt::leave_empty`, which also goes through arrays, tuples, optionals and results. A
+plain type whose default runs code gets `empty_fields__`, since assigning it `T{}` would run
+that code; a union of that kind keeps its variant.
+
+Literals and constructors change only where a default runs code the program can see, so
+every other type's C++ is as it was. **What is left:** a literal writing an *inherited* field
+still builds that field's default first, since a derived member-initialiser list cannot name
+it. `tests/run/field_init` pins all of this.

@@ -1,0 +1,9 @@
+[module]
+name    = "field_init"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

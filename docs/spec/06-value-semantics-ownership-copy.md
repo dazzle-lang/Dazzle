@@ -148,11 +148,14 @@ array the function owns, binding each element by value, moves the elements out w
 not plain: `for r in rs` consumes `rs`, and a later use of it is `DZ0401`. A loop over an
 iterator moves the iterator into the loop. `[DECIDED — D-0106]`
 
-At runtime a moved-from value is left **at its defaults** — not in some unspecified state.
-This is a deliberate divergence from C++: the source of a move is reset to exactly the
-state a freshly declared value would have, which means running its `drop` is always safe
-and always a no-op for the resource. It costs a few stores; it removes an entire category
-of bug. `[DECIDED]`
+At runtime a moved-from value is **reset** — not left in some unspecified state. This is a
+deliberate divergence from C++. A field whose default is a constant goes back to it. A field
+whose default runs code — `= Counted()`, `= String("text")`, or a type with a zero-argument
+constructor — is left **empty** instead: numbers zero, pointers null, an optional `none`, and
+a struct's fields by this same rule. A union whose default runs code keeps its variant, with
+its payload emptied. **A move runs none of the program's code**, so running the moved-from
+value's `drop` is always safe and always a no-op for the resource. It costs a few stores; it
+removes an entire category of bug. `[DECIDED — D-0116]`
 
 **A generic body moves a `T` always**, since `T` may not be plain: `let b = a` in a
 `Buffer<T>` moves `a` for `Buffer<i32>` as for `Buffer<File>`, and the body writes
@@ -196,7 +199,7 @@ A type's `drop` runs deterministically:
 - at the end of the enclosing scope, in **reverse declaration order**;
 - before a value is overwritten by assignment;
 - when the owner of the value is itself dropped (fields drop in reverse declaration order);
-- on a moved-from value — but harmlessly, since the value is back at its defaults.
+- on a moved-from value — but harmlessly, since the value has been reset (§6.4).
 
 `defer { ... }` runs a block at scope exit. **A scope's drops and its `defer`s run together,
 in reverse order of declaration**: a `defer` runs after the drops of the locals declared
@@ -245,7 +248,7 @@ does, correctly, and every C++ debugger and profiler already understands it.
 | `impl Clone`'s `clone` | `Buffer(const Buffer& other)` — body runs on a defaults-initialised `*this`; `a.clone()` calls it |
 | `impl Drop`'s `drop` | `~Buffer()` |
 | any other `impl`'s method | a free function taking the receiver first: `Mul_f32__Vec2__mul(const Vec2& self, float rhs)` |
-| a move (any by-value use of a value that is not plain) | `Buffer(Buffer&& o)` — memberwise steal, then reset `o` to defaults |
+| a move (any by-value use of a value that is not plain) | `Buffer(Buffer&& o)` — memberwise steal, then reset `o` (§6.4) |
 | `b = a.clone()` | `~Buffer(); new (this) Buffer{}; clone(other);` + self-assignment guard |
 | move assignment | `~Buffer(); new (this) Buffer{}; steal(o); reset(o);` |
 | move-only type | copy constructor and copy assignment `= delete`d |

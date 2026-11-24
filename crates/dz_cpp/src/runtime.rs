@@ -535,6 +535,25 @@ DZ_INLINE typename strip_ref<T>::type&& mv(T&& x) {
     return static_cast<typename strip_ref<T>::type&&>(x);
 }
 
+// A struct literal of a type whose field defaults run code (T-0263). Each field gets a
+// function making its value, or `field_unset` to take the field's default, so a field the
+// literal writes never builds its default first. A prvalue all the way, so nothing moves.
+struct fields_tag {};
+struct field_unset {};
+template <class T, class D>
+DZ_INLINE T field_value(field_unset, D d) {
+    return d();
+}
+template <class T, class F, class D>
+DZ_INLINE T field_value(F f, D) {
+    return f();
+}
+// `T()` for any `T`: `int32_t*()` written out does not parse.
+template <class T>
+DZ_INLINE T value_init() {
+    return T();
+}
+
 // Whether moving a `T` already resets its source: the types with a move constructor of
 // their own (spec §6.6), which carry `reset_to_defaults__`. A one-byte result says yes.
 template <class T>
@@ -542,17 +561,77 @@ auto resets_itself(int) -> decltype(static_cast<T*>(nullptr)->reset_to_defaults_
 template <class T>
 long resets_itself(...);
 
+// A type whose default runs code of the program's has `empty_fields__`, which resets it
+// without running any. A one-byte result says yes.
+template <class T>
+auto has_empty_fields(int) -> decltype(static_cast<T*>(nullptr)->empty_fields__(), char{});
+template <class T>
+long has_empty_fields(...);
+
+// What a moved-from value is left as (spec §6.4, D-0116): a move runs no code of the
+// program's, so a default that would is not evaluated. A value that resets itself as it
+// moves is done already. Declared together, since each may hold any of the others.
+template <class T> void leave_empty(T& x);
+template <class T, size_t N> void leave_empty(Array<T, N>& x);
+template <class... Ts> void leave_empty(Tuple<Ts...>& x);
+template <class T> void leave_empty(Opt<T>& x);
+template <class T> void leave_empty(Opt<T&>& x);
+template <class T> void leave_empty(Res<T>& x);
+inline void leave_empty(Res<void>& x);
+
+template <class T>
+DZ_INLINE void leave_empty(T& x) {
+    if constexpr (sizeof(has_empty_fields<T>(0)) == 1) {
+        x.empty_fields__();
+    } else if constexpr (sizeof(resets_itself<T>(0)) != 1) {
+        x = T{};
+    }
+}
+template <class T, size_t N>
+DZ_INLINE void leave_empty(Array<T, N>& x) {
+    for (T& e : x.data) {
+        leave_empty(e);
+    }
+}
+template <class... Ts>
+DZ_INLINE void leave_empty(Tuple<Ts...>& x) {
+    if constexpr (sizeof...(Ts) >= 1) { leave_empty(x.v0); }
+    if constexpr (sizeof...(Ts) >= 2) { leave_empty(x.v1); }
+    if constexpr (sizeof...(Ts) >= 3) { leave_empty(x.v2); }
+    if constexpr (sizeof...(Ts) >= 4) { leave_empty(x.v3); }
+}
+// An empty optional of plain data has no payload to reset (`OptStore`).
+template <class T>
+DZ_INLINE void leave_empty(Opt<T>& x) {
+    x.has = false;
+    if constexpr (!__is_trivially_copyable(T)) {
+        leave_empty(x.value);
+    }
+}
+template <class T>
+DZ_INLINE void leave_empty(Opt<T&>& x) {
+    x.ptr = nullptr;
+    x.has = false;
+}
+template <class T>
+DZ_INLINE void leave_empty(Res<T>& x) {
+    x.ok = false;
+    x.error = Error{};
+    leave_empty(x.value);
+}
+inline void leave_empty(Res<void>& x) {
+    x.ok = false;
+    x.error = Error{};
+}
+
 // `move` of a copyable value (spec §6.4, §18.33). A type with C++'s own move constructor
-// does not reset its source, so this does: the source is left at its defaults, like any
-// other moved-from value. One with a move constructor of its own has reset it already, and
-// assigning it a fresh default too would run its `drop` twice more, on the moved-from value
-// and on the temporary.
+// does not reset its source, so this does, like any other moved-from value. One with a move
+// constructor of its own has reset it already, and assigning it a fresh default too would
+// run its `drop` twice more, on the moved-from value and on the temporary.
 template <class T>
 DZ_INLINE T take(T& x) {
     T v = static_cast<T&&>(x);
-    if constexpr (sizeof(resets_itself<T>(0)) != 1) {
-        x = T{};
-    }
+    leave_empty(x);
     return v;
 }
 

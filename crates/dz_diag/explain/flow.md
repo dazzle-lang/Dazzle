@@ -2,12 +2,12 @@
 
 A value that owns something — a `String`, a `List`, a struct with a `drop` — has one owner.
 Using it by value — `let b = a`, passing it, returning it, storing it — hands it on and
-leaves `a` at its defaults; nothing is copied unless the copy is written, `a.clone()`. Plain
+leaves `a` reset; nothing is copied unless the copy is written, `a.clone()`. Plain
 data, such as an `i32` or a `Vec3`, copies by itself (spec §6, D-0106).
 
 ## DZ0401
 
-After a value moves, its old place holds nothing — it is back at its defaults — so reading
+After a value moves, its old place holds nothing — it has been reset — so reading
 it is almost certainly a mistake. The analysis follows every path: a value moved on one
 branch is moved where the branches meet. The second label points at the move. Use the value
 before it moves, or move a copy of it: where nothing wrote the move, the fix writes

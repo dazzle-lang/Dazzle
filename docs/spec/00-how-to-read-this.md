@@ -62,7 +62,7 @@ impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone(
 | Compiles to | C++17, `-fno-exceptions -fno-rtti` | with `#line` back to `.dz`, so debuggers and profilers show your source |
 
 **The five rules that shape everything else:** private by default · no implicit numeric
-conversions · every value is initialised · moved-from values reset to defaults · a
+conversions · every value is initialised · moved-from values reset, running no code · a
 reference lives only where references live — a local, a parameter, a result, or a view
 struct — never in an ordinary field or a container (this is why no struct carries a
 lifetime, and ties, §6.7, are enough).
