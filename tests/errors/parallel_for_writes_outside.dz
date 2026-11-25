@@ -1,0 +1,12 @@
+// expect: DZ0430
+// Every pass of a `parallel for` runs at the same time, so a local from outside the loop is
+// shared by all of them: a pass may read it, never write it (spec §22.3).
+
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    let mut total = 0
+    parallel for &x in xs {
+        total += x
+    }
+    println!("{}", total)
+}

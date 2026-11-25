@@ -1918,6 +1918,24 @@ fn parallel_mistakes() {
     }
 }
 
+// §22.3: a pass of `parallel for` writes only its own element, ends only at the end of the
+// body or by `continue`, runs on any thread, and loops over what splits between threads.
+fn parallel_for_mistakes(xs: &mut [4]i32) {
+    let mut total = 0
+    let mut ages = HashMap<i32, i32>()
+    parallel for &mut x in xs {
+        total += x
+        x += xs[0]
+        if x > 2 {
+            break
+        }
+        on_the_main_thread()
+    }
+    parallel for _, &mut age in ages {
+        age += 1
+    }
+}
+
 // §22.12: `lends` names a whole parameter the function can change its caller's memory
 // through; a function that lends is called by name, never through a value; and what
 // implements a trait method lends only what that method does.

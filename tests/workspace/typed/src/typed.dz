@@ -2794,6 +2794,28 @@ fn parallel_calls() {
     }
 }
 
+// §22.3: a `parallel for` gives each pass an element of its own, with a pass count if asked,
+// reads what it shares with the other passes, and a pass may end early by `continue`; a loop
+// inside a pass may `break` out of itself.
+fn typed_parallel_for(t: &mut Teams, scale: i32) {
+    parallel for i, &mut s in t.scores.indexed() {
+        if i == 0 {
+            continue
+        }
+        s += scale
+    }
+    parallel for x in t.red {
+        for j in 0..x {
+            if j > scale {
+                break
+            }
+        }
+    }
+    parallel for i in 0..4 {
+        let _z = i * scale + t.blue.len() as i32
+    }
+}
+
 // §4: a private constructor is reached through the type's own functions, a `pub(module)` one
 // anywhere in the module, and a `protected` one from a type that inherits.
 struct Sealed {

@@ -1001,3 +1001,124 @@ fn main() {
     s.grow(&mut a, &mut b)
 }
 ```
+
+## DZ0430
+
+The passes of a `parallel for` run at the same time on several threads, and whatever the body
+uses from outside the loop is reached by every one of them. Each pass may write the element it
+is given; anything else it may only read. A total is kept in the elements and summed after the
+loop, or kept in an atomic.
+
+```dz
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    let mut total = 0
+    parallel for &mut x in xs {
+        x *= 2
+        total += x
+    }
+    println!("{}", total)
+}
+```
+
+```dz
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    parallel for &mut x in xs {
+        x *= 2
+    }
+    let mut total = 0
+    for &x in xs {
+        total += x
+    }
+    println!("{}", total)
+}
+```
+
+## DZ0431
+
+Every pass of a `parallel for` is already running when one of them would `break` or `return`,
+and nothing can stop the others part-way, so a pass ends only at the end of the body or by
+`continue`, which ends that pass alone. A loop inside a pass may still `break` out of itself.
+A search that stops at the first match is a plain `for`.
+
+```dz
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    parallel for &mut x in xs {
+        if x > 2 {
+            break
+        }
+        x += 1
+    }
+}
+```
+
+```dz
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    parallel for &mut x in xs {
+        if x > 2 {
+            continue
+        }
+        x += 1
+    }
+}
+```
+
+## DZ0432
+
+A `parallel for` cuts its passes into one range per thread, so it needs to know how many there
+are and to start each range without walking the ones before it: a range, an array, a slice, or
+an iterator that implements `ParallelIterate`, as a `List`'s does. A `HashMap` is walked one
+bucket after another, so it is looped over with a plain `for`.
+
+```dz
+fn main() {
+    let mut ages = HashMap<i32, i32>()
+    ages.insert(1, 30)
+    parallel for _, &mut age in ages {
+        age += 1
+    }
+}
+```
+
+```dz
+fn main() {
+    let mut ages = List<i32>()
+    ages.push(30)
+    parallel for &mut age in ages {
+        age += 1
+    }
+}
+```
+
+## DZ0433
+
+When the passes of a `parallel for` write their elements, the container those elements are
+in is being written by every thread at once. A pass reaches it only through the element it is
+given: reading another element, or the container as a whole, may read what another pass is
+writing at that moment. What the loop needs from the container is read before the loop.
+
+```dz
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(1)
+    xs.push(2)
+    parallel for &mut x in xs {
+        x += xs[0]
+    }
+}
+```
+
+```dz
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(1)
+    xs.push(2)
+    let first = xs[0]
+    parallel for &mut x in xs {
+        x += first
+    }
+}
+```

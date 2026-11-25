@@ -9,7 +9,9 @@ and §15.1. Where this file and the spec differ, the spec holds: it is this desi
 amended by "Tried, 2026-11-18" and the table at the end. **The parallel loop is a `for` over
 a parallel iterator**, the user's choice of the same day ("this doesn't read like parallel
 at all"), so `for_each!` below is gone: `for _, &mut p, &v in
-w.query_parallel<&mut Position, &Velocity>() { … }`, and `xs.parallel()` for a container.
+w.query_parallel<&mut Position, &Velocity>() { … }`, and `xs.parallel()` for a container;
+since r153 ([D-0120](D-0120-parallel-for-parallel-loop-keyword-in.md)) the keyword is in
+front of the `for` instead, `parallel for &mut e in xs`, the user's choice.
 **`join!` is a block keyword**, `parallel { a(…) b(…) }`, the user's choice of 2026-11-24 in
 r151 ([D-0118](D-0118-parallel-block-keyword-runs-calls-at.md)): wherever `join!` appears
 below, read that block. Built as [T-0011](../tasks/T-0011-threads-mutex-atomics-job-system.md) and the M19 tasks.

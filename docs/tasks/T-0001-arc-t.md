@@ -2,10 +2,15 @@
 id: T-0001
 title: `Arc<T>`
 milestone: M19
-status: open
+status: dropped
 kind: feature
 area: ownership
 ---
+
+**Dropped 2026-11-25, the user's call:** there is no `Arc` (spec §22.4). `Rc<T>` and
+`Weak<T>` themselves cross into parallel code, with counts that are atomic in a program that
+runs code at the same time, which is [T-0266](T-0266-rc-or-weak-in-parallel-block.md). The
+notes below are the earlier plan.
 
 **What it is.** An atomically counted `Rc` — the same handle (§14.5), with the share count
 incremented and decremented atomically so that handles to one value may be held and dropped

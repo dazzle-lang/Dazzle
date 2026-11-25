@@ -487,7 +487,7 @@ fn report_lends(
                 "`{name}` lets another thread change what `{lent}` reaches, and does not say so"
             ),
         )
-        .at(file, *at, format!("`{lent}` is lent to a `parallel` block here"))
+        .at(file, *at, format!("`{lent}` is lent to another thread here"))
         .with_help(format!(
             "a caller places what it lends by this clause: it must know to put it on the heap, \
              where two threads may grow it at once; {needs} (spec §22.12)"

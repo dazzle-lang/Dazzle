@@ -351,6 +351,9 @@ pub enum StmtKind {
         body: BlockId,
         shape: ForShape,
         label: Option<LoopLabel>,
+        /// `parallel for` (spec §22.3): the passes run at the same time, split between
+        /// threads, and the statement ends when every pass has.
+        parallel: bool,
     },
     /// Runs at scope exit in reverse order, after drops (spec §6.5).
     Defer(StmtId),

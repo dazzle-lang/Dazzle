@@ -211,6 +211,16 @@ impl BodyBuilder {
         self.param_defaults.push(default);
     }
 
+    /// How many nodes have been built: the id the next one will have.
+    pub(crate) fn expr_count(&self) -> usize {
+        self.exprs.len()
+    }
+
+    /// How many locals have been bound: the id the next one will have.
+    pub(crate) fn local_count(&self) -> usize {
+        self.locals.len()
+    }
+
     /// A point the arenas can be wound back to. See [`BodyBuilder::rollback`].
     pub(crate) fn mark(&self) -> Mark {
         Mark {

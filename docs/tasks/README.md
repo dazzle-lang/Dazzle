@@ -28,7 +28,9 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    implements them, including atomic `Rc` and `Weak` counts in parallel programs (§22.4).
    T-0247 (thread-local drops), T-0038 (synchronized memory tracking), T-0246
    (safe `TypeMap` storage) and T-0011's `Atomic<T>` and `Mutex<T>` are done, and so is `spawn` with `Thread` (D-0117), safe with `Send`, `Share` and `#[main_thread]`
-   (T-0264); `join!` and the parallel loop are next.
+   (T-0264), `parallel { … }` with `lends` (T-0265), and `parallel for` (D-0120, r153); a
+   pool of workers for them, the job system, is next. There is no `Arc` (T-0001 dropped):
+   `Rc` itself gets atomic counts (T-0266).
    T-0248 covers ThreadSanitizer in CI. The proof is
    `ecs` running its systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a

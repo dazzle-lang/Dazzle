@@ -1,0 +1,12 @@
+// expect: DZ0430
+// A `&mut self` method on a list from outside the loop writes it, from every pass at once
+// (spec §22.3).
+
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    let mut seen = List<i32>()
+    parallel for &x in xs {
+        seen.push(x)
+    }
+    println!("{}", seen.len())
+}

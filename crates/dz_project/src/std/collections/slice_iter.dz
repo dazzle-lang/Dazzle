@@ -29,3 +29,14 @@ impl<T> Iterate for SliceIter<T> {
         m_index += 1
     }
 }
+
+/// `parallel for &e in list`: each part reads a range of the slice (spec §22.3).
+impl<T> ParallelIterate for SliceIter<T> {
+    fn passes(&self) -> usize {
+        return m_slice.len - m_index
+    }
+
+    fn part(&self, start: usize, end: usize) -> SliceIter<T> {
+        return SliceIter<T>(m_slice[m_index + start..m_index + end])
+    }
+}

@@ -5537,8 +5537,12 @@ impl<'a> Emitter<'a> {
                 self.line("}");
                 self.loop_break_label(label);
             }
-            hir::StmtKind::For { bindings, subject, body: block, shape, label } => {
-                self.for_loop(bindings, *subject, *block, *shape, label, s.span)
+            hir::StmtKind::For { bindings, subject, body: block, shape, label, parallel } => {
+                if *parallel {
+                    self.parallel_for(bindings, *subject, *block, *shape, label, s.span)
+                } else {
+                    self.for_loop(bindings, *subject, *block, *shape, label, s.span)
+                }
             }
             hir::StmtKind::Defer(inner) => {
                 // Captured by reference so the deferred code sees the final values.
@@ -5620,6 +5624,147 @@ impl<'a> Emitter<'a> {
                 }
             }
         }
+    }
+
+    /// `parallel for` (spec §22.3). The subject is evaluated here, once, and its passes
+    /// counted; then the body becomes a lambda that walks the passes `lo..hi`, capturing what
+    /// it reads by reference, and the runtime cuts the passes into one range per thread and
+    /// runs the lambda on each, returning once all have. A range or an array is indexed; an
+    /// iterator walks the part `ParallelIterate::part` makes of it. The bindings are a
+    /// `for`'s.
+    fn parallel_for(
+        &mut self,
+        bindings: &[Option<LocalId>],
+        subject: ExprId,
+        block: BlockId,
+        shape: hir::ForShape,
+        label: &Option<hir::LoopLabel>,
+        span: Span,
+    ) {
+        let body = self.cur();
+        let subject_ty = body.ty(subject).clone();
+        let indexed = shape == hir::ForShape::Indexed;
+        let element_bindings: Vec<Option<LocalId>> =
+            if indexed { bindings.iter().skip(1).copied().collect() } else { bindings.to_vec() };
+        let (lo, hi, k) = (self.fresh("lo"), self.fresh("hi"), self.fresh("k"));
+        self.line("{");
+        self.indent += 1;
+        let kept = self.owners_to_keep(subject);
+        self.keep_owners(&kept);
+
+        // What each pass's head is, and the element it binds; `count` is the passes.
+        let (count, head, item) = if let hir::ExprKind::Range { start, end, inclusive } =
+            body.expr(subject).kind.clone()
+        {
+            // A range's bounds are evaluated once, the start first (spec §10.4, D-0099).
+            let elem = self.cpp_ty(subject_ty.element().unwrap_or(&Ty::Int(IntTy::I32)));
+            let first = start.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
+            let last = end.map(|s| self.expr(s)).unwrap_or_else(|| "0".to_owned());
+            let (s, e) = (self.fresh("start"), self.fresh("end"));
+            self.line(&format!("{elem} {s} = {first};"));
+            self.line(&format!("{elem} {e} = {last};"));
+            let count = if inclusive {
+                format!("({e} >= {s} ? static_cast<size_t>({e} - {s}) + 1 : 0)")
+            } else {
+                format!("({e} > {s} ? static_cast<size_t>({e} - {s}) : 0)")
+            };
+            let head = format!("for (size_t {k} = {lo}; {k} < {hi}; ++{k}) {{");
+            (count, head, format!("static_cast<{elem}>({s} + {k})"))
+        } else if let Ty::Range(elem) = subject_ty.peeled() {
+            let elem = self.cpp_ty(elem);
+            let text = self.expr(subject);
+            let r = self.fresh("r");
+            self.line(&format!("auto {r} = {text};"));
+            let count = format!(
+                "({r}.end > {r}.start || ({r}.inclusive && {r}.end == {r}.start) ? \
+                 static_cast<size_t>({r}.end - {r}.start) + ({r}.inclusive ? 1 : 0) : 0)"
+            );
+            let head = format!("for (size_t {k} = {lo}; {k} < {hi}; ++{k}) {{");
+            (count, head, format!("static_cast<{elem}>({r}.start + {k})"))
+        } else if let Ty::Named { .. } = subject_ty.peeled() {
+            // An iterator: `passes` counts it and `part` cuts it, each part walked as a
+            // `for` walks an iterator.
+            let iterated = subject_ty.peeled().clone();
+            let calls = |this: &Self, t: &str, m: &[&str]| {
+                let t = this.table.prelude_trait_named(t)?;
+                let (idx, map) = this.table.resolve_impl(t, &iterated, m[0], None, None)?;
+                Some(m.iter().map(|m| this.qualify_impl_fn(idx, &map, m)).collect::<Vec<_>>())
+            };
+            let walk = calls(self, "Iterate", &["valid", "get", "advance"]);
+            let split = calls(self, "ParallelIterate", &["passes", "part"]);
+            let (Some(walk), Some(split)) = (walk, split) else {
+                self.unsupported(span, "`parallel for` over this type", "spec §22.3");
+                self.release_kept(&kept);
+                self.indent -= 1;
+                self.line("}");
+                return;
+            };
+            let text = self.expr(subject);
+            let it = self.fresh("it");
+            self.line(&format!("auto {it} = {text};"));
+            let part = self.fresh("part");
+            let (passes, cut) = (&split[0], &split[1]);
+            let (valid, get, advance) = (&walk[0], &walk[1], &walk[2]);
+            let head = format!(
+                "for (auto {part} = {cut}({it}, {lo}, {hi}); {valid}({part}); {advance}({part})) {{"
+            );
+            (format!("{passes}({it})"), head, format!("{get}({part})"))
+        } else {
+            // An array or a slice, indexed in place.
+            let pointer_subject =
+                matches!(subject_ty.peeled_refs(), Ty::Ptr { .. } | Ty::OwnPtr { .. });
+            let text = match &body.expr(subject).kind {
+                hir::ExprKind::Ref { place, .. } => self.expr(*place),
+                _ => self.expr(subject),
+            };
+            let seq = self.fresh("seq");
+            self.line(&format!("auto&& {seq} = {text};"));
+            let seq_obj = if pointer_subject { format!("::dz::rt::obj({seq})") } else { seq };
+            let base = self.fresh("base");
+            self.line(&format!("auto* {base} = {seq_obj}.begin();"));
+            let count = format!("static_cast<size_t>({seq_obj}.end() - {base})");
+            let head = format!("for (size_t {k} = {lo}; {k} < {hi}; ++{k}) {{");
+            (count, head, format!("{base}[{k}]"))
+        };
+        self.release_kept(&kept);
+
+        let pass = self.fresh("pass");
+        self.line(&format!("auto {pass} = [&](size_t {lo}, size_t {hi}) {{"));
+        self.indent += 1;
+        // A pass count starts where the part does: the passes are cut in order.
+        let counter = indexed.then(|| self.fresh("count"));
+        if let Some(c) = &counter {
+            self.line(&format!("size_t {c} = {lo};"));
+        }
+        self.line(&head);
+        self.indent += 1;
+        if let (Some(c), Some(Some(l))) = (&counter, bindings.first()) {
+            let name = self.names[l.index()].clone();
+            let unused = self.unused_attr(l.index());
+            self.line(&format!("{unused}size_t {name} = {c}++;"));
+        } else if let Some(c) = &counter {
+            self.line(&format!("++{c};"));
+        }
+        if shape == hir::ForShape::Tuple {
+            let t = self.fresh("t");
+            self.line(&format!("auto&& {t} = {item};"));
+            for (i, l) in element_bindings.iter().enumerate() {
+                if let Some(l) = l {
+                    self.for_binding(*l, &format!("{t}.v{i}"), false);
+                }
+            }
+        } else if let Some(Some(l)) = element_bindings.first() {
+            self.for_binding(*l, &item, false);
+        }
+        self.loop_body_into(block, label);
+        self.indent -= 1;
+        self.line("}");
+        self.indent -= 1;
+        self.line("};");
+        self.line(&format!("::dz::rt::parallel_for({count}, {pass});"));
+        self.indent -= 1;
+        self.line("}");
+        self.loop_break_label(label);
     }
 
     /// `for` (spec §10.4). The loop head depends on what is iterated — a range counts, a
@@ -8908,8 +9053,10 @@ fn stmt_effects(body: &hir::Body, s: StmtId) -> bool {
             expr_effects(body, *cond) || block_effects(body, *b)
         }
         // A counting loop over a range ends; any other subject is iterated through calls.
-        hir::StmtKind::For { subject, body: b, .. } => {
-            !matches!(body.expr(*subject).kind, hir::ExprKind::Range { .. })
+        // A `parallel for` starts and joins threads.
+        hir::StmtKind::For { subject, body: b, parallel, .. } => {
+            *parallel
+                || !matches!(body.expr(*subject).kind, hir::ExprKind::Range { .. })
                 || expr_effects(body, *subject)
                 || block_effects(body, *b)
         }

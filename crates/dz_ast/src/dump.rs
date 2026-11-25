@@ -389,7 +389,8 @@ impl<'a> Dumper<'a> {
             StmtKind::For(f) => {
                 let binds: Vec<String> = f.bindings.iter().map(for_binding_str).collect();
                 self.line(format_args!(
-                    "for{} {}",
+                    "{}for{} {}",
+                    if f.parallel.is_some() { "parallel " } else { "" },
                     f.label.as_ref().map(|l| format!(" '{}", l.name)).unwrap_or_default(),
                     binds.join(", ")
                 ));

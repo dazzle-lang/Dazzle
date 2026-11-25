@@ -1,0 +1,12 @@
+// expect: DZ0433
+// The passes write the elements of the list they loop over, so a pass that reads the list
+// other than through its own element may read what another pass is writing (spec §22.3).
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(1)
+    xs.push(2)
+    parallel for &mut x in xs {
+        x += xs[0]
+    }
+}

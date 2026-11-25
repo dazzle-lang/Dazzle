@@ -216,11 +216,11 @@ completed pass, and `continue` jumps to it rather than past it, so a `continue` 
 forever. `break` leaves the whole construct. `get` takes `&mut self` (§8.5), so an
 iterator may hand out `&mut` items while `&` stays read-only all the way down (§5.2).
 
-**A `for` over a parallel iterator runs its passes on every core**: `for &mut e in
-enemies.parallel()`, `for _, &mut p, &v in w.query_parallel<&mut Position, &Velocity>()`.
-The head is written as here; each pass gets an element no other pass gets, the body may
-only read what it uses from outside the loop, and `break` and `return` are errors (§22.3).
-`[DECIDED — D-0096]`
+**`parallel for` runs its passes on every core**: `parallel for &mut e in enemies`,
+`parallel for _, &mut p, &v in w.query<&mut Position, &Velocity>()`. The head is written as
+here, over anything whose iterator implements `ParallelIterate`; each pass gets an element no
+other pass gets, the body may only read what it uses from outside the loop, and `break` and
+`return` are errors (§22.3). `[DECIDED — D-0096, D-0120]`
 
 ## 10.5 `defer`
 

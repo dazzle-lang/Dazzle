@@ -55,7 +55,7 @@ impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone(
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size (`^mut Allocator` alone is one word, D-0103); an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
 | Closures | `xs.sort_by(fn(a, b) { return a.hp < b.hp })` | a function without a name; captures what it uses by reference, worked out from use; a view, never stored (§7.8) |
-| Threads | `for &mut e in xs.parallel() { … }`, `parallel { a(…) b(…) }` | passes and calls run at once; what one writes no other touches, checked at compile time; `Send`/`Share` say what crosses; statics and C are `#[main_thread]`; a function that gives a parameter to a block says `lends` (§22) |
+| Threads | `parallel for &mut e in xs { … }`, `parallel { a(…) b(…) }` | passes and calls run at once; what one writes no other touches, checked at compile time; `Send`/`Share` say what crosses; statics and C are `#[main_thread]`; a function that gives a parameter to a block says `lends` (§22) |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |
 | Metaprogramming | `macro m -> decl { … }`, invoked `#m …`; an `expr` or `stmt` macro `m!(…)` | declarative pattern → expand, so the LSP can complete inside it |
 | Reflection | `typeinfo_of<T>()` | one static table; your structs carry zero extra bytes |

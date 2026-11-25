@@ -1019,7 +1019,9 @@ fn place_body(inputs: &Inputs, body: &Body, proposer: Proposer) -> Option<BodyPl
 /// Whether `body` may lend memory to another thread: it has a `parallel` block, or calls a
 /// function whose signature `lends` (spec §22.12).
 fn lends_anything(table: &TypeTable, body: &Body) -> bool {
-    if body.stmts.iter().any(|s| matches!(s.kind, hir::StmtKind::Parallel { .. })) {
+    if body.stmts.iter().any(|s| {
+        matches!(s.kind, hir::StmtKind::Parallel { .. } | hir::StmtKind::For { parallel: true, .. })
+    }) {
         return true;
     }
     body.exprs.iter().any(|e| {
@@ -1191,6 +1193,9 @@ struct Cx<'a> {
     /// The locals this body lets another thread change, with where (spec §22.12): empty
     /// unless [`place_body`] walked the body's ties for them.
     lent: HashMap<LocalId, Span>,
+    /// The bodies of `parallel for` loops, each pass of which runs on a thread of its own
+    /// (spec §22.3), with the loop's span.
+    passes: HashMap<BlockId, Span>,
 }
 
 /// What the uses of a local do with it.
@@ -1237,6 +1242,7 @@ impl<'a> Cx<'a> {
             stmt_block: HashMap::new(),
             blocks: HashMap::new(),
             lent: HashMap::new(),
+            passes: HashMap::new(),
         };
         cx.walk_block(body.root, Kind::Root, None, None);
         cx
@@ -1268,8 +1274,11 @@ impl<'a> Cx<'a> {
                 self.walk_expr(*cond, up, b);
                 self.walk_block(*body, Kind::Loop, Some(b), None);
             }
-            hir::StmtKind::For { subject, body, .. } => {
+            hir::StmtKind::For { subject, body, parallel, .. } => {
                 self.walk_expr(*subject, up, b);
+                if *parallel {
+                    self.passes.insert(*body, self.body.stmt(s).span);
+                }
                 self.walk_block(*body, Kind::Loop, Some(b), None);
             }
             hir::StmtKind::Defer(inner) => self.walk_stmt(*inner, b),
@@ -1279,6 +1288,16 @@ impl<'a> Cx<'a> {
                 }
             }
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
+        }
+    }
+
+    /// The `parallel for` whose pass the block `b` is in, if it is in one, by the loop's span.
+    fn pass_of(&self, mut b: BlockId) -> Option<Span> {
+        loop {
+            if let Some(at) = self.passes.get(&b) {
+                return Some(*at);
+            }
+            b = self.blocks.get(&b)?.1?;
         }
     }
 
@@ -1461,6 +1480,11 @@ impl<'a> Cx<'a> {
         if let Some(call) = self.parallel_call(e) {
             let at = Some(self.body.expr(call).span);
             return Err(("given to a call in `parallel`".to_owned(), at));
+        }
+        // Made by a pass of a `parallel for`, on a worker, which must not grow a region of
+        // the thread that started the loop (spec §22.6).
+        if let Some(at) = self.pass_of(block) {
+            return Err(("made in a pass of `parallel for`".to_owned(), Some(at)));
         }
         // `format!`'s text is the macro's value, so it goes where that value goes. The
         // lambda C++ gets captures by reference, so it reaches the region outside it.
@@ -1673,7 +1697,7 @@ impl<'a> Cx<'a> {
         // Lent to another thread, through a `parallel` block or a function that `lends` it,
         // however it got there: two threads may grow it at once (spec §22.12).
         if let Some(at) = xs.iter().find_map(|x| self.lent.get(x)) {
-            return Escape::Leaves(("lent to a `parallel` block".to_owned(), Some(*at)));
+            return Escape::Leaves(("lent to another thread".to_owned(), Some(*at)));
         }
         let mut uses: Vec<ExprId> = (0..self.body.exprs.len() as u32)
             .map(ExprId)

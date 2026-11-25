@@ -3391,7 +3391,7 @@ impl Analysis<'_> {
             hir::StmtKind::While { cond, body, label, .. } => {
                 self.loop_body(Some(cond), body, label.map(|l| l.id), &[], None);
             }
-            hir::StmtKind::For { bindings, subject, body, label, shape } => {
+            hir::StmtKind::For { bindings, subject, body, label, shape, parallel } => {
                 let span = self.body.stmt(id).span;
                 // A container is walked through the `iter()` its loop calls, whose result
                 // is a struct holding a view. Its elements are the container's `[*]`
@@ -3440,7 +3440,8 @@ impl Analysis<'_> {
                     }
                 };
                 let fresh = bindings
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .flatten()
                     .map(|local| {
                         let value = if super::points(&self.body.local(local).ty) {
@@ -3451,6 +3452,22 @@ impl Analysis<'_> {
                         (local, value)
                     })
                     .collect::<Vec<_>>();
+                // `parallel for &mut e`: every element is written on some other thread, and
+                // grown there if it may own memory, so what it is in is lent (spec §22.6,
+                // §22.12): on the heap if it is this body's, in `lends` if a parameter's.
+                if parallel {
+                    let writes_growing = bindings.iter().flatten().any(|l| {
+                        matches!(&self.body.local(*l).ty,
+                            Ty::Ref { mutable: true, inner } if may_grow(self.table, inner))
+                    });
+                    if writes_growing {
+                        let at = self.body.expr(subject).span;
+                        for o in element.clone() {
+                            let local = self.canonical(o).target.local;
+                            self.lend_to_thread(local, at);
+                        }
+                    }
+                }
                 // The parts of a container's element all point into it; an iterator's
                 // tuple of views could point anywhere.
                 if matches!(shape, hir::ForShape::Tuple) && !followed {

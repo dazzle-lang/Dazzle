@@ -1,0 +1,17 @@
+// expect: DZ0431
+// A `continue` to a loop around the `parallel for` leaves the pass, as `break` does; one to
+// the `parallel for` itself only ends its own pass, and is fine (spec §22.3).
+
+fn main() {
+    let mut grid = [[1, 2], [3, 4]]
+    outer: for _ in 0..2 {
+        parallel for &mut row in grid {
+            for &mut c in row {
+                if c > 2 {
+                    continue outer
+                }
+                c += 1
+            }
+        }
+    }
+}

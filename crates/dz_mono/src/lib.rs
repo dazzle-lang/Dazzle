@@ -836,6 +836,17 @@ impl Worklist<'_> {
                 }
             }
         }
+        // `parallel for` also splits it, with `passes` and `part` (spec §22.3).
+        if let Some(split) = self.table.prelude_trait_named("ParallelIterate") {
+            for s in &b.stmts {
+                if let StmtKind::For { subject, parallel: true, .. } = &s.kind {
+                    let t = b.ty(*subject).peeled().clone();
+                    if matches!(t, Ty::Named { .. }) {
+                        self.want_impl(split, &t, "passes", None, None, (b.file, s.span));
+                    }
+                }
+            }
+        }
     }
 
     fn want_impl(

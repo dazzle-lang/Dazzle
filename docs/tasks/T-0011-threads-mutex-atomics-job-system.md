@@ -20,9 +20,17 @@ record the earlier plan.
 (§22.11, r150; D-0117, proposed), safe with `Send`, `Share` and `#[main_thread]` (T-0264),
 and so is `parallel { … }`, which replaced `join!` (§22.3, r151; D-0118): calls checked
 against each other, a thread per call, `Rc` refused (T-0266), no results yet (T-0267), and
-and `lends p` for a container lent to a block from further out, so its caller puts it on the
-heap (§22.12, r152; D-0119, T-0265).
-**Next:** the parallel loop, then the macro `spawn!` and the job system.
+`lends p` for a container lent to a block from further out, so its caller puts it on the
+heap (§22.12, r152; D-0119, T-0265), and so is **the parallel loop, `parallel for`** (§22.3,
+r153; D-0120), over a range, an array, a slice or a `List`, through `std`'s
+`ParallelIterate`: a thread per core per loop, the body checked to write only its element and
+leave only by `continue`, what a pass makes on the heap, and the container it is given as
+`&mut` lent, so `lends` covers it.
+**Left in the loop:** a consuming `parallel for` (refused, `// deferred: T-0011`); a pass's
+own region from the worker's pool, where it is on the heap now; a query keyed by type looped
+over in parallel, which waits on §22.8; per-pass output (D-0096's hole 4).
+**Next:** the job system, a pool of workers that stays, so that a `parallel for` each frame
+stops starting threads; then the macro `spawn!`.
 
 ## Where the code is
 
@@ -39,6 +47,11 @@ heap (§22.12, r152; D-0119, T-0265).
 | `parallel { … }`: calls against each other | `crates/dz_flow/src/ties/body.rs` (`record_parallel`, `parallel_conflicts`, `moved_from`); `report.rs` (DZ0424, `call_name`) |
 | `parallel { … }`: placement, and `lends` | `crates/dz_flow/src/placement.rs` (`parallel_call`, `lent_shared_to`, `lends_anything`, `Cx::lent`); the rest of `lends` is in T-0265's table |
 | `parallel { … }`: emitted C++ and threads | `crates/dz_cpp/src/lib.rs` (`Emitter::parallel`, `hold_args` in `call`, `CapturedArgs::hold`); `crates/dz_cpp/src/runtime.rs` (`ParallelJob`, `parallel_job`, `parallel_run`) |
+| `parallel for`: syntax | `crates/dz_parse/src/stmt.rs` (`parse_stmt`, `parse_for`); `ForStmt::parallel` in `dz_ast`, `StmtKind::For { parallel }` in `dz_hir`; `dz_fmt` and both dumps |
+| `parallel for`: what splits, and `ParallelIterate` | `crates/dz_project/src/std/sync/parallel_iterate.dz`; the impls in `collections/slice_iter.dz`, `slice_iter_mut.dz`; `parallel_subject` in `crates/dz_check/src/check/parallel_for.rs`; `want_impl` for it in `crates/dz_mono/src/lib.rs` |
+| `parallel for`: the body (DZ0430, DZ0431, DZ0433, DZ0598, DZ0599) | `crates/dz_check/src/check/parallel_for.rs` (`parallel_write`, `parallel_body`, `reads_written`, `parallel_elements`, `leaves_pass`); called from `for_stmt`, `require_mutable`, `require_writable`, `require_mutable_receiver`, `loop_jump`, `Return`, `needs_main_thread_as` in `check.rs`; `LoopFrame::parallel`, `Body::parallel_loops` |
+| `parallel for`: placement and `lends` | `crates/dz_flow/src/ties/body.rs` (the `For` arm, `lend_to_thread`); `crates/dz_flow/src/placement.rs` (`Cx::passes`, `pass_of`, `lends_anything`) |
+| `parallel for`: emitted C++ and threads | `crates/dz_cpp/src/lib.rs` (`Emitter::parallel_for`); `crates/dz_cpp/src/runtime.rs` (`parallel_for`, `parallel_range`, `core_count`) |
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole
@@ -58,7 +71,8 @@ to a pool. So the job system is the goal and the other three are the means.
 
 **What it depends on, and what depends on it.**
 
-- **[T-0001](T-0001-arc-t.md) `Arc<T>`** — the atomically counted `Rc`. Its API is already
+- **[T-0001](T-0001-arc-t.md) `Arc<T>`** (dropped 2026-11-25: `Rc` itself gets atomic
+  counts, [T-0266](T-0266-rc-or-weak-in-parallel-block.md)) — the atomically counted `Rc`. Its API is already
   shaped for this; the row exists so that shape is not lost.
 - **[T-0038](T-0038-memory-tracking-single-threaded.md)** — `TRACKER` is one static with no
   lock, so `--track-memory` races the moment two threads allocate. A trap for whoever adds

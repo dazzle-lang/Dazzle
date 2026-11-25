@@ -214,6 +214,19 @@ fn systems(w: &mut World) kills w.positions@items lends w
           path dt
     parallel
       block
+    parallel for &mut e
+      field .enemies
+        path w
+      block
+        call
+          field .think
+            path e
+    parallel for 'cells i, &c
+      call
+        field .indexed
+          path grid
+      block
+        continue
 fn handling(path: str)
   block
     let tex

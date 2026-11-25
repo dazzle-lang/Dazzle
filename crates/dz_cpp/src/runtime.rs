@@ -427,7 +427,18 @@ namespace native {
 /// Run every job, the first on this thread and the others on threads of their own, and
 /// return once all of them have. In `dz_native.cpp`.
 void parallel_run(ParallelJob* jobs, size_t count);
+/// Cut the passes `0..count` into one range per core, in order, and run `run(context, lo,
+/// hi)` for each at the same time, the first on this thread; return once all have.
+void parallel_range(size_t count, void (*run)(void*, size_t, size_t), void* context);
 }  // namespace native
+
+/// `parallel for` (spec §22.3): `pass(lo, hi)` walks the passes `lo..hi`, and every range
+/// of `0..count` is walked once, by one thread.
+template <class F> void parallel_for(size_t count, F& pass) {
+    native::parallel_range(
+        count, [](void* p, size_t lo, size_t hi) { (*static_cast<F*>(p))(lo, hi); },
+        static_cast<void*>(&pass));
+}
 
 template <class T> DZ_INLINE T& obj(T& x) { return x; }
 template <class T> DZ_INLINE const T& obj(const T& x) { return x; }
@@ -1943,6 +1954,66 @@ void parallel_run(ParallelJob* jobs, size_t count) {
         }
     }
     ::free(handles);
+}
+
+// --- `parallel for` (spec §22.3) ---------------------------------------------
+//
+// One range of passes per core, cut in order and as even as a division makes them, each a
+// job of `parallel_run`. A thread per range per loop for now: the job system, a pool of
+// workers that stays, is what T-0011 builds next.
+static size_t core_count() {
+#if defined(_WIN32)
+    SYSTEM_INFO info;
+    ::GetSystemInfo(&info);
+    return info.dwNumberOfProcessors > 0 ? static_cast<size_t>(info.dwNumberOfProcessors) : 1;
+#else
+    const long n = ::sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? static_cast<size_t>(n) : 1;
+#endif
+}
+
+struct ParallelPart {
+    void (*run)(void*, size_t, size_t);
+    void* context;
+    size_t lo;
+    size_t hi;
+};
+
+static void run_parallel_part(void* raw) {
+    ParallelPart* part = static_cast<ParallelPart*>(raw);
+    part->run(part->context, part->lo, part->hi);
+}
+
+void parallel_range(size_t count, void (*run)(void*, size_t, size_t), void* context) {
+    if (count == 0) { return; }
+    size_t parts = core_count();
+    if (parts > count) { parts = count; }
+    ParallelPart* ranges = nullptr;
+    ParallelJob* jobs = nullptr;
+    if (parts > 1) {
+        ranges = static_cast<ParallelPart*>(::calloc(parts, sizeof(ParallelPart)));
+        jobs = static_cast<ParallelJob*>(::calloc(parts, sizeof(ParallelJob)));
+    }
+    // One core, or no memory to say how to split: every pass here, in order, which is what
+    // the loop does whatever the split.
+    if (ranges == nullptr || jobs == nullptr) {
+        ::free(ranges);
+        ::free(jobs);
+        run(context, 0, count);
+        return;
+    }
+    const size_t each = count / parts;
+    const size_t extra = count % parts;
+    size_t lo = 0;
+    for (size_t i = 0; i < parts; ++i) {
+        const size_t hi = lo + each + (i < extra ? 1 : 0);
+        ranges[i] = ParallelPart{run, context, lo, hi};
+        jobs[i] = ParallelJob{&run_parallel_part, &ranges[i]};
+        lo = hi;
+    }
+    parallel_run(jobs, parts);
+    ::free(jobs);
+    ::free(ranges);
 }
 
 uint64_t monotonic_nanos() {

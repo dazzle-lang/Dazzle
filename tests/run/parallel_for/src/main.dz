@@ -1,0 +1,113 @@
+// `parallel for` (spec §22.3): a loop whose passes run at the same time, each given an
+// element no other pass is given, reading what it shares from outside the loop.
+
+static TICKS: Atomic<u64> = Atomic<u64>(0)
+
+struct Enemy {
+    pub hp: i32
+    pub x: f32
+    pub seen: List<i32>
+}
+
+/// Grows the element's own list, on whichever thread the pass runs.
+fn think(e: &mut Enemy, dt: f32, step: i32) kills e.seen@items {
+    e.x += dt
+    for i in 0..step {
+        e.seen.push(e.hp + i)
+    }
+    TICKS.add(1)
+}
+
+/// A list lent from further out, whose elements a pass grows: its caller puts it on the
+/// heap, since the loop's threads may grow them at once (spec §22.12).
+fn update(enemies: &mut List<Enemy>, dt: f32) kills enemies[*].seen@items lends enemies {
+    parallel for &mut e in enemies {
+        think(e, dt, 2)
+    }
+}
+
+struct Swarm {
+    pub speeds: List<f32>
+    pub scale: f32
+
+    /// A method's loop over its own field, reading another.
+    pub fn speed_up(&mut self) {
+        parallel for &mut s in speeds {
+            s *= scale
+        }
+    }
+}
+
+fn sum(xs: &List<i32>) -> i64 {
+    let mut total: i64 = 0
+    for &x in xs {
+        total += x as i64
+    }
+    return total
+}
+
+fn main() {
+    // Elements written in place, each by one pass.
+    let mut enemies = List<Enemy>()
+    for i in 0..1000 {
+        enemies.push(Enemy{ hp: i, x: 0.0, seen: List<i32>() })
+    }
+    let dt: f32 = 0.5
+    parallel for &mut e in enemies {
+        e.hp += 1
+        think(e, dt, 1)
+    }
+    update(&mut enemies, dt)
+    let mut hp: i64 = 0
+    let mut seen: i64 = 0
+    for &e in enemies {
+        hp += e.hp as i64
+        seen += sum(&e.seen)
+    }
+    println!("enemies {} {} {} {}", hp, seen, enemies[999].x, TICKS.load())
+
+    // An array with a pass count, which counts from where its part starts.
+    let mut squares: [64]u64
+    parallel for i, &mut s in squares.indexed() {
+        s = (i * i) as u64
+    }
+    println!("squares {} {} {}", squares[0], squares[7], squares[63])
+
+    // A range: every number once, `continue` ending its own pass.
+    let odd = Atomic<u64>(0)
+    parallel for i in 0..=99 {
+        if i % 2 == 0 {
+            continue
+        }
+        odd.add(i as u64)
+    }
+    println!("odd {}", odd.load())
+
+    // A slice, a nested loop that breaks out of itself only, and a list a pass makes.
+    let mut rows = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]
+    let limit = 8
+    parallel for &mut row in rows[1..] {
+        let mut kept = List<i32>()
+        for &mut c in row {
+            if c > limit {
+                break
+            }
+            kept.push(c)
+            c = 0
+        }
+        row[2] = kept.len() as i32
+    }
+    println!("rows {} {} {} {} {}", rows[0][0], rows[1][2], rows[2][2], rows[3][2], rows[3][0])
+
+    // A method's loop, and one with no passes at all.
+    let mut swarm = Swarm{ speeds: List<f32>(), scale: 2.0 }
+    for i in 0..10 {
+        swarm.speeds.push(i as f32)
+    }
+    swarm.speed_up()
+    let nobody = List<Enemy>()
+    parallel for &e in nobody {
+        TICKS.add(e.hp as u64)
+    }
+    println!("swarm {} {}", swarm.speeds[9], TICKS.load())
+}

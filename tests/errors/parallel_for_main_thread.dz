@@ -1,0 +1,18 @@
+// expect: DZ0598
+// A pass runs on a thread of its own, so it may not call a function that needs the main
+// thread (spec §22.3, §22.5).
+
+static FRAMES: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAMES += 1
+}
+
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    parallel for &mut x in xs {
+        x += 1
+        tick()
+    }
+}

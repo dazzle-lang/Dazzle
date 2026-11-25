@@ -29,3 +29,17 @@ impl<T> Iterate for SliceIterMut<T> {
         m_index += 1
     }
 }
+
+/// `parallel for &mut e in list`: each part writes a range of the slice no other part has
+/// (spec §22.3). Built from `&self`, since the parts are made at once, one per thread; two
+/// ranges that do not overlap are two places, which is why this is `unsafe`.
+impl<T> ParallelIterate for SliceIterMut<T> {
+    fn passes(&self) -> usize {
+        return m_slice.len - m_index
+    }
+
+    fn part(&self, start: usize, end: usize) -> SliceIterMut<T> {
+        let p = unsafe { m_slice.ptr as ^mut T }
+        return SliceIterMut<T>(unsafe { p[m_index + start..m_index + end] })
+    }
+}

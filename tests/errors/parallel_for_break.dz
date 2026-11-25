@@ -1,0 +1,13 @@
+// expect: DZ0431
+// No pass of a `parallel for` can stop the others, so `break` cannot leave the loop; a pass
+// ends at the end of the body, or by `continue` (spec §22.3).
+
+fn main() {
+    let mut xs = [1, 2, 3, 4]
+    parallel for &mut x in xs {
+        if x > 2 {
+            break
+        }
+        x += 1
+    }
+}

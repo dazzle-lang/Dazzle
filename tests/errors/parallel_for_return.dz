@@ -1,0 +1,18 @@
+// expect: DZ0431
+// A `return` from a pass, `or return` included, would leave the function while the other
+// passes still run (spec §22.3).
+
+fn first(xs: &[]i32?) -> i32 {
+    parallel for &x in xs {
+        let v = x or return 0
+        if v > 2 {
+            continue
+        }
+    }
+    return 1
+}
+
+fn main() {
+    let xs: [3]i32? = [1, none, 3]
+    println!("{}", first(xs))
+}

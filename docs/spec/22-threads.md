@@ -1,6 +1,6 @@
 # 22. Threads
 
-`[DECIDED — D-0096, D-0112, D-0118, D-0119; partly built: §22.2, §22.5, §22.6, §22.9 to §22.11 and §22.12 are, and `parallel { … }` is, but for `Rc`, results and queries keyed by type; the parallel loop is not (T-0011)]` Threads keep the promise Dazzle makes on
+`[DECIDED — D-0096, D-0112, D-0118, D-0119, D-0120; partly built: §22.2, §22.5, §22.6, §22.9 to §22.11 and §22.12 are, and so are `parallel { … }` and `parallel for`, but for `Rc`, results and queries keyed by type (T-0011)]` Threads keep the promise Dazzle makes on
 one thread (§1.1): **a program with no `unsafe` has no undefined behaviour**, data races
 included. They do it without changing single-threaded code: everything §5 to §14 allow on one
 thread stays allowed, a `&mut` beside a `&` included (D-0094). The stricter rule of this
@@ -57,38 +57,52 @@ outside `unsafe`. That is what makes `Share` mean what it says.
 
 ## 22.3 Running at the same time
 
-Code runs at the same time in three ways: a parallel loop, a `parallel { … }` block, and a
-thread started on its own. The loop and the thread are `std`'s, each marked `#[parallel]`
-there (§12.8), which is what tells the checker to hold it to this section's rule; user code
-never writes that. The block is the language's own, a keyword (D-0118).
+Code runs at the same time in three ways: a `parallel for` loop, a `parallel { … }` block,
+and a thread started on its own. The loop and the block are the language's own, written with
+the keyword `parallel` (D-0118, D-0120); the thread is `std`'s, marked `#[parallel]` there
+(§12.8), which is what tells the checker to hold it to this section's rule; user code never
+writes that.
 
-**A parallel loop** is a `for` over a parallel iterator: its passes run on every core, each
-pass given an element no other pass is given.
+**`parallel for`** is a loop whose passes run on every core, each pass given an element no
+other pass is given `[DECIDED — D-0120]`.
 
 ```dz
 let dt = clock.delta()
-for _, &mut p, &v in w.query_parallel<&mut Position, &Velocity>() {
+parallel for _, &mut p, &v in w.query<&mut Position, &Velocity>() {
     p.x += v.x * dt
 }
-for &mut e in enemies.parallel() {
+parallel for &mut e in enemies {
     e.think()
 }
 ```
 
-A container's `parallel()` and a query's `query_parallel` hand one out; a type joins them by
-implementing `std`'s `ParallelIterate`. The head is a `for`'s (§10.4), bindings and all; the
-loop ends when every pass has, and what follows sees every pass's writes. Since the passes run
-at once:
+The head is a `for`'s (§10.4), bindings and all, and it loops over what `for` would: a range,
+an array, a slice, or a container through the iterator it hands out. That iterator splits
+between threads only if it implements `std`'s **`ParallelIterate`**, as a `List`'s does
+(DZ0432): `passes()` counts what is left, and `part(start, end)` is an iterator of its own
+over those passes alone. The passes are cut into one range per core, in order, so a pass count
+from `indexed()` is the element's place in the whole loop. The loop ends when every pass has,
+and what follows sees every pass's writes. Since the passes run at once:
 
-- each pass's element is its own, so `&mut e` writes it freely;
+- each pass's element is its own, so `&mut e` writes it freely; the element crosses to the
+  pass's thread as §22.2 says, `Send` when given as `&mut` or a copy, `Share` as `&` (DZ0599);
 - whatever else the body uses from outside the loop is shared by every pass: it may read
-  what is `Share`, and may write nothing (a `&mut` reached from outside, or an assignment to
-  an outer local, is an error naming the place);
-- `break`, `return` and a jump out by `or return` are errors: no pass can stop the others.
-  `continue` ends its own pass.
+  what is `Share` (DZ0599), and may write nothing: an assignment to it, a `&mut self` method
+  on it, or a `&mut` reached from it and passed on is an error naming the place (DZ0430);
+- where the passes write their elements, the container they loop over is not frozen, so a
+  pass reaches it only through its own element: reading another element, or the container
+  whole, is an error (DZ0433). A field of the same value beside it, `self.scale` beside
+  `self.speeds`, is apart and may be read. Through a parameter that may be the same place as
+  the container, it is not caught yet (T-0268);
+- `break`, `return`, a jump out by `or return`, and a `continue` to a loop around this one are
+  errors: no pass can stop the others (DZ0431). `continue` ends its own pass, and a loop inside
+  the body may `break` out of itself;
+- no pass may need the main thread (DZ0598, §22.5), and what a pass makes is placed as §22.6
+  says.
 
 A loop that must collect, such as two units striking one target, writes into memory of its
-own per pass and is merged after; how `std` helps with that is not designed yet.
+own per pass and is merged after; how `std` helps with that is not designed yet. A loop that
+consumes an array it owns, moving each element out, is not supported yet.
 
 **`parallel { … }`** runs a few calls at the same time, and ends when every one has
 `[DECIDED — D-0118]`:
@@ -220,9 +234,11 @@ Anything a parallel call receives by value or as `&mut`, and what it builds ther
 as for code the compiler cannot see (§14.6): on the heap, or in the worker's own pool, and
 never in the region of the code that started it, whose arena another worker may be growing at
 the same moment. Each worker has its own region pool. A value `spawn!` takes is already on
-the heap, since it outlives every region.
+the heap, since it outlives every region. So, for `parallel for`, is what a pass makes, and a
+container whose elements a pass is given as `&mut` and may grow.
 
-A container that reaches a `parallel` call from further out, through a parameter, is placed
+A container that reaches a `parallel` call or a `parallel for` from further out, through a
+parameter, is placed
 by a caller that cannot see the block: `lends` in the signature tells it (§22.12), and it puts
 that container on the heap. So a region is only ever grown by the thread that opened it, and
 nothing is locked or checked at run time: a program pays for threads only in what it gives
@@ -372,9 +388,10 @@ fn main() {
 }
 ```
 
-- **`lends p`** says that some call in a `parallel` block may change, and grow, what `p`
-  reaches: written through `&mut`, a `&mut self` receiver or a view, directly or through a
-  function that `lends` it in turn. A caller puts what it gives there on the heap.
+- **`lends p`** says that some call in a `parallel` block, or a pass of a `parallel for`, may
+  change, and grow, what `p` reaches: written through `&mut`, a `&mut self` receiver or a
+  view, or an element of it given to each pass as `&mut`, directly or through a function that
+  `lends` it in turn. A caller puts what it gives there on the heap.
 - **It names whole parameters** the function can change its caller's memory through: a
   `&mut`, `[]mut` or `^mut` one, `self` for `&mut self`, or a view taken by value
   (DZ0427). What is lent as `&` is only read, and what is given by value is the function's

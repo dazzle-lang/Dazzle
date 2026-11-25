@@ -842,6 +842,8 @@ pub struct WhileStmt {
 pub struct ForStmt {
     pub span: Span,
     pub label: Option<Ident>,
+    /// `parallel for`: the keyword's span when the passes run at the same time (spec §22.3).
+    pub parallel: Option<Span>,
     /// `for entity, btn, state in query` binds one name per part of a tuple element.
     pub bindings: Vec<ForBinding>,
     pub iter: Expr,

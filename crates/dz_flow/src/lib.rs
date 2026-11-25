@@ -483,7 +483,7 @@ impl<'a> Flow<'a> {
                 self.loop_body(*body, &[], label.as_ref().map(|l| l.id));
                 *forever
             }
-            hir::StmtKind::For { bindings, subject, body, shape, label } => {
+            hir::StmtKind::For { bindings, subject, body, shape, label, .. } => {
                 // A user iterator is copied or moved into the loop's own iterator, which
                 // `advance` then mutates (spec §10.4) — so its subject is a value, which an
                 // iterator that is not plain moves into. An array or slice is walked in place,

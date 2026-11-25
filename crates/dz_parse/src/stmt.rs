@@ -63,6 +63,10 @@ impl<'a> Parser<'a> {
             TokenKind::While => StmtKind::While(self.parse_while(None)),
             TokenKind::Loop => StmtKind::While(self.parse_loop(None)),
             TokenKind::For => StmtKind::For(self.parse_for(None)),
+            // `parallel for …`: a loop whose passes run at the same time (spec §22.3).
+            TokenKind::Parallel if self.peek_at(1) == TokenKind::For => {
+                StmtKind::For(self.parse_for(None))
+            }
             TokenKind::Parallel => {
                 self.bump();
                 StmtKind::Parallel(self.parse_block())
@@ -81,10 +85,11 @@ impl<'a> Parser<'a> {
             // `outer: while ...` / `outer: loop ...` / `outer: for ...` (spec §10.2)
             TokenKind::Ident
                 if self.peek_at(1) == TokenKind::Colon
-                    && matches!(
+                    && (matches!(
                         self.peek_at(2),
                         TokenKind::While | TokenKind::Loop | TokenKind::For
-                    ) =>
+                    ) || (self.peek_at(2) == TokenKind::Parallel
+                        && self.peek_at(3) == TokenKind::For)) =>
             {
                 let label = self.parse_ident();
                 self.bump(); // `:`
@@ -281,6 +286,7 @@ impl<'a> Parser<'a> {
 
     fn parse_for(&mut self, label: Option<Ident>) -> ForStmt {
         let start = label.as_ref().map(|l| l.span.start).unwrap_or_else(|| self.start());
+        let parallel = self.at(TokenKind::Parallel).then(|| self.bump().span);
         self.bump(); // `for`
         let mut bindings = vec![self.parse_for_binding()];
         while self.eat(TokenKind::Comma) {
@@ -289,7 +295,7 @@ impl<'a> Parser<'a> {
         self.expect_in(TokenKind::In, "in a `for` loop");
         let iter = self.parse_expr_no_struct();
         let body = self.parse_block();
-        ForStmt { span: self.span_from(start), label, bindings, iter, body }
+        ForStmt { span: self.span_from(start), label, parallel, bindings, iter, body }
     }
 
     /// `e`, `&e` or `&mut e` (spec §10.4).

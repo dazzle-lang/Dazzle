@@ -1,0 +1,9 @@
+[module]
+name    = "parallel_for"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

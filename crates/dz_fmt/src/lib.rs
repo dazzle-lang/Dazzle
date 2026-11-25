@@ -848,7 +848,12 @@ impl<'a> Printer<'a> {
             StmtKind::For(f) => {
                 let label = f.label.as_ref().map(|l| format!("{}: ", l.name)).unwrap_or_default();
                 let binds: Vec<String> = f.bindings.iter().map(dump::for_binding_str).collect();
-                let text = format!("{label}for {} in {} {{", binds.join(", "), self.expr(&f.iter));
+                let parallel = if f.parallel.is_some() { "parallel " } else { "" };
+                let text = format!(
+                    "{label}{parallel}for {} in {} {{",
+                    binds.join(", "),
+                    self.expr(&f.iter)
+                );
                 self.line(&text);
                 self.indent += 1;
                 self.block_body(&f.body);

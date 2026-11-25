@@ -97,7 +97,7 @@ if_stmt       = "if" if_head block { "else" "if" if_head block } [ "else" block 
 if_head       = expr | "let" [ "mut" ] ident "=" expr ;
 while_stmt    = [ ident ":" ] "while" expr block ;
 loop_stmt     = [ ident ":" ] "loop" block ;
-for_stmt      = [ ident ":" ] "for" for_binding { "," for_binding } "in" expr block ;
+for_stmt      = [ ident ":" ] [ "parallel" ] "for" for_binding { "," for_binding } "in" expr block ;   (* `parallel for`: §22.3 *)
 for_binding   = [ "&" [ "mut" ] ] ( ident | "_" ) ;
 switch_stmt   = "switch" expr "{" { case_arm } [ "default" block ] "}" ;
 case_arm      = "case" case_label { "," case_label } block ;

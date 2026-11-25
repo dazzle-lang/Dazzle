@@ -1,0 +1,16 @@
+// expect: DZ0599
+// Each pass is given its element on a thread of its own, so the element is `Send`; one
+// holding an `Rc` is not (spec §22.2, §22.4).
+
+struct Sprite {
+    pub texture: Rc<u32>
+    pub x: f32
+}
+
+fn main() {
+    let mut sprites = List<Sprite>()
+    sprites.push(Sprite{ texture: Rc<u32>(1), x: 0.0 })
+    parallel for &mut s in sprites {
+        s.x += 1.0
+    }
+}

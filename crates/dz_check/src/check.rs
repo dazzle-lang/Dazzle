@@ -18,6 +18,7 @@ use crate::{
 };
 
 mod parallel;
+mod parallel_for;
 
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
     match &it.kind {
@@ -1235,6 +1236,9 @@ struct Body<'a, 'c> {
     parallel_call: Option<Span>,
     /// What that call needs of the main thread, and why.
     parallel_needs: Vec<(Span, String)>,
+    /// The `parallel for` loops enclosing what is being checked, innermost last: what a
+    /// pass may touch outside its loop (spec §22.3).
+    parallel_loops: Vec<parallel_for::ParallelLoop>,
     /// Whether the statement about to be checked is still among the constructor's opening
     /// ones, where `m_map = map` binds a reference field rather than writing through it.
     binding_prefix: bool,
@@ -1267,6 +1271,8 @@ struct LoopFrame {
     /// Some `break` leaves this loop, from anywhere in it: a `loop` none leaves never ends
     /// but by `return` (spec §10.2, D-0102).
     left: bool,
+    /// A `parallel for`, whose passes nothing may leave but by `continue` (spec §22.3).
+    parallel: bool,
 }
 
 impl<'a, 'c> Body<'a, 'c> {
@@ -1303,6 +1309,7 @@ impl<'a, 'c> Body<'a, 'c> {
             main_thread_needs: Vec::new(),
             parallel_call: None,
             parallel_needs: Vec::new(),
+            parallel_loops: Vec::new(),
             binding_prefix: false,
             read_only_fields: Vec::new(),
             read_only_views: HashSet::new(),
@@ -2011,6 +2018,32 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Something this body does outside `unsafe` that only the main thread may do: touch a
     /// plain static, or call a `#[main_thread]` function or C that is not thread-safe.
     fn needs_main_thread(&mut self, span: Span, why: String) {
+        self.needs_main_thread_as(span, why, false);
+    }
+
+    /// [`Self::needs_main_thread`], `call` saying whether it is a call: inside `unsafe`, a
+    /// static is vouched for, but which thread a function runs on never is.
+    fn needs_main_thread_as(&mut self, span: Span, why: String, call: bool) {
+        // A pass of a `parallel for` runs on a thread of its own (spec §22.3).
+        if !self.parallel_loops.is_empty() && (call || self.unsafe_depth == 0) {
+            let already = self.cx.diags.iter().any(|d| {
+                d.code == Some(codes::PARALLEL_MAIN_THREAD)
+                    && d.labels.iter().any(|l| l.span == span)
+            });
+            if !already {
+                self.cx.error_help(
+                    codes::PARALLEL_MAIN_THREAD,
+                    span,
+                    "a pass of `parallel for` runs on another thread, and this needs the main \
+                     thread",
+                    why,
+                    "the passes run on several threads at once, so none may touch a plain static \
+                     or call C that needs the main thread; do it before or after the loop (spec \
+                     §22.3, §22.5)",
+                );
+            }
+            return;
+        }
         if self.parallel_call == Some(span) {
             if !self.parallel_needs.iter().any(|(s, _)| *s == span) {
                 self.parallel_needs.push((span, why));
@@ -2034,7 +2067,7 @@ impl<'a, 'c> Body<'a, 'c> {
         } else {
             format!("calls `{name}`, which runs on the main thread only")
         };
-        self.needs_main_thread(span, why);
+        self.needs_main_thread_as(span, why, true);
     }
 
     /// A value made here, or taken by value, that runs a `#[main_thread]` drop when it
@@ -2916,6 +2949,20 @@ impl<'a, 'c> Body<'a, 'c> {
                  deferral register in docs/tasks/",
             );
         }
+        // A pass that moves an element out of an array the function owns would leave the
+        // array half moved-from on several threads at once. deferred: T-0011
+        if let (Some(at), true) = (f.parallel, consuming) {
+            self.cx.error_help(
+                codes::CODEGEN_UNSUPPORTED,
+                at,
+                "a `parallel for` that moves each element out of the array is not supported yet",
+                "a consuming `parallel for`",
+                "bind each element with `&e` or `&mut e`, or loop with `for` (spec §22.3)",
+            );
+        }
+        // What a `parallel for` iterates, before it is an iterator, as a place: what its passes
+        // write if they write their elements.
+        let container = self.field_path(subject.id);
         // A container is looped over through the iterator it hands out (spec §10.4, 18.51).
         if !consuming {
             let writes = f.bindings.iter().any(|b| b.mode == BindMode::RefMut);
@@ -2923,9 +2970,18 @@ impl<'a, 'c> Body<'a, 'c> {
                 subject = iter;
             }
         }
+        if let Some(at) = f.parallel {
+            self.parallel_subject(at, subject.id);
+        }
         let item = self.for_item(subject_ast, &subject.ty, consuming);
 
         self.push();
+        // What the body makes from here on is a pass's own; anything before is shared by
+        // every pass (spec §22.3).
+        let pass = parallel_for::ParallelLoop {
+            first_local: self.hir.local_count(),
+            first_expr: self.hir.expr_count(),
+        };
         let (shape, bindings) = if indexed {
             (hir::ForShape::Indexed, self.bind_indexed(f, item))
         } else if f.bindings.len() > 1 {
@@ -2935,9 +2991,27 @@ impl<'a, 'c> Body<'a, 'c> {
             let shape = if consuming { hir::ForShape::Consuming } else { hir::ForShape::Single };
             (shape, vec![self.bind_for(b, &item)])
         };
-        let (body, label, _) = self.loop_body(f.label.as_ref(), |b| b.block(&f.body, None).id);
+        let parallel = f.parallel.is_some();
+        if parallel {
+            self.parallel_elements(&bindings, f.parallel.unwrap_or(f.span));
+            self.parallel_loops.push(pass);
+        }
+        let (body, label, _) = self.loop_body(f.label.as_ref(), |b| {
+            if let Some(frame) = b.loops.last_mut() {
+                frame.parallel = parallel;
+            }
+            b.block(&f.body, None).id
+        });
+        if parallel {
+            self.parallel_loops.pop();
+            let writes = bindings
+                .iter()
+                .flatten()
+                .any(|l| matches!(self.hir.local_ty(*l), Ty::Ref { mutable: true, .. }));
+            self.parallel_body(pass, container.filter(|_| writes));
+        }
         self.pop();
-        hir::StmtKind::For { bindings, subject: subject.id, body, shape, label }
+        hir::StmtKind::For { bindings, subject: subject.id, body, shape, label, parallel }
     }
 
     /// Is the node a place this function owns — a local, a by-value parameter, or a field of
@@ -3059,6 +3133,7 @@ impl<'a, 'c> Body<'a, 'c> {
             breaks: false,
             continues: false,
             left: false,
+            parallel: false,
         });
         let body = check(self);
         let frame = self.loops.pop().expect("pushed above");
@@ -3086,6 +3161,7 @@ impl<'a, 'c> Body<'a, 'c> {
             return None;
         }
         let Some(label) = label else {
+            self.leaves_pass(span, word, Some(self.loops.len() - 1));
             if is_break {
                 if let Some(innermost) = self.loops.last_mut() {
                     innermost.left = true;
@@ -3114,6 +3190,7 @@ impl<'a, 'c> Body<'a, 'c> {
             );
             return None;
         };
+        self.leaves_pass(span, word, Some(depth));
         if is_break {
             self.loops[depth].left = true;
         }
@@ -3478,6 +3555,7 @@ impl<'a, 'c> Body<'a, 'c> {
 
     /// Report if `e` is not something that can be assigned to.
     fn require_mutable(&mut self, e: &Expr) {
+        self.parallel_write(e);
         match self.place_mutability(e) {
             Some(true) => {}
             Some(false) => {
@@ -3724,6 +3802,7 @@ impl<'a, 'c> Body<'a, 'c> {
     /// `construct` and `destroy` write the place they are given (spec §14.3), so it has to
     /// be one that may be written — `m_data[i]` through an `own ^mut T`, not through a `^T`.
     fn require_writable(&mut self, e: &Expr, what: &str) {
+        self.parallel_write(e);
         if self.place_mutability(e) == Some(false) {
             let (desc, help) = self.describe_place(e);
             self.cx.error_help(
@@ -4530,6 +4609,7 @@ impl<'a, 'c> Body<'a, 'c> {
             ExprKind::Or { expr, clause } => self.or_expr(expr, clause, e, expected),
             ExprKind::Return(v) => {
                 self.refuse_return_in_base_init(e.span);
+                self.leaves_pass(e.span, "return", None);
                 let ret = self.ret.clone();
                 let mut value = None;
                 match v {
@@ -7226,6 +7306,7 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn require_mutable_receiver(&mut self, base: &Expr, base_ty: &Ty, method: &str) {
+        self.parallel_write(base);
         let (ok, help) = match base_ty {
             Ty::Ref { mutable, .. } => (*mutable, None),
             Ty::Ptr { mutable, .. } | Ty::OwnPtr { mutable, .. } => (

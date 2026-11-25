@@ -1094,7 +1094,7 @@ fn main() {
     assert_eq!(
         decisions(&a, &p, "start"),
         [
-            "List<i32>: heap: lent to a `parallel` block",
+            "List<i32>: heap: lent to another thread",
             "List<i32>: heap: given to a call in `parallel`",
             "List<i32>: region: `start`",
             "List<i32>: region: `start`",
@@ -1146,6 +1146,44 @@ fn main() {
         assert!(d.contains(": heap: "), "{d}");
     }
     assert_eq!(ds[4], "List<i32>: region: `start`");
+    assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
+}
+
+/// `parallel for` (spec §22.3, §22.6): a list whose elements the passes grow is lent to the
+/// loop's threads, and so is a list a pass makes, since a pass runs on a worker; a list only
+/// read by the passes, and one the loop does not touch, stay in the region.
+#[test]
+fn what_a_parallel_for_grows_is_built_on_the_heap() {
+    let a = analyse(
+        r#"
+struct Unit {
+    pub seen: List<i32>
+}
+fn start() {
+    let mut units = List<Unit>()
+    units.push(Unit{ seen: List<i32>() })
+    let mut limits = List<i32>()
+    limits.push(3)
+    parallel for &mut u in units {
+        let mut kept = List<i32>()
+        kept.push(limits.len() as i32)
+        u.seen.push(kept.len() as i32)
+    }
+    let mut alone = List<i32>()
+    alone.push(1)
+}
+fn main() {
+    start()
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    let ds = decisions(&a, &p, "start");
+    let heap: Vec<&String> = ds.iter().filter(|d| d.contains(": heap: ")).collect();
+    assert!(ds.iter().any(|d| d.contains("lent to another thread")), "{ds:?}");
+    assert!(ds.iter().any(|d| d.contains("made in a pass of `parallel for`")), "{ds:?}");
+    assert_eq!(heap.len(), 3, "the units, their element's list and `kept`: {ds:?}");
+    assert_eq!(ds.iter().filter(|d| d.contains(": region: `start`")).count(), 2, "{ds:?}");
     assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
 }
 

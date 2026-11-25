@@ -1267,6 +1267,7 @@ pub const STD_SOURCES: &[(&str, &str)] = &[
     ("<std>/reflect/visibility.dz", include_str!("std/reflect/visibility.dz")),
     ("<std>/sync/atomic.dz", include_str!("std/sync/atomic.dz")),
     ("<std>/sync/mutex.dz", include_str!("std/sync/mutex.dz")),
+    ("<std>/sync/parallel_iterate.dz", include_str!("std/sync/parallel_iterate.dz")),
     ("<std>/sync/mutex_guard.dz", include_str!("std/sync/mutex_guard.dz")),
     ("<std>/sync/thread.dz", include_str!("std/sync/thread.dz")),
     ("<std>/sync/send.dz", include_str!("std/sync/send.dz")),

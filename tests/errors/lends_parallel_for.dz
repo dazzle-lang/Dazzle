@@ -1,0 +1,20 @@
+// expect: DZ0425
+// A `parallel for` that grows the elements of a list it was handed lends that list to its
+// threads, so the signature says `lends`: the caller then puts the list on the heap, which
+// every thread may grow (spec §22.3, §22.12).
+
+struct Enemy {
+    pub seen: List<i32>
+}
+
+fn update(enemies: &mut List<Enemy>) kills enemies[*].seen@items {
+    parallel for &mut e in enemies {
+        e.seen.push(1)
+    }
+}
+
+fn main() {
+    let mut enemies = List<Enemy>()
+    enemies.push(Enemy{ seen: List<i32>() })
+    update(&mut enemies)
+}

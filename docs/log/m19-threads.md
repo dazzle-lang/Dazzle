@@ -2,6 +2,62 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `parallel for` (T-0011, D-0120, r153; 2026-11-25)
+
+The parallel loop. §22.3 wrote it `for &mut e in enemies.parallel()`, which r151 had made
+impossible: `parallel` is a keyword, so the method could not be named. Asked how to spell it,
+the user put the keyword in front of the `for`: `parallel for &mut e in enemies`. So there is
+no `.parallel()` and no `query_parallel`; T-0001 (`Arc`) was dropped the same day, since
+T-0266's atomic `Rc` covers it.
+
+- **Syntax.** `parallel` followed by `for` is a `for` statement with `ForStmt::parallel` set
+  (the keyword's span); a label goes before both. `StmtKind::For { parallel }` in the HIR; the
+  formatter and both dumps print it.
+- **What splits.** A range or an array or slice is indexed directly. Anything else is the
+  iterator `for` would walk, `iter()` or `iter_mut()` for a container, which must implement
+  `std`'s new `ParallelIterate` (DZ0432): `passes()` and `part(start, end) -> Self`, from
+  `&self` so every part is made at once. `SliceIter` and `SliceIterMut` implement it, which
+  covers `List`; `SliceIterMut::part` builds its `&mut` subslice from the slice's pointer under
+  `unsafe`. Mono asks for the impl as it does for `Iterate`'s.
+- **The body** (`check/parallel_for.rs`). What a pass writes is seen where the checker already
+  asks whether a place may be written (`require_mutable`, `require_writable`,
+  `require_mutable_receiver`): a place whose root is a local bound before the loop, or a field
+  of `self`, is DZ0430. "Before the loop" is a local id below the first the loop made, since
+  the HIR builder numbers locals in order. After the body, a walk over the nodes it built finds
+  every local from outside it is read through, holding its type to `Share` (DZ0599), and any
+  `&mut` reached from one that is passed or bound rather than read through (DZ0430 again: `f(w)`
+  for a `w: &mut World`). Each binding is `Send` or `Share` as it is given. A `break`,
+  `return` or `continue` that would leave a pass is DZ0431, worked out where the jump finds its
+  loop (`LoopFrame::parallel`); a `break` of a loop inside the pass is fine. What needs the main
+  thread anywhere in a pass is DZ0598 (`needs_main_thread_as`), a call even inside `unsafe`.
+  Where the passes write their elements, a pass that reaches the container they are in other
+  than through its element is DZ0433 (`reads_written`): `x += xs[0]` in a loop over `xs`. A
+  place is a local and its fields (`field_path`), so `self.scale` beside `self.speeds` is
+  apart, and an array's `.len` is allowed. Through a parameter that may be the container
+  it is not caught, nor is a block's write through one parameter beside a read through
+  another (D-0094 lets both reach a function): T-0268, a design question for the user.
+- **Placement and `lends`.** When a binding is `&mut` to something that may own memory, the
+  tie walk lends the iterated container to another thread at the loop's subject, so a local
+  goes to the heap and a parameter needs `lends` (DZ0425), exactly as for a block's call.
+  What a pass makes is on the heap too (`Cx::passes`, `pass_of`), since it runs on a worker.
+  The reasons now say "lent to another thread", for the block and the loop alike.
+- **C++.** The subject is evaluated once, outside; its passes are counted (`passes`, the
+  range's length, or `end() - begin()`); the body becomes a lambda over `lo..hi` capturing by
+  reference, with `for`'s bindings inside, so `continue`, labels, drops and `defer` behave as
+  in a `for`. `rt::parallel_for` hands it to `native::parallel_range`, which cuts the passes
+  into one range per core (`sysconf` or `GetSystemInfo`), in order, and runs them through
+  `parallel_run`: a thread per range per loop, until the job system keeps a pool. A pass count
+  starts at the range's `lo`. Warning-clean on g++ and clang++.
+- **Not yet:** a consuming `parallel for` (refused, deferred to T-0011), a pass's own region
+  where it is on the heap, a query keyed by type (§22.8), per-pass output.
+- **Tests.** `tests/run/parallel_for` (a list whose elements grow on workers, through a
+  function that `lends` it; an array with a pass count; a range with `continue`; a slice with a
+  loop that breaks out of itself and a list a pass makes; a method over its own field; an empty
+  list); `tests/errors/parallel_for_*.dz` (DZ0430 three ways, DZ0431 three ways, DZ0432,
+  DZ0433, DZ0598, DZ0599 twice) and `lends_parallel_for.dz` (DZ0425); `typed` and `typeerrors`;
+  `dz_flow`'s `what_a_parallel_for_grows_is_built_on_the_heap`; the parse and format corpora;
+  `dz explain` for DZ0430–DZ0433.
+
 ## `lends p` (T-0265, D-0119, r152; 2026-11-25)
 
 What replaced r151's runtime lock (below). The user asked what the lock was and whether it

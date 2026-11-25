@@ -170,7 +170,7 @@ impl<'a> Dumper<'a> {
                     d.block(b);
                 });
             }
-            StmtKind::For { bindings, subject, body: b, shape, label } => {
+            StmtKind::For { bindings, subject, body: b, shape, label, parallel } => {
                 let names: Vec<String> = bindings.iter().map(|l| self.opt_local(l)).collect();
                 let shape = match shape {
                     ForShape::Single => "",
@@ -178,7 +178,12 @@ impl<'a> Dumper<'a> {
                     ForShape::Indexed => " (indexed)",
                     ForShape::Consuming => " (consuming)",
                 };
-                self.line(format_args!("for {}{shape}{}", names.join(", "), label_str(&label)));
+                let parallel = if parallel { "parallel " } else { "" };
+                self.line(format_args!(
+                    "{parallel}for {}{shape}{}",
+                    names.join(", "),
+                    label_str(&label)
+                ));
                 self.nest(|d| {
                     d.expr(subject);
                     d.block(b);

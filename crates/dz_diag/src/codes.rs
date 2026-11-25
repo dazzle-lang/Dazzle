@@ -237,6 +237,19 @@ pub const LENDING_FN_AS_VALUE: &str = "DZ0428";
 /// it implements does not: a call through the trait or the base would not place it on the
 /// heap (spec §22.12).
 pub const LENDS_NOT_IN_TRAIT: &str = "DZ0429";
+/// A pass of a `parallel for` that writes a place from outside the loop, or lends it on as
+/// `&mut`: every pass shares it, and they run at the same time (spec §22.3).
+pub const PARALLEL_LOOP_WRITES: &str = "DZ0430";
+/// A `break` or `return`, or a `continue` to a loop further out, that would leave a pass of a
+/// `parallel for`: no pass can stop the others (spec §22.3).
+pub const PARALLEL_LOOP_LEAVES: &str = "DZ0431";
+/// A `parallel for` over something it cannot split between threads: not a range, an array,
+/// a slice, or an iterator that implements `ParallelIterate` (spec §22.3).
+pub const PARALLEL_LOOP_SUBJECT: &str = "DZ0432";
+/// A pass of a `parallel for` that reaches the container whose elements the passes write,
+/// other than through the element it is given: another pass may be writing what it reads
+/// (spec §22.3).
+pub const PARALLEL_LOOP_READS_WRITTEN: &str = "DZ0433";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

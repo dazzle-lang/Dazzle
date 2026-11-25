@@ -117,6 +117,14 @@ fn systems(w: &mut World) kills w.positions@items lends w {
 
     parallel {
     }
+
+    parallel for &mut e in w.enemies {
+        e.think()
+    }
+
+    cells: parallel for i, &c in grid.indexed() {
+        continue
+    }
 }
 
 fn handling(path: str) {

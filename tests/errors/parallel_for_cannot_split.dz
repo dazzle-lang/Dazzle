@@ -1,0 +1,11 @@
+// expect: DZ0432
+// A `parallel for` splits its passes between threads, which a `HashMap`'s iterator cannot do
+// (spec §22.3).
+
+fn main() {
+    let mut ages = HashMap<i32, i32>()
+    ages.insert(1, 30)
+    parallel for _, &mut age in ages {
+        age += 1
+    }
+}

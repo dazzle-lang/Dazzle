@@ -1,0 +1,24 @@
+/// An iterator a `parallel for` can split between threads (spec §22.3).
+///
+/// `parallel for &mut e in enemies` loops over what `for` would (§10.4), here the list's
+/// `iter_mut()`, and needs that iterator to implement this trait: the loop asks how many
+/// passes there are, cuts them into one range per thread, and walks each range with an
+/// iterator of its own from `part`.
+///
+/// The promise an implementation makes is that two parts over ranges that do not overlap hand
+/// out no element in common, so each pass is given an element no other pass is given. An
+/// iterator that hands out `&mut` keeps it inside `unsafe`, as a container keeps its `kills`.
+///
+/// ```dz
+/// parallel for &mut e in enemies {
+///     e.think()
+/// }
+/// ```
+pub trait ParallelIterate {
+    /// How many passes are left, from where the iterator stands.
+    fn passes(&self) -> usize
+
+    /// The passes from `start` to `end`, counted from where the iterator stands, as an
+    /// iterator of their own: `start <= end <= passes()`.
+    fn part(&self, start: usize, end: usize) -> Self
+}
