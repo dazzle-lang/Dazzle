@@ -1,6 +1,5 @@
 ---
 source: crates/dz_check/tests/check.rs
-assertion_line: 293
 expression: body
 ---
 error[DZ0502]: `300` does not fit in `u8`
@@ -2342,29 +2341,85 @@ error[DZ0531]: `Pointing` does not implement `Send`
      │
      = help: its field `at` holds a raw pointer, which may point at anyone's memory: a type is `Send` exactly when everything it holds is, and a raw pointer that is not `own`, a view, an `Rc` or a value whose drop is the main thread's never is; share through a `Mutex` or an atomic instead (spec §22.2)
 
-error[DZ0506]: constructor `PrivatelyBuilt::PrivatelyBuilt` is not visible here
-     ┌─ typeerrors/src/errors.dz:1906:14
+error[DZ0597]: a statement in `parallel` is one call
+     ┌─ typeerrors/src/errors.dz:1913:9
      │
-1900 │     PrivatelyBuilt(start: i32) {
+1913 │         let _m = 1
+     │         ^^^^^^^^^^ this is not a call
+     │
+     = help: each line of `parallel { … }` is a call to a function or a method, and the calls run at the same time; work out what they need before the block (spec §22.3)
+
+error[DZ0597]: a call in `parallel` returns nothing
+     ┌─ typeerrors/src/errors.dz:1914:9
+     │
+1914 │         doubled(2)
+     │         ^^^^^^^^^^ this returns `i32`
+     │
+     = help: `parallel` does not hand results back yet, so each call returns nothing; write the result through a `&mut` argument instead (spec §22.3)
+
+error[DZ0598]: a call in `parallel` runs on another thread, and this one needs the main thread
+     ┌─ typeerrors/src/errors.dz:1915:9
+     │
+1915 │         on_the_main_thread()
+     │         ^^^^^^^^^^^^^^^^^^^^ calls `on_the_main_thread`, which runs on the main thread only
+     │
+     = help: every call in `parallel` but the first runs on a thread of its own, so none may touch a plain static or call C that needs the main thread; call it before or after the block (spec §22.3, §22.5)
+
+error[DZ0599]: `Pointing` may not cross to another thread lent as `&`
+     ┌─ typeerrors/src/errors.dz:1916:24
+     │
+1916 │         reads_pointing(&p)
+     │                        ^^ `Pointing` is not `Share`
+     │
+     = help: an argument lent as `&` is read by another thread while this one may read it too, so its type is `Share`; `Pointing` is not, since its field `at` holds a raw pointer, which may point at anyone's memory (spec §22.2, §22.3)
+
+error[DZ0427]: `lends_what_it_reads` cannot lend `xs`
+     ┌─ typeerrors/src/errors.dz:1924:46
+     │
+1924 │ fn lends_what_it_reads(xs: &List<i32>) lends xs {}
+     │                                              ^^ taken as `&List<i32>`
+     │
+     = help: `lends` names a parameter the function can change its caller's memory through, `&mut` or `&mut self`, that a call in a `parallel` block may change; what it owns or only reads needs nothing (spec §22.12)
+
+error[DZ0428]: `lends_both` lends `a`, so it cannot be a function value
+     ┌─ typeerrors/src/errors.dz:1938:81
+     │
+1938 │     let _f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = lends_both
+     │                                                                                 ^^^^^^^^^^ used as a value
+     │
+     = help: a function type has no `lends`, so a caller through the value could not know to place what it gives on the heap; call the function by name (spec §22.12)
+
+error[DZ0429]: this lends `a`, and `Grows::grow` does not
+     ┌─ typeerrors/src/errors.dz:1946:91
+     │
+1946 │     fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a {
+     │                                                                                           ^ more than the method it implements lends
+     │
+     = help: a call through `Grows::grow` places what it gives by that method's clause, so it would not be on the heap; write the same `lends` on `Grows::grow`, or keep this one's calls apart from a `parallel` block (spec §22.12)
+
+error[DZ0506]: constructor `PrivatelyBuilt::PrivatelyBuilt` is not visible here
+     ┌─ typeerrors/src/errors.dz:1964:14
+     │
+1958 │     PrivatelyBuilt(start: i32) {
      │     -------------- declared here
      ·
-1906 │     let _s = PrivatelyBuilt(1)
+1964 │     let _s = PrivatelyBuilt(1)
      │              ^^^^^^^^^^^^^^ private constructor
      │
      = help: this constructor is private to `PrivatelyBuilt`; mark it `pub` or `pub(module)` (spec §4)
 
 error[DZ0590]: `PrivatelyBuilt` has no default to build here
-     ┌─ typeerrors/src/errors.dz:1912:9
+     ┌─ typeerrors/src/errors.dz:1970:9
      │
-1912 │     let _s: PrivatelyBuilt
+1970 │     let _s: PrivatelyBuilt
      │         ^^ declared with no value
      │
      = help: a type with constructors is default-built only through one that takes no arguments and is visible here; give the binding a value, `let x = …`, made by a constructor or function of `PrivatelyBuilt` (spec §6.2)
 
 error[DZ0590]: this constructor leaves `inner` with no value
-     ┌─ typeerrors/src/errors.dz:1918:9
+     ┌─ typeerrors/src/errors.dz:1976:9
      │
-1918 │     pub LeavesAFieldEmpty() {
+1976 │     pub LeavesAFieldEmpty() {
      │         ^^^^^^^^^^^^^^^^^ a field whose type has no default to build here
      │
      = help: assign it at the top of the constructor, before any `return`: `inner = …`, or give the field a default where it is declared (spec §6.2)

@@ -1,0 +1,17 @@
+// expect: DZ0599
+// An argument lent as `&` is read by another thread while this one may read it too, so its
+// type is `Share`; a view holding a `&mut` is not (spec §22.2, §22.3).
+
+view struct Cursor {
+    pub at: &mut i32
+}
+
+fn peek(_c: &Cursor) {}
+
+fn main() {
+    let mut n = 1
+    let c = Cursor{ at: &mut n }
+    parallel {
+        peek(&c)
+    }
+}

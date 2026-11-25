@@ -90,6 +90,11 @@ impl Walk<'_> {
                 self.block(body);
             }
             hir::StmtKind::Defer(inner) => self.stmt(inner),
+            hir::StmtKind::Parallel { calls } => {
+                for c in calls {
+                    self.value(c);
+                }
+            }
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
         }
     }

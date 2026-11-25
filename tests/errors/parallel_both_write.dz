@@ -1,0 +1,24 @@
+// expect: DZ0424
+// Two calls in `parallel` writing one place would race; the same place written through a
+// method's `&mut self` counts too (spec §22.3).
+
+struct Counter {
+    pub hits: i32
+
+    pub fn hit(&mut self) {
+        hits += 1
+    }
+}
+
+fn reset(c: &mut Counter) {
+    c.hits = 0
+}
+
+fn main() {
+    let mut c = Counter{ hits: 0 }
+    parallel {
+        c.hit()
+        reset(&mut c)
+    }
+    println!("{}", c.hits)
+}

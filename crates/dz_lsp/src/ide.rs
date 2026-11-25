@@ -1429,9 +1429,10 @@ impl<'a> Query<'a> {
             .collect::<Vec<_>>()
             .join(", ");
         let kills = format!(
-            "{}{}",
+            "{}{}{}",
             dz_ast::dump::kills_str(&f.kills, false),
-            dz_ast::dump::sends_str(&f.sends)
+            dz_ast::dump::sends_str(&f.sends),
+            dz_ast::dump::lends_str(&f.lends)
         );
         if f.ret == Ty::Void && !f.fallible {
             return format!("fn {name}({params}){kills}");
@@ -1752,6 +1753,7 @@ pub const KEYWORDS: &[&str] = &[
     "import",
     "in",
     "kills",
+    "lends",
     "let",
     "loop",
     "macro",
@@ -1762,6 +1764,7 @@ pub const KEYWORDS: &[&str] = &[
     "or",
     "override",
     "own",
+    "parallel",
     "protected",
     "pub",
     "return",

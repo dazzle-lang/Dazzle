@@ -151,6 +151,11 @@ impl BodyBuilder {
         &self.exprs[id.index()].ty
     }
 
+    /// Where a node was written.
+    pub(crate) fn span(&self, id: ExprId) -> Span {
+        self.exprs[id.index()].span
+    }
+
     /// A local's name.
     pub(crate) fn local_name(&self, id: LocalId) -> &str {
         &self.locals[id.index()].name

@@ -724,3 +724,280 @@ fn main() {
     println!("{}", b)
 }
 ```
+
+## DZ0424
+
+The calls of `parallel { … }` run at the same time, so a place one of them writes is touched
+by no other (spec §22.3). A call writes what it is lent as `&mut`, what its `&mut self`
+receiver is, and what is moved into it, which is gone before any call starts, since every
+argument is evaluated first. Two reads beside each other are fine, and so are two writes to
+separate places: two fields, or two elements whose indices are known to differ. Give each
+call memory of its own, or call the two one after the other.
+
+```dz
+fn physics(positions: &mut List<i32>) kills positions@items {
+    positions.clear()
+}
+
+fn render(positions: &List<i32>) {
+    println!("{}", positions.len())
+}
+
+fn main() {
+    let mut positions = List<i32>()
+    parallel {
+        physics(&mut positions)
+        render(&positions)
+    }
+}
+```
+
+```dz
+fn physics(positions: &mut List<i32>) kills positions@items {
+    positions.clear()
+}
+
+fn render(positions: &List<i32>) {
+    println!("{}", positions.len())
+}
+
+fn main() {
+    let mut positions = List<i32>()
+    let last_frame = positions.clone()
+    parallel {
+        physics(&mut positions)
+        render(&last_frame)
+    }
+}
+```
+
+## DZ0425
+
+Where memory lives is decided by the function that makes it, which puts it in its region,
+used by one thread at a time, unless it knows two threads may grow it at once (spec §14.6,
+§22.12). A function that gives what a parameter reaches to a call in a `parallel` block, or
+to a function that `lends` it, says so with `lends`, so its callers put that memory on the
+heap. `dz fix` writes it, and a caller that passes the parameter on says it too.
+
+```dz
+struct World {
+    pub a: List<i32>
+    pub b: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn frame(w: &mut World) kills w.a@items, w.b@items {
+    parallel {
+        fill(&mut w.a)
+        fill(&mut w.b)
+    }
+}
+
+fn main() {
+    let mut w = World{ a: List<i32>(), b: List<i32>() }
+    frame(&mut w)
+}
+```
+
+```dz
+struct World {
+    pub a: List<i32>
+    pub b: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn frame(w: &mut World) kills w.a@items, w.b@items lends w {
+    parallel {
+        fill(&mut w.a)
+        fill(&mut w.b)
+    }
+}
+
+fn main() {
+    let mut w = World{ a: List<i32>(), b: List<i32>() }
+    frame(&mut w)
+}
+```
+
+## DZ0426
+
+`lends` makes every caller put what it gives on the heap, so it names exactly what a
+`parallel` block may grow (spec §22.12). A parameter the body never lends to one, or one that
+reaches nothing that owns memory, such as an `i32`, needs no `lends`. `dz fix` narrows the
+clause.
+
+```dz
+fn bump(n: &mut i32) {
+    n += 1
+}
+
+fn twice(a: &mut i32, b: &mut i32) lends a {
+    parallel {
+        bump(a)
+        bump(b)
+    }
+}
+
+fn main() {
+    let mut a = 0
+    let mut b = 0
+    twice(&mut a, &mut b)
+}
+```
+
+```dz
+fn bump(n: &mut i32) {
+    n += 1
+}
+
+fn twice(a: &mut i32, b: &mut i32) {
+    parallel {
+        bump(a)
+        bump(b)
+    }
+}
+
+fn main() {
+    let mut a = 0
+    let mut b = 0
+    twice(&mut a, &mut b)
+}
+```
+
+## DZ0427
+
+`lends` names a whole parameter through which the function can change its caller's memory:
+a `&mut` one, `&mut self`, or a view taken by value (spec §22.12). Its callers place that
+parameter, never a part of it, and what is lent as `&` is only read, so another thread cannot
+grow it. A static is never lent: a call in a `parallel` block cannot touch a plain one.
+
+```dz
+fn count(xs: &List<i32>) lends xs {
+    println!("{}", xs.len())
+}
+
+fn main() {
+    let xs = List<i32>()
+    count(&xs)
+}
+```
+
+```dz
+fn count(xs: &List<i32>) {
+    println!("{}", xs.len())
+}
+
+fn main() {
+    let xs = List<i32>()
+    count(&xs)
+}
+```
+
+## DZ0428
+
+A function type has no `lends`, so a caller through a function value could not know to put
+what it gives on the heap (spec §22.12). A function that lends a parameter is called by its
+name.
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+    parallel {
+        fill(a)
+        fill(b)
+    }
+}
+
+fn main() {
+    let f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = both
+    let mut a = List<i32>()
+    let mut b = List<i32>()
+    f(&mut a, &mut b)
+}
+```
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+    parallel {
+        fill(a)
+        fill(b)
+    }
+}
+
+fn main() {
+    let mut a = List<i32>()
+    let mut b = List<i32>()
+    both(&mut a, &mut b)
+}
+```
+
+## DZ0429
+
+A call through a trait, or through a base's `virtual` method, places what it gives by that
+method's clause, so an implementation or an override lends only what the method it
+implements says it may (spec §22.12). Write the same `lends` on the trait's method.
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+trait Grows {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items
+}
+
+impl Grows for u8 {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+        parallel {
+            fill(a)
+            fill(b)
+        }
+    }
+}
+
+fn main() {
+    let mut s: u8 = 0
+    let mut a = List<i32>()
+    let mut b = List<i32>()
+    s.grow(&mut a, &mut b)
+}
+```
+
+```dz
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+trait Grows {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b
+}
+
+impl Grows for u8 {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+        parallel {
+            fill(a)
+            fill(b)
+        }
+    }
+}
+
+fn main() {
+    let mut s: u8 = 0
+    let mut a = List<i32>()
+    let mut b = List<i32>()
+    s.grow(&mut a, &mut b)
+}
+```

@@ -1893,6 +1893,64 @@ fn spawns_a_pointer() {
     t.join()
 }
 
+// §22.3: each line of `parallel` is one call returning nothing, to a function that runs on any
+// thread, given what may cross. That no two of its calls reach a place one of them writes is
+// the ownership analysis's rule, in `tests/flow/parallel_conflict.dz`.
+fn adds_one(n: &mut i32) {
+    n += 1
+}
+
+fn doubled(n: i32) -> i32 {
+    return n * 2
+}
+
+fn reads_pointing(_p: &Pointing) {}
+
+fn parallel_mistakes() {
+    let mut n = 0
+    let p = Pointing{}
+    parallel {
+        let _m = 1
+        doubled(2)
+        on_the_main_thread()
+        reads_pointing(&p)
+        adds_one(&mut n)
+    }
+}
+
+// §22.12: `lends` names a whole parameter the function can change its caller's memory
+// through; a function that lends is called by name, never through a value; and what
+// implements a trait method lends only what that method does.
+fn lends_what_it_reads(xs: &List<i32>) lends xs {}
+
+fn grows(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn lends_both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+    parallel {
+        grows(a)
+        grows(b)
+    }
+}
+
+fn lending_as_a_value() {
+    let _f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = lends_both
+}
+
+trait Grows {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items
+}
+
+impl Grows for u8 {
+    fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a {
+        parallel {
+            grows(a)
+            grows(b)
+        }
+    }
+}
+
 // §4: a constructor with no keyword is private to its type.
 struct PrivatelyBuilt {
     pub n: i32 = 0

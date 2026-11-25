@@ -1,0 +1,23 @@
+// expect: DZ0427
+// `lends` names a whole parameter, which its caller places, never a part of one (spec §22.12).
+
+struct World {
+    pub positions: List<i32>
+    pub velocities: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn frame(w: &mut World) kills w.positions@items, w.velocities@items lends w.positions {
+    parallel {
+        fill(&mut w.positions)
+        fill(&mut w.velocities)
+    }
+}
+
+fn main() {
+    let mut w = World{ positions: List<i32>(), velocities: List<i32>() }
+    frame(&mut w)
+}

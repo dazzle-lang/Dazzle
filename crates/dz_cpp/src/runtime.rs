@@ -412,6 +412,23 @@ struct Tuple<A, B, C, D> { A v0; B v1; C v2; D v3; };
 /// parameter like anything else.
 template <class R, class... A> using fn = R (*)(A...);
 
+/// One call of a `parallel` block (spec §22.3): a lambda that makes it, by address, and the
+/// function that runs that lambda.
+struct ParallelJob {
+    void (*run)(void*);
+    void* context;
+};
+
+template <class F> ParallelJob parallel_job(F& f) {
+    return ParallelJob{[](void* p) { (*static_cast<F*>(p))(); }, static_cast<void*>(&f)};
+}
+
+namespace native {
+/// Run every job, the first on this thread and the others on threads of their own, and
+/// return once all of them have. In `dz_native.cpp`.
+void parallel_run(ParallelJob* jobs, size_t count);
+}  // namespace native
+
 template <class T> DZ_INLINE T& obj(T& x) { return x; }
 template <class T> DZ_INLINE const T& obj(const T& x) { return x; }
 template <class T> DZ_INLINE T& obj(T* x) { return *x; }
@@ -1894,6 +1911,39 @@ void thread_detach(size_t handle) {
     ::free(record);
 }
 #endif
+
+// --- `parallel { … }` (spec §22.3) ------------------------------------------
+//
+// Every job but the first on a thread of its own, the first on this one, then all joined:
+// the block ends when every call has. A thread that cannot start runs its job here, after
+// the first, which changes when it runs but not what the block does.
+static void run_parallel_job(uint8_t* raw) {
+    ParallelJob* job = reinterpret_cast<ParallelJob*>(raw);
+    job->run(job->context);
+}
+
+// No allocator here needs a lock: what a call may grow on another thread was placed on the
+// heap, whose `malloc` is safe on every thread, and every region is used by the thread that
+// opened it alone (spec §22.6, §22.12).
+void parallel_run(ParallelJob* jobs, size_t count) {
+    if (count == 0) { return; }
+    size_t* handles = nullptr;
+    if (count > 1) {
+        handles = static_cast<size_t*>(::calloc(count - 1, sizeof(size_t)));
+    }
+    for (size_t i = 1; i < count && handles != nullptr; ++i) {
+        handles[i - 1] = thread_start(&run_parallel_job, reinterpret_cast<uint8_t*>(&jobs[i]));
+    }
+    jobs[0].run(jobs[0].context);
+    for (size_t i = 1; i < count; ++i) {
+        if (handles != nullptr && handles[i - 1] != 0) {
+            thread_join(handles[i - 1]);
+        } else {
+            jobs[i].run(jobs[i].context);
+        }
+    }
+    ::free(handles);
+}
 
 uint64_t monotonic_nanos() {
     return now_nanos();

@@ -1,0 +1,20 @@
+// expect: DZ0424
+// Every argument is evaluated before any call in `parallel` starts, so a value moved into
+// one call is gone while the other reads it: the move is a write (spec §22.3).
+
+fn keep(names: List<String>) {
+    println!("{}", names.len())
+}
+
+fn count(names: &List<String>) {
+    println!("{}", names.len())
+}
+
+fn main() {
+    let mut names = List<String>()
+    names.push(String("a"))
+    parallel {
+        count(&names)
+        keep(names)
+    }
+}

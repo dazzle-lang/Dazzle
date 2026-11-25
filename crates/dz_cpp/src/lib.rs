@@ -278,6 +278,7 @@ pub fn emit_selected(
             callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
+            hold_args: false,
             header_ns: module.id,
             def_prefix: "",
             inline_fns: &inline_fns,
@@ -477,6 +478,7 @@ pub fn emit_selected(
             callees: Vec::new(),
             owners_made: 0,
             guards_made: 0,
+            hold_args: false,
             header_ns: res.prelude,
             def_prefix: "",
             inline_fns: &inline_fns,
@@ -666,6 +668,10 @@ struct CapturedArgs {
     /// C++ already evaluates the values in order where they are used (a braced
     /// initialiser), so only hoisted statements can put one out of turn.
     sequenced: bool,
+    /// Every argument is bound to a temporary before the call, whatever its order could
+    /// show: the call of a `parallel` block, which runs on another thread, where only the
+    /// call itself may run (spec §22.3).
+    hold: bool,
 }
 
 struct CapturedArg {
@@ -784,6 +790,10 @@ struct Emitter<'a> {
     /// whether it made one: an owner is scoped to its statement, a guard never is.
     owners_made: usize,
     guards_made: usize,
+    /// Set by [`Emitter::parallel`] for the call it is about to render, and taken by
+    /// [`Emitter::call`] for that call alone: every argument it evaluates is bound before it,
+    /// so what is left to run on another thread is the call itself.
+    hold_args: bool,
     /// The namespace `header` is currently being written for.
     header_ns: ModuleId,
     /// What an out-of-class definition's head starts with. Empty since T-0185, when an
@@ -5539,9 +5549,45 @@ impl<'a> Emitter<'a> {
                 self.indent -= 1;
                 self.line("});");
             }
+            hir::StmtKind::Parallel { calls } => self.parallel(calls),
             // Nested declarations are emitted at module scope by the outer walk.
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
         }
+    }
+
+    /// `parallel { … }` (spec §22.3, D-0118). Every argument of every call is evaluated
+    /// here, in order, into a temporary of the statement's own scope; then each call is a
+    /// lambda capturing them by reference, and the runtime runs the first on this thread
+    /// and the others on threads of their own, returning once all have. The temporaries,
+    /// and whatever the arguments made, are dropped after that, as a call's are.
+    fn parallel(&mut self, calls: &[ExprId]) {
+        if calls.is_empty() {
+            return;
+        }
+        self.line("{");
+        self.indent += 1;
+        let mut jobs = Vec::new();
+        for &c in calls {
+            if !matches!(self.cur().expr(c).kind, hir::ExprKind::Call { .. }) {
+                continue;
+            }
+            self.hold_args = true;
+            let text = self.expr(c);
+            self.hold_args = false;
+            jobs.push(text);
+        }
+        let mut names = Vec::new();
+        for text in jobs {
+            let job = self.fresh("job");
+            self.line(&format!("auto {job} = [&]() {{ {text}; }};"));
+            names.push(format!("::dz::rt::parallel_job({job})"));
+        }
+        let all = self.fresh("jobs");
+        let n = names.len();
+        self.line(&format!("::dz::rt::ParallelJob {all}[] = {{{}}};", names.join(", ")));
+        self.line(&format!("::dz::rt::native::parallel_run({all}, {n});"));
+        self.indent -= 1;
+        self.line("}");
     }
 
     /// An expression in statement position: the value, if any, is discarded.
@@ -7082,6 +7128,8 @@ impl<'a> Emitter<'a> {
         span: Span,
         placed: Option<(usize, Placed)>,
     ) -> String {
+        // This call's alone: a call among its arguments evaluates its own as ever.
+        let hold = std::mem::take(&mut self.hold_args);
         if let hir::Callee::Method { recv, owner, name, .. } = callee {
             if let Some(native) = self.native_trait_call(*recv, *owner, name, args) {
                 return native;
@@ -7141,9 +7189,11 @@ impl<'a> Emitter<'a> {
             ),
             None => self.capture_args(args, true),
         };
+        let mut captured = captured;
+        captured.hold = hold;
         self.callees.pop();
         let head_text = match (head, head_text) {
-            (Some(h), Some(text)) if captured.any_effects() && !self.fixed_place(h) => {
+            (Some(h), Some(text)) if hold || (captured.any_effects() && !self.fixed_place(h)) => {
                 let tmp = self.fresh("recv");
                 self.line(&format!("auto&& {tmp} = {text};"));
                 Some(tmp)
@@ -7281,6 +7331,14 @@ impl<'a> Emitter<'a> {
         for d in defaults.iter().skip(args.len()) {
             let Some((body, default)) = *d else { break };
             let v = self.render_default(body, default, span);
+            // On this thread too, with the arguments written.
+            let v = if hold {
+                let tmp = self.fresh("arg");
+                self.line(&format!("auto&& {tmp} = {v};"));
+                format!("static_cast<decltype({tmp})>({tmp})")
+            } else {
+                v
+            };
             rendered.push(v);
         }
         if self.call_takes_result(callee) {
@@ -7389,7 +7447,9 @@ impl<'a> Emitter<'a> {
         let mut out = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
             let later = &args[i + 1..];
-            let observable = if captured.sequenced {
+            let observable = if captured.hold {
+                true
+            } else if captured.sequenced {
                 !a.stable && later.iter().any(|b| !b.pre.trim().is_empty())
             } else {
                 later.iter().any(|b| (a.effects && !b.stable) || (!a.stable && b.effects))
@@ -8854,6 +8914,8 @@ fn stmt_effects(body: &hir::Body, s: StmtId) -> bool {
                 || block_effects(body, *b)
         }
         hir::StmtKind::Defer(inner) => stmt_effects(body, *inner),
+        // Threads that are started and joined.
+        hir::StmtKind::Parallel { .. } => true,
         hir::StmtKind::Item(_) | hir::StmtKind::Error => false,
     }
 }
@@ -9247,6 +9309,11 @@ impl Namer<'_> {
                 });
             }
             hir::StmtKind::Defer(inner) => self.stmt(*inner),
+            hir::StmtKind::Parallel { calls } => {
+                for c in calls.clone() {
+                    self.expr(c);
+                }
+            }
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
         }
     }

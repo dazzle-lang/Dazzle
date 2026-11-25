@@ -148,6 +148,50 @@ pub fn report(
             d.notes.push(format!("note: {note}"));
         }
     }
+    for c in &a.parallel_conflicts {
+        let writer = call_name(body, res, c.writer);
+        let other = call_name(body, res, c.other);
+        let place = c.place.as_ref().map(&show);
+        // Every argument is evaluated before any call starts, so a value moved into one call
+        // is gone before the other runs.
+        let writes = if c.writer_moves { "is given" } else { "writes" };
+        let (message, label) = match (&place, c.other_writes) {
+            (Some(p), true) if !c.writer_moves => (
+                format!("`{writer}` and `{other}` both write `{p}`, and they run at the same time"),
+                format!("`{other}` writes `{p}`"),
+            ),
+            (Some(p), _) if c.writer_moves => (
+                format!("`{writer}` is given `{p}`, which `{other}` reaches at the same time"),
+                format!("`{other}` reaches `{p}`"),
+            ),
+            (Some(p), _) => (
+                format!("`{writer}` writes `{p}`, which `{other}` reads at the same time"),
+                format!("`{other}` reads `{p}`"),
+            ),
+            (None, _) => (
+                format!(
+                    "`{writer}` writes through a reference this check cannot follow, while \
+                     `{other}` runs"
+                ),
+                format!("`{other}` may reach what `{writer}` writes"),
+            ),
+        };
+        let wrote = match &place {
+            Some(p) => format!("`{writer}` {writes} `{p}`"),
+            None => format!("`{writer}` writes through this"),
+        };
+        diags.push(
+            Diagnostic::error(codes::PARALLEL_CONFLICT, message)
+                .at(file, c.other_at, label)
+                .with_secondary(file, c.writer_at, wrote)
+                .with_help(
+                    "the calls in `parallel` run at the same time, so a place one of them writes \
+                     is touched by no other: give each call memory of its own, or call these two \
+                     one after the other (spec §22.3)",
+                ),
+        );
+    }
+    report_lends(body, table, res, a, diags);
     // Wrapping the code in `unsafe` vouches for it, which only its author can: offered,
     // never applied by `dz fix`.
     let vouch = |at: &Span| {
@@ -350,6 +394,140 @@ pub fn report(
             }
         };
         diags.push(fix(d));
+    }
+}
+
+/// Hold a function's `lends` to its body (spec §22.12): every parameter the body lets another
+/// thread change, through a call in a `parallel` block or a function that `lends` it, is
+/// named, and nothing else is. A missing one is the error that matters, since a caller would
+/// place that memory in a region two threads could grow at once.
+fn report_lends(
+    body: &Body,
+    table: &TypeTable,
+    res: &Resolution,
+    a: &BodyAnalysis,
+    diags: &mut Diagnostics,
+) {
+    let Some(signature) = body_signature(body, table, res) else { return };
+    let sig = &signature.sig;
+    if !sig.has_body {
+        return;
+    }
+    let file = body.file;
+    let offset = usize::from(sig.takes_self.is_some());
+    // The parameters by position, `self` first, as the clause names them.
+    let named = |l: dz_hir::LocalId| -> Option<String> {
+        let i = body.params.iter().position(|p| *p == l)?;
+        if offset == 1 && i == 0 {
+            // Only `&mut self` reaches memory its caller owns that a thread could change.
+            return (sig.takes_self == Some(true)).then(|| "self".to_owned());
+        }
+        let ty = &body.local(l).ty;
+        let changes = matches!(
+            ty,
+            Ty::Ref { mutable: true, .. }
+                | Ty::Ptr { mutable: true, .. }
+                | Ty::Slice { mutable: true, .. }
+        ) || table.placed_as_view(ty);
+        changes.then(|| body.local(l).name.clone())
+    };
+    let mut needed: Vec<(usize, String, Span)> = Vec::new();
+    for (l, at) in &a.lent {
+        let Some(name) = named(*l) else { continue };
+        let i = body.params.iter().position(|p| p == l).unwrap_or(0);
+        if !needed.iter().any(|(_, n, _)| *n == name) {
+            needed.push((i, name, *at));
+        }
+    }
+    needed.sort_by_key(|(i, _, _)| *i);
+    let declared: Vec<(String, Span)> =
+        sig.lends.iter().map(|p| (p.root.name.clone(), p.span)).collect();
+    let names: Vec<&str> = needed.iter().map(|(_, n, _)| n.as_str()).collect();
+    let clause = (!names.is_empty()).then(|| format!("lends {}", names.join(", ")));
+    let fix = match (&clause, sig.lends_span) {
+        (Some(c), Some(at)) => {
+            Some((format!("write `{c}`"), Edit { file, span: at, text: c.clone() }))
+        }
+        (Some(c), None) => {
+            let at = body.block(body.root).span.start as usize;
+            Some((
+                format!("add `{c}`"),
+                Edit { file, span: Span::new(at, at), text: format!("{c} ") },
+            ))
+        }
+        (None, Some(at)) => {
+            Some(("remove the clause".to_owned(), Edit { file, span: at, text: String::new() }))
+        }
+        (None, None) => None,
+    };
+    // A function a macro wrote has every token at the invocation (§12): no edit here can
+    // write its clause.
+    let written_by_macro = body.block(body.root).span.start <= body.span.end;
+    let mut fixed = false;
+    let mut with_fix = |d: Diagnostic| -> Diagnostic {
+        match (&fix, written_by_macro, fixed) {
+            (Some((title, edit)), false, false) => {
+                fixed = true;
+                d.with_fix(title.clone(), vec![edit.clone()])
+            }
+            _ => d,
+        }
+    };
+    let needs = match &clause {
+        Some(c) => format!("the body needs `{c}`"),
+        None => "the body lends nothing, so it needs no `lends` clause".to_owned(),
+    };
+    let name = &signature.name;
+    if let Some((_, lent, at)) =
+        needed.iter().find(|(_, n, _)| !declared.iter().any(|(d, _)| d == n))
+    {
+        let d = Diagnostic::error(
+            codes::LENDS_NOT_DECLARED,
+            format!(
+                "`{name}` lets another thread change what `{lent}` reaches, and does not say so"
+            ),
+        )
+        .at(file, *at, format!("`{lent}` is lent to a `parallel` block here"))
+        .with_help(format!(
+            "a caller places what it lends by this clause: it must know to put it on the heap, \
+             where two threads may grow it at once; {needs} (spec §22.12)"
+        ));
+        diags.push(with_fix(d));
+    }
+    // Only where the walk saw everything the body does: an unknown call could lend.
+    if a.incomplete.is_empty() {
+        if let Some((n, at)) = declared.iter().find(|(d, _)| !needed.iter().any(|(_, n, _)| n == d))
+        {
+            let d = Diagnostic::error(
+                codes::LENDS_NEVER_HAPPENS,
+                format!("`{name}` never lends `{n}` to a `parallel` block"),
+            )
+            .at(file, *at, "more than the body lends")
+            .with_help(format!(
+                "`lends` makes callers put what they give on the heap, so it says exactly what a \
+                 block may change; {needs} (spec §22.12)"
+            ));
+            diags.push(with_fix(d));
+        }
+    }
+}
+
+/// The function a call calls, as the program names it: `physics`, `world.step`.
+fn call_name(body: &Body, res: &Resolution, call: dz_hir::ExprId) -> String {
+    let dz_hir::ExprKind::Call { callee, .. } = &body.expr(call).kind else {
+        return "the call".to_owned();
+    };
+    match callee {
+        dz_hir::Callee::Fn { sym, .. } | dz_hir::Callee::Ctor { owner: sym, .. } => {
+            res.symbol(*sym).name.clone()
+        }
+        dz_hir::Callee::Assoc { owner, name, .. } => format!("{}::{name}", res.symbol(*owner).name),
+        dz_hir::Callee::Method { recv, name, .. }
+        | dz_hir::Callee::BaseMethod { recv, name, .. } => match body.expr(*recv).kind {
+            dz_hir::ExprKind::Local(l) => format!("{}.{name}", body.local(l).name),
+            _ => name.clone(),
+        },
+        dz_hir::Callee::Value(_) => "the function value".to_owned(),
     }
 }
 

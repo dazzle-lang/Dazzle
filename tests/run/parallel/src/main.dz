@@ -1,0 +1,228 @@
+// `parallel { … }` (spec §22.3, D-0118): calls that run at the same time, and the block
+// ends when every one has.
+
+static RAN: Atomic<u32> = Atomic<u32>(0)
+
+struct World {
+    pub positions: List<i32>
+    pub velocities: List<i32>
+    pub names: List<String>
+}
+
+/// Grows the list it is lent: on another thread, into memory that thread may use.
+fn fill(xs: &mut List<i32>, n: i32) kills xs@items {
+    for i in 0..n {
+        xs.push(i)
+    }
+}
+
+fn label(names: &mut List<String>, n: i32) kills names@items {
+    for i in 0..n {
+        names.push(format!("unit {}", i))
+    }
+}
+
+fn total(xs: &List<i32>, out: &mut i64) {
+    let mut sum: i64 = 0
+    for &x in xs {
+        sum += x as i64
+    }
+    out = sum
+}
+
+fn bump(n: &mut i32, by: i32 = 1) {
+    n += by
+    RAN.add(1)
+}
+
+/// A system on a world it was lent: its lists live wherever the caller put the world.
+fn frame(w: &mut World) kills w.positions@items, w.velocities@items, w.names@items lends w {
+    parallel {
+        fill(&mut w.positions, 3000)
+        fill(&mut w.velocities, 2000)
+        label(&mut w.names, 500)
+    }
+}
+
+struct Counter {
+    pub hits: i32
+
+    pub fn hit(&mut self, times: i32) {
+        for _ in 0..times {
+            hits += 1
+        }
+    }
+}
+
+/// A value with a destructor, given by value: it is the other thread's, and dies there.
+struct Noisy {
+    pub name: String
+}
+
+impl Drop for Noisy {
+    fn drop(&mut self) {
+        if name.len() > 0 {
+            println!("dropped {}", name)
+        }
+    }
+}
+
+fn take(n: Noisy, seen: &mut i32) {
+    seen = n.name.len() as i32
+}
+
+/// A block inside a call of another block.
+fn halves(xs: &mut List<i32>, ys: &mut List<i32>) kills xs@items, ys@items lends xs, ys {
+    parallel {
+        fill(xs, 100)
+        fill(ys, 200)
+    }
+}
+
+/// A draw list emptied all at once every frame, so its commands are built in an arena it
+/// keeps (spec §14.6): a call of a block filling one grows that arena, and its own regions.
+struct Command {
+    pub label: String
+    pub points: List<i32>
+}
+
+struct Renderer {
+    m_commands: List<Command>
+    pub drawn: i64 = 0
+
+    tie @commands = m_commands@items, m_commands[*]
+
+    pub Renderer() {}
+
+    pub fn begin(&mut self) kills self@commands {
+        m_commands.clear()
+    }
+
+    pub fn submit(&mut self, c: Command) kills self@commands sends c to self {
+        m_commands.push(c)
+    }
+
+    pub fn flush(&mut self) {
+        for &c in m_commands {
+            drawn += c.label.byte_len() as i64 + c.points.len() as i64
+        }
+    }
+}
+
+fn frames(r: &mut Renderer, tag: i32) kills r@commands {
+    for frame in 0..30 {
+        r.begin()
+        for i in 0..200 {
+            let mut points = List<i32>()
+            for k in 0..i % 5 + 1 {
+                points.push(k + frame)
+            }
+            r.submit(Command{ label: format!("{} frame {} unit {}", tag, frame, i), points: points })
+        }
+        r.flush()
+    }
+}
+
+/// A renderer of the call's own, its commands in the arena it keeps.
+fn own_frames(drawn: &mut i64) {
+    let mut r = Renderer()
+    for frame in 0..30 {
+        r.begin()
+        for i in 0..200 {
+            let mut points = List<i32>()
+            for k in 0..i % 5 + 1 {
+                points.push(k + frame)
+            }
+            r.submit(Command{ label: format!("3 frame {} unit {}", frame, i), points: points })
+        }
+        r.flush()
+    }
+    drawn = r.drawn
+}
+
+/// Two renderers lent from further out, grown at once beside a call with a renderer of its
+/// own: `lends` puts them on the heap, where the caller would otherwise have used its region
+/// (spec §22.12).
+fn both(a: &mut Renderer, b: &mut Renderer, c: &mut i64) kills a@commands, b@commands lends a, b {
+    parallel {
+        frames(a, 1)
+        frames(b, 2)
+        own_frames(c)
+    }
+}
+
+fn main() {
+    // A local's lists, lent to calls that grow them.
+    let mut w = World{ positions: List<i32>(), velocities: List<i32>(), names: List<String>() }
+    parallel {
+        fill(&mut w.positions, 1000)
+        fill(&mut w.velocities, 500)
+    }
+    println!("local {} {}", w.positions.len(), w.velocities.len())
+
+    // The same, from inside a function the world was lent to.
+    frame(&mut w)
+    println!("lent {} {} {}", w.positions.len(), w.velocities.len(), w.names.len())
+    println!("last {}", w.names[w.names.len() - 1])
+
+    // A world only ever lent to `frame`, which `lends` it: on the heap, though nothing here
+    // runs a block (spec §22.12).
+    let mut v = World{ positions: List<i32>(), velocities: List<i32>(), names: List<String>() }
+    for _ in 0..20 {
+        frame(&mut v)
+    }
+    println!("region {} {} {}", v.positions.len(), v.velocities.len(), v.names.len())
+
+    // Two renderers, their commands in arenas of their own, filled at once.
+    let mut red = Renderer()
+    let mut blue = Renderer()
+    let mut green: i64 = 0
+    both(&mut red, &mut blue, &mut green)
+    println!("drawn {} {} {}", red.drawn, blue.drawn, green)
+
+    // Two calls reading one list, each writing its own result.
+    let mut a: i64 = 0
+    let mut b: i64 = 0
+    parallel {
+        total(&w.positions, &mut a)
+        total(&w.velocities, &mut b)
+    }
+    println!("totals {} {}", a, b)
+
+    // Methods, and a default argument.
+    let mut c1 = Counter{ hits: 0 }
+    let mut c2 = Counter{ hits: 0 }
+    let mut n1 = 0
+    let mut n2 = 10
+    parallel {
+        c1.hit(100)
+        c2.hit(50)
+        bump(&mut n1)
+        bump(&mut n2, 5)
+    }
+    println!("methods {} {} {} {} ran {}", c1.hits, c2.hits, n1, n2, RAN.load())
+
+    // Two elements of one array, proven apart.
+    let mut cells = [0, 0, 0]
+    parallel {
+        bump(&mut cells[0], 7)
+        bump(&mut cells[2], 9)
+    }
+    println!("cells {} {} {}", cells[0], cells[1], cells[2])
+
+    // A value moved to another thread.
+    let mut seen = 0
+    let noisy = Noisy{ name: String("noisy") }
+    parallel {
+        take(noisy, &mut seen)
+    }
+    println!("seen {}", seen)
+
+    // Nested, and a single call.
+    let mut xs = List<i32>()
+    let mut ys = List<i32>()
+    parallel {
+        halves(&mut xs, &mut ys)
+    }
+    println!("nested {} {}", xs.len(), ys.len())
+}

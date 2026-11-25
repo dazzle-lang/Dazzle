@@ -312,7 +312,7 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (6 open)
+## M19 — Threads (8 open)
 
 - **[T-0001](tasks/T-0001-arc-t.md)** `Arc<T>` · feature, ownership
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
@@ -320,6 +320,8 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
 - **[T-0259](tasks/T-0259-closures-for-parallel-loop-bodies-first.md)** Closures (D-0112, spec §7.8) · feature, language
 - **[T-0261](tasks/T-0261-method-named-as-value-passes-checker.md)** A method named as a value passes the checker and fails in C++ generation · bug, checker
+- **[T-0266](tasks/T-0266-rc-or-weak-in-parallel-block.md)** An Rc or a Weak in a parallel block: atomic counts, checked by type · feature, concurrency
+- **[T-0267](tasks/T-0267-parallel-block-hands-back-its-calls.md)** A parallel block hands back its calls' results · feature, concurrency
 
 ## M20 — Working with an agent (11 open)
 

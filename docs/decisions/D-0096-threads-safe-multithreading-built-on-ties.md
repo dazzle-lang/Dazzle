@@ -10,7 +10,9 @@ amended by "Tried, 2026-11-18" and the table at the end. **The parallel loop is 
 a parallel iterator**, the user's choice of the same day ("this doesn't read like parallel
 at all"), so `for_each!` below is gone: `for _, &mut p, &v in
 w.query_parallel<&mut Position, &Velocity>() { … }`, and `xs.parallel()` for a container.
-Built as [T-0011](../tasks/T-0011-threads-mutex-atomics-job-system.md) and the M19 tasks.
+**`join!` is a block keyword**, `parallel { a(…) b(…) }`, the user's choice of 2026-11-24 in
+r151 ([D-0118](D-0118-parallel-block-keyword-runs-calls-at.md)): wherever `join!` appears
+below, read that block. Built as [T-0011](../tasks/T-0011-threads-mutex-atomics-job-system.md) and the M19 tasks.
 
 **Where it stood before.** A design, worked out with the user on 2026-11-10 and agreed in
 direction, to be built after 0.1 ([D-0011](D-0011-concurrency.md) places concurrency in

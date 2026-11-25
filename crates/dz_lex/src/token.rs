@@ -58,6 +58,8 @@ pub enum TokenKind {
     In,
     Kills,
     Sends,
+    /// `lends w`: some call in a `parallel` block may change what `w` reaches (spec §22.12).
+    Lends,
     Let,
     Macro,
     Module,
@@ -82,6 +84,8 @@ pub enum TokenKind {
     Loop,
     Unreachable,
     Unsafe,
+    /// `parallel { … }`: calls that run at the same time (spec §22.3, D-0118).
+    Parallel,
     // Struct inheritance (spec §7.3, 18.32).
     Virtual,
     Override,
@@ -182,6 +186,7 @@ impl TokenKind {
             In => "in",
             Kills => "kills",
             Sends => "sends",
+            Lends => "lends",
             Let => "let",
             Macro => "macro",
             Module => "module",
@@ -205,6 +210,7 @@ impl TokenKind {
             Loop => "loop",
             Unreachable => "unreachable",
             Unsafe => "unsafe",
+            Parallel => "parallel",
             Virtual => "virtual",
             Override => "override",
             Protected => "protected",
@@ -280,6 +286,7 @@ impl TokenKind {
                 | In
                 | Kills
                 | Sends
+                | Lends
                 | Let
                 | Macro
                 | Module
@@ -303,6 +310,7 @@ impl TokenKind {
                 | Loop
                 | Unreachable
                 | Unsafe
+                | Parallel
                 | Static
         )
     }
@@ -388,6 +396,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "in" => In,
         "kills" => Kills,
         "sends" => Sends,
+        "lends" => Lends,
         "let" => Let,
         "macro" => Macro,
         "module" => Module,
@@ -411,6 +420,7 @@ pub fn keyword(text: &str) -> Option<TokenKind> {
         "loop" => Loop,
         "unreachable" => Unreachable,
         "unsafe" => Unsafe,
+        "parallel" => Parallel,
         "virtual" => Virtual,
         "override" => Override,
         "protected" => Protected,

@@ -26,7 +26,8 @@ attribute     = "#" "[" ident [ "(" token_tree ")" ] "]" ;
 
 fn_decl       = [ "unsafe" ] [ "mut" ] "fn" ident [ generics ] "(" [ params ] ")"
                 [ ( "->" | "!->" ) type [ "in" in_list ] ]
-                [ "kills" kill_list ] [ "sends" send_list ] block ;   (* §6.7, D-0097 *)
+                [ "kills" kill_list ] [ "sends" send_list ] [ "lends" ident { "," ident } ] block ;
+                                            (* §6.7, D-0097, §22.12; in any order *)
 kill_list     = tie_path { "," tie_path } | "(" tie_path { "," tie_path } ")" ;
 send_list     = send { "," send } | "(" send { "," send } ")" ;
 send          = tie_path "to" tie_path ;   (* "to" is a word, not a keyword *)
@@ -86,7 +87,7 @@ spell an optional function pointer.
 ```ebnf
 
 statement     = let_stmt | assign | expr_stmt | if_stmt | while_stmt | loop_stmt | for_stmt
-              | switch_stmt | return_stmt | defer_stmt | block | "unsafe" block
+              | switch_stmt | return_stmt | defer_stmt | parallel_stmt | block | "unsafe" block
               | macro_invoke
               | "break" [ ident ] | "continue" [ ident ] ;   (* no value after `break` *)
 
@@ -110,6 +111,7 @@ or_clause     = "{" [ ident "->" ] { statement } "}"
               | expr ;
 return_stmt   = "return" [ expr ] TERM ;
 defer_stmt    = "defer" ( statement | block ) ;
+parallel_stmt = "parallel" block ;          (* each statement one call: §22.3 *)
 
 expr          = assign_free_expr ;   (* precedence per §11.1; includes `or` *)
 primary       = literal | "none" | path | struct_lit | call | index | field_access

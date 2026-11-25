@@ -740,10 +740,11 @@ impl<'a> Printer<'a> {
         // Where a returned reference points, and what the function kills: part of what it
         // means, so they stay exactly as written (spec §6.7).
         let ret = format!(
-            "{ret}{}{}{}",
+            "{ret}{}{}{}{}",
             dump::in_str(&f.ret_ties),
             dump::kills_str(&f.kills, false),
-            dump::sends_str(&f.sends)
+            dump::sends_str(&f.sends),
+            dump::lends_str(&f.lends)
         );
         let empty_body =
             f.body.as_ref().is_some_and(|b| b.stmts.is_empty() && !self.comment_inside(b.span));
@@ -851,6 +852,13 @@ impl<'a> Printer<'a> {
                 self.line(&text);
                 self.indent += 1;
                 self.block_body(&f.body);
+                self.indent -= 1;
+                self.line("}");
+            }
+            StmtKind::Parallel(b) => {
+                self.line("parallel {");
+                self.indent += 1;
+                self.block_body(b);
                 self.indent -= 1;
                 self.line("}");
             }

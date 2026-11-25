@@ -165,6 +165,16 @@ pub fn check(scope: &Scope<'_>, params: &[dz_ast::Param]) -> Vec<Error> {
         }
     }
     homes_and_sends(scope, &mut out);
+    for path in &scope.sig.lends {
+        match resolve(scope, path) {
+            Ok(tie) => {
+                if let Err(e) = lendable(scope, &tie, path) {
+                    out.push(e);
+                }
+            }
+            Err(e) => out.push(e),
+        }
+    }
     for (i, (p, sig)) in params.iter().zip(&scope.sig.params).enumerate() {
         let Some(path) = &p.tie else { continue };
         match resolve(scope, path) {
@@ -595,6 +605,52 @@ fn sendable(scope: &Scope<'_>, tie: &Tie, path: &TiePath, giving: bool) -> Resul
         "a function sends what it was given by value, or takes through a `&mut` parameter or \
          `&mut self`, into a `&mut` parameter, `&mut self` or a static (D-0097)",
     ))
+}
+
+/// A `lends` name: a whole parameter through which the function can change its caller's
+/// memory, a `&mut`, `[]mut` or `^mut` one, `&mut self`, or a view taken by value, which
+/// points into the caller's (spec §22.12). A part is the parameter's to lend, and what is
+/// given by value or lent as `&` cannot be grown by another thread.
+fn lendable(scope: &Scope<'_>, tie: &Tie, path: &TiePath) -> Result<(), Error> {
+    let bad = |label: String, help: &str| {
+        Err(error(
+            codes::LENDS_WHAT_IT_CANNOT_CHANGE,
+            path.span,
+            format!("`{}` cannot lend `{}`", scope.name, dz_ast::dump::tie_path_str(path)),
+            label,
+            help,
+        ))
+    };
+    const HELP: &str = "`lends` names a parameter the function can change its caller's memory \
+                        through, `&mut` or `&mut self`, that a call in a `parallel` block may \
+                        change; what it owns or only reads needs nothing (spec §22.12)";
+    if !tie.steps.is_empty() {
+        return bad(
+            "a part of a parameter".to_owned(),
+            "`lends` names a whole parameter, which its callers place, never a part of one \
+             (spec §22.12)",
+        );
+    }
+    match tie.root {
+        Root::Static(_) => bad("a static".to_owned(), HELP),
+        Root::SelfValue if scope.sig.takes_self == Some(true) => Ok(()),
+        Root::SelfValue => bad("taken as `&self`".to_owned(), HELP),
+        Root::Param(i) => {
+            let ty = &scope.sig.params[i].ty;
+            let changes = matches!(
+                ty,
+                Ty::Ref { mutable: true, .. }
+                    | Ty::Ptr { mutable: true, .. }
+                    | Ty::Slice { mutable: true, .. }
+            ) || (scope.table.placed_as_view(ty)
+                && holds_view(scope.table, ty, true));
+            if changes {
+                Ok(())
+            } else {
+                bad(format!("taken as `{}`", crate::type_name(scope.res, ty)), HELP)
+            }
+        }
+    }
 }
 
 /// A `kills` path must start where the function can change something: a `&mut` or `^mut`
@@ -1053,6 +1109,8 @@ pub fn fn_type_sig(params: &[Ty], ret: &Ty, kills: &FnKills) -> FnSig {
         // call through the value places by these as by a declaration's (T-0202).
         sends: sends.to_vec(),
         sends_span: None,
+        lends: Vec::new(),
+        lends_span: None,
         ret_span: None,
         ret_home: homes.to_vec(),
     }

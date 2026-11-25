@@ -391,6 +391,7 @@ impl Stripper<'_> {
                 self.block(&mut f.body);
             }
             StmtKind::Defer(inner) => self.stmt(inner),
+            StmtKind::Parallel(b) => self.block(b),
             StmtKind::Item(item) => {
                 // A nested `#if` item was spliced by the statement list; this is one item.
                 self.item(item);

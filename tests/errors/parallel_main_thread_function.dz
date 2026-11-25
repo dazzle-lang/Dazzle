@@ -1,0 +1,23 @@
+// expect: DZ0598
+// A call in `parallel` runs on another thread, so it may not need the main thread; `main`
+// is on the main thread already, and needs no `#[main_thread]` for the call (spec §22.5).
+
+static FRAME_COUNT: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn work(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let mut a = 0
+    parallel {
+        tick()
+        work(&mut a)
+    }
+    println!("{} {}", a, unsafe { FRAME_COUNT })
+}

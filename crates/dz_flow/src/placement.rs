@@ -906,7 +906,14 @@ fn place_body(inputs: &Inputs, body: &Body, proposer: Proposer) -> Option<BodyPl
     if found.is_empty() && copies.is_empty() {
         return None;
     }
-    let cx = Cx::new(table, res, body, results.contains(&body.owner), staying, arenas);
+    let mut cx = Cx::new(table, res, body, results.contains(&body.owner), staying, arenas);
+    // What this body lets another thread change, followed through references by the tie
+    // walk: on the heap, since two threads may grow it at once (spec §22.12). Walked only for
+    // a body that has a `parallel` block or calls a function that `lends`.
+    if lends_anything(table, body) {
+        let a = crate::ties::analyse_body(body, table, res);
+        cx.lent = a.lent.iter().map(|(l, at)| (*l, *at)).collect();
+    }
     // A copy is a site when it is taken by value somewhere a placement can follow it
     // (T-0140): what it builds is its own, wherever the value it copies lives.
     for e in copies {
@@ -1007,6 +1014,32 @@ fn place_body(inputs: &Inputs, body: &Body, proposer: Proposer) -> Option<BodyPl
         });
     }
     Some(BodyPlacement { file: body.file, sites, demoted, skipped: Vec::new() })
+}
+
+/// Whether `body` may lend memory to another thread: it has a `parallel` block, or calls a
+/// function whose signature `lends` (spec §22.12).
+fn lends_anything(table: &TypeTable, body: &Body) -> bool {
+    if body.stmts.iter().any(|s| matches!(s.kind, hir::StmtKind::Parallel { .. })) {
+        return true;
+    }
+    body.exprs.iter().any(|e| {
+        let hir::ExprKind::Call { callee, .. } = &e.kind else { return false };
+        match callee {
+            Callee::Fn { sym, .. } => {
+                matches!(table.get(*sym), Some(ItemSig::Fn(sig)) if !sig.lends.is_empty())
+            }
+            // Any overload of the name, which is all a call needs to be walked.
+            Callee::Method { owner, name, .. }
+            | Callee::BaseMethod { owner, name, .. }
+            | Callee::Assoc { owner, name, .. } => table.methods_sig(*owner).is_some_and(|s| {
+                let base = name.split('#').next().unwrap_or(name);
+                s.methods.iter().any(|(k, m)| {
+                    (k == name || k.split('#').next() == Some(base)) && !m.lends.is_empty()
+                })
+            }),
+            _ => false,
+        }
+    })
 }
 
 /// `e`, when it is a site: a call to a result function, `std`'s `Rc(…)`, or a call whose
@@ -1132,7 +1165,7 @@ enum Kind {
 }
 
 /// What is around a node.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Up {
     Expr(ExprId),
     Stmt(StmtId),
@@ -1155,6 +1188,9 @@ struct Cx<'a> {
     module: ModuleId,
     /// The fields whose owner keeps an arena for them (T-0120).
     arenas: &'a crate::arenas::OwnerArenas,
+    /// The locals this body lets another thread change, with where (spec §22.12): empty
+    /// unless [`place_body`] walked the body's ties for them.
+    lent: HashMap<LocalId, Span>,
 }
 
 /// What the uses of a local do with it.
@@ -1200,6 +1236,7 @@ impl<'a> Cx<'a> {
             expr_block: HashMap::new(),
             stmt_block: HashMap::new(),
             blocks: HashMap::new(),
+            lent: HashMap::new(),
         };
         cx.walk_block(body.root, Kind::Root, None, None);
         cx
@@ -1236,7 +1273,47 @@ impl<'a> Cx<'a> {
                 self.walk_block(*body, Kind::Loop, Some(b), None);
             }
             hir::StmtKind::Defer(inner) => self.walk_stmt(*inner, b),
+            hir::StmtKind::Parallel { calls } => {
+                for c in calls.clone() {
+                    self.walk_expr(c, up, b);
+                }
+            }
             hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
+        }
+    }
+
+    /// The call of a `parallel` block that `e` is part of, if it is part of one.
+    fn parallel_call(&self, e: ExprId) -> Option<ExprId> {
+        let mut at = e;
+        loop {
+            match self.up.get(&at)? {
+                Up::Expr(parent) => at = *parent,
+                Up::Stmt(s) => {
+                    return matches!(self.body.stmt(*s).kind, hir::StmtKind::Parallel { .. })
+                        .then_some(at);
+                }
+            }
+        }
+    }
+
+    /// Whether the use `e` of a local, in the `parallel` call `call`, only lends it as `&`:
+    /// `&x` or `&x.field`, an argument of the call itself. Another thread then reads it and
+    /// builds nothing in it (spec §22.6).
+    fn lent_shared_to(&self, e: ExprId, call: ExprId) -> bool {
+        let mut at = e;
+        loop {
+            let Some(Up::Expr(parent)) = self.up.get(&at) else { return false };
+            match self.body.expr(*parent).kind {
+                hir::ExprKind::Field { base, .. } | hir::ExprKind::TupleIndex { base, .. }
+                    if base == at =>
+                {
+                    at = *parent
+                }
+                hir::ExprKind::Ref { mutable: false, .. } => {
+                    return self.up.get(parent) == Some(&Up::Expr(call));
+                }
+                _ => return false,
+            }
         }
     }
 
@@ -1380,6 +1457,11 @@ impl<'a> Cx<'a> {
             // caller, or before the body.
             return Err(("not inside the body's blocks".to_owned(), None));
         };
+        // Made for a call that runs on another thread (spec §22.6).
+        if let Some(call) = self.parallel_call(e) {
+            let at = Some(self.body.expr(call).span);
+            return Err(("given to a call in `parallel`".to_owned(), at));
+        }
         // `format!`'s text is the macro's value, so it goes where that value goes. The
         // lambda C++ gets captures by reference, so it reaches the region outside it.
         let formatted = self.formatted_text(e, block);
@@ -1588,6 +1670,11 @@ impl<'a> Cx<'a> {
     /// [`Self::escape_of`] for the locals a tuple `let` binds, which together hold the
     /// tuple: where the first that leaves takes it, or else where they all go.
     fn escape_of_all(&self, xs: &[LocalId], depth: u32) -> Escape {
+        // Lent to another thread, through a `parallel` block or a function that `lends` it,
+        // however it got there: two threads may grow it at once (spec §22.12).
+        if let Some(at) = xs.iter().find_map(|x| self.lent.get(x)) {
+            return Escape::Leaves(("lent to a `parallel` block".to_owned(), Some(*at)));
+        }
         let mut uses: Vec<ExprId> = (0..self.body.exprs.len() as u32)
             .map(ExprId)
             .filter(
@@ -2236,6 +2323,17 @@ impl<'a> Cx<'a> {
         let Some(up) = self.up.get(&e) else {
             return Escape::Leaves(("used where this cannot follow it".to_owned(), span(e)));
         };
+        // Lent `&mut` or given by value to a call that runs on another thread, which may
+        // grow it while another thread grows this body's region (spec §22.6): the heap, as
+        // for code the compiler cannot see. Lent as `&`, it is only read.
+        // A copy given by value is a value of its own, and the place it was read from stays.
+        if let Some(call) = self.parallel_call(e) {
+            if !self.lent_shared_to(e, call) {
+                let why = ("given to a call in `parallel`".to_owned(), span(call));
+                let by_value = *up == Up::Expr(call);
+                return if by_value && copy { Escape::Stays } else { Escape::Leaves(why) };
+            }
+        }
         match *up {
             Up::Stmt(s) => {
                 let stmt = self.body.stmt(s);

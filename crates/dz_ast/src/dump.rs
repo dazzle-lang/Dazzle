@@ -265,8 +265,13 @@ impl<'a> Dumper<'a> {
         };
         // Where a returned reference points, what the function kills (spec §6.7), and what
         // it sends from one input to another (D-0097).
-        let ties =
-            format!("{}{}{}", in_str(&f.ret_ties), kills_str(&f.kills, false), sends_str(&f.sends));
+        let ties = format!(
+            "{}{}{}{}",
+            in_str(&f.ret_ties),
+            kills_str(&f.kills, false),
+            sends_str(&f.sends),
+            lends_str(&f.lends)
+        );
         self.line(format_args!(
             "{vis}{}{}{}{} {}{}({}){}{ties}",
             match f.dispatch {
@@ -396,6 +401,10 @@ impl<'a> Dumper<'a> {
             StmtKind::Defer(inner) => {
                 self.line(format_args!("defer"));
                 self.nest(|d| d.stmt(inner));
+            }
+            StmtKind::Parallel(b) => {
+                self.line(format_args!("parallel"));
+                self.nest(|d| d.block(b));
             }
             StmtKind::Item(item) => self.item(item),
             StmtKind::Macro(c) => self.macro_call(c),
@@ -875,6 +884,16 @@ pub fn kills_str(kills: &[TiePath], in_type: bool) -> String {
         1 => format!(" kills {}", paths[0]),
         _ if in_type => format!(" kills ({})", paths.join(", ")),
         _ => format!(" kills {}", paths.join(", ")),
+    }
+}
+
+/// ` lends w, self`, or nothing when there are none (spec §22.12).
+pub fn lends_str(lends: &[TiePath]) -> String {
+    let names: Vec<String> = lends.iter().map(tie_path_str).collect();
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(" lends {}", names.join(", "))
     }
 }
 

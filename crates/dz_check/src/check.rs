@@ -17,6 +17,8 @@ use crate::{
     parse_int_literal, type_name, Ctx, FnSig, ForeignUnsafe, ImplSig, ItemSig, ParamDef, TraitRef,
 };
 
+mod parallel;
+
 pub(crate) fn item(cx: &mut Ctx, it: &Item) {
     match &it.kind {
         // Removed by the driver before this phase (spec §12.10).
@@ -1053,6 +1055,8 @@ fn check_members(cx: &mut Ctx, sym: SymbolId, members: &[Member]) {
                     entry_point: false,
                     sends: Vec::new(),
                     sends_span: None,
+                    lends: Vec::new(),
+                    lends_span: None,
                     ret_span: None,
                     ret_home: Vec::new(),
                 };
@@ -1224,6 +1228,13 @@ struct Body<'a, 'c> {
     /// What this body does outside `unsafe` that needs the main thread, and why, in
     /// order: held to the function's `#[main_thread]` when it ends (spec §22.5).
     main_thread_needs: Vec<(Span, String)>,
+    /// The call of a `parallel` block being checked, by its span: what it needs of the main
+    /// thread itself, as opposed to what its arguments need, is the block's error, since it
+    /// runs on another thread (spec §22.3). Inside `unsafe` too, which vouches for statics,
+    /// never for which thread a function runs on.
+    parallel_call: Option<Span>,
+    /// What that call needs of the main thread, and why.
+    parallel_needs: Vec<(Span, String)>,
     /// Whether the statement about to be checked is still among the constructor's opening
     /// ones, where `m_map = map` binds a reference field rather than writing through it.
     binding_prefix: bool,
@@ -1290,6 +1301,8 @@ impl<'a, 'c> Body<'a, 'c> {
             next_loop: 0,
             unbound: Vec::new(),
             main_thread_needs: Vec::new(),
+            parallel_call: None,
+            parallel_needs: Vec::new(),
             binding_prefix: false,
             read_only_fields: Vec::new(),
             read_only_views: HashSet::new(),
@@ -1998,6 +2011,12 @@ impl<'a, 'c> Body<'a, 'c> {
     /// Something this body does outside `unsafe` that only the main thread may do: touch a
     /// plain static, or call a `#[main_thread]` function or C that is not thread-safe.
     fn needs_main_thread(&mut self, span: Span, why: String) {
+        if self.parallel_call == Some(span) {
+            if !self.parallel_needs.iter().any(|(s, _)| *s == span) {
+                self.parallel_needs.push((span, why));
+            }
+            return;
+        }
         // A place may be checked more than once, as a receiver and then as a place; it is
         // one use.
         if self.unsafe_depth == 0 && !self.main_thread_needs.iter().any(|(s, _)| *s == span) {
@@ -2358,8 +2377,64 @@ impl<'a, 'c> Body<'a, 'c> {
             self.require_field_values(f);
         }
         self.settle_main_thread(f, sig);
+        self.lends_within_ceiling(sig);
         self.pop();
         root
+    }
+
+    /// An implementation of a trait method, or an override, may lend only what the method it
+    /// implements lends: a caller through the trait or the base places by that one's clause
+    /// (spec §22.12).
+    fn lends_within_ceiling(&mut self, sig: &FnSig) {
+        if sig.lends.is_empty() {
+            return;
+        }
+        let theirs: Option<(FnSig, String)> = match self.hir.owner() {
+            BodyOwner::ImplMethod { imp, name } => (|| {
+                let imp = self.cx.table.impls().get(*imp as usize)?;
+                let theirs = self.cx.table.trait_method(&imp.trait_ref, &imp.self_ty, name)?;
+                let t = self.cx.res.symbol(imp.trait_ref.trait_sym).name.clone();
+                Some((theirs.clone(), format!("`{t}::{name}`")))
+            })(),
+            BodyOwner::Method { owner, name } if sig.dispatch == Dispatch::Override => {
+                let name = name.split('#').next().unwrap_or(name);
+                self.cx.table.with_bases(*owner).into_iter().skip(1).find_map(|b| {
+                    let bsig = self.cx.table.struct_sig(b)?;
+                    let key = bsig.overloads.get(name)?.first()?;
+                    let theirs = bsig.methods.get(key)?;
+                    let base = self.cx.res.symbol(b).name.clone();
+                    Some((theirs.clone(), format!("`{base}::{name}`")))
+                })
+            }
+            _ => None,
+        };
+        let Some((theirs, which)) = theirs else { return };
+        // Each clause by position: `self`, or the parameter's index, since an implementation
+        // may name its parameters differently.
+        let position = |s: &FnSig, p: &dz_ast::TiePath| -> Option<Option<usize>> {
+            if p.root.name == "self" {
+                return Some(None);
+            }
+            s.params.iter().position(|q| q.name == p.root.name).map(Some)
+        };
+        let allowed: Vec<Option<Option<usize>>> =
+            theirs.lends.iter().map(|p| position(&theirs, p)).collect();
+        // One clause, one mistake, however many names it has beyond the method's.
+        let extra: Vec<&dz_ast::TiePath> =
+            sig.lends.iter().filter(|p| !allowed.contains(&position(sig, p))).collect();
+        let Some(first) = extra.first() else { return };
+        let names: Vec<String> = extra.iter().map(|p| format!("`{}`", p.root_spelling())).collect();
+        self.cx.error_help(
+            codes::LENDS_NOT_IN_TRAIT,
+            first.span,
+            format!("this lends {}, and {which} does not", names.join(", ")),
+            "more than the method it implements lends",
+            format!(
+                "a call through {which} places what it gives by that method's clause, so it \
+                 would not be on the heap; write the same `lends` on {which}, or keep this \
+                 one's calls apart from a `parallel` block (spec §22.12)"
+            ),
+        );
     }
 
     /// A field a constructor does not assign is built at its default, so one with neither a
@@ -2789,6 +2864,7 @@ impl<'a, 'c> Body<'a, 'c> {
             }
             StmtKind::For(f) => self.for_stmt(f),
             StmtKind::Defer(inner) => hir::StmtKind::Defer(self.stmt(inner)),
+            StmtKind::Parallel(b) => self.parallel_stmt(b),
             // Nested declarations are checked by the top-level walk.
             StmtKind::Item(_) | StmtKind::Error => hir::StmtKind::Error,
         };
@@ -8488,45 +8564,61 @@ impl<'a, 'c> Body<'a, 'c> {
         }
 
         let (ty, kind) = match symbol_kind {
-            SymbolKind::Fn => match self.cx.table.get(sym).cloned() {
-                Some(ItemSig::Fn(sig)) => {
-                    let seg = &p.segments[used.clamp(1, p.segments.len()) - 1];
-                    let type_args = self.fn_value_type_args(&sig, seg, expected, e.span);
-                    let map: HashMap<u32, Ty> = sig
-                        .generics
-                        .iter()
-                        .map(|g| g.param.id)
-                        .zip(type_args.iter().cloned())
-                        .collect();
-                    (
-                        Ty::Fn {
-                            params: sig
-                                .params
-                                .iter()
-                                .map(|p| self.cx.table.subst(&p.ty, &map))
-                                .collect(),
-                            ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
-                            // Its own clauses, held to the type it is stored in (§6.7).
-                            kills: if sig.kills_unknown {
-                                FnKills::Unknown
-                            } else {
-                                FnKills::Known {
-                                    names: sig.params.iter().map(|p| p.name.clone()).collect(),
-                                    results: sig.ret_ties.iter().cloned().collect(),
-                                    paths: sig.kills.iter().cloned().collect(),
-                                    statics: sig.statics.clone().into(),
-                                    sends: sig.sends.iter().cloned().collect(),
-                                    homes: sig.ret_home.iter().cloned().collect(),
-                                }
+            SymbolKind::Fn => {
+                match self.cx.table.get(sym).cloned() {
+                    Some(ItemSig::Fn(sig)) => {
+                        // A function type has no `lends`, so a call through the value could not
+                        // place what it gives on the heap (spec §22.12).
+                        if let Some(lent) = sig.lends.first() {
+                            let name = self.cx.res.symbol(sym).name.clone();
+                            self.cx.error_help(
+                            codes::LENDING_FN_AS_VALUE,
+                            e.span,
+                            format!("`{name}` lends `{}`, so it cannot be a function value", lent.root_spelling()),
+                            "used as a value",
+                            "a function type has no `lends`, so a caller through the value could \
+                             not know to place what it gives on the heap; call the function by \
+                             name (spec §22.12)",
+                        );
+                        }
+                        let seg = &p.segments[used.clamp(1, p.segments.len()) - 1];
+                        let type_args = self.fn_value_type_args(&sig, seg, expected, e.span);
+                        let map: HashMap<u32, Ty> = sig
+                            .generics
+                            .iter()
+                            .map(|g| g.param.id)
+                            .zip(type_args.iter().cloned())
+                            .collect();
+                        (
+                            Ty::Fn {
+                                params: sig
+                                    .params
+                                    .iter()
+                                    .map(|p| self.cx.table.subst(&p.ty, &map))
+                                    .collect(),
+                                ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
+                                // Its own clauses, held to the type it is stored in (§6.7).
+                                kills: if sig.kills_unknown {
+                                    FnKills::Unknown
+                                } else {
+                                    FnKills::Known {
+                                        names: sig.params.iter().map(|p| p.name.clone()).collect(),
+                                        results: sig.ret_ties.iter().cloned().collect(),
+                                        paths: sig.kills.iter().cloned().collect(),
+                                        statics: sig.statics.clone().into(),
+                                        sends: sig.sends.iter().cloned().collect(),
+                                        homes: sig.ret_home.iter().cloned().collect(),
+                                    }
+                                },
+                                // Where it may run, held to the type as its clauses are (§22.5).
+                                main_thread: MainThread(sig.main_thread),
                             },
-                            // Where it may run, held to the type as its clauses are (§22.5).
-                            main_thread: MainThread(sig.main_thread),
-                        },
-                        hir::ExprKind::FnItem { sym, type_args },
-                    )
+                            hir::ExprKind::FnItem { sym, type_args },
+                        )
+                    }
+                    _ => (Ty::Error, hir::ExprKind::Error),
                 }
-                _ => (Ty::Error, hir::ExprKind::Error),
-            },
+            }
             SymbolKind::Const => match self.cx.table.get(sym) {
                 // An imported integer constant is untyped as a literal is, and its range is
                 // checked against a narrow context as a literal's (spec §5.1, T-0021).

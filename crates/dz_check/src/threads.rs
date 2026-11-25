@@ -23,6 +23,16 @@ pub enum Crossing {
 }
 
 impl crate::Ctx<'_> {
+    /// Whether `ty` reaches an `Rc` or a `Weak` through what it holds, behind references
+    /// too, since reading one through `&` writes its count (spec §22.4).
+    pub(crate) fn holds_rc(&self, ty: &Ty) -> bool {
+        let rc = |sym: SymbolId| {
+            let s = self.res.symbol(sym);
+            s.module == self.res.prelude && matches!(s.name.as_str(), "Rc" | "Weak")
+        };
+        self.table.holds_named(ty, &rc, &mut Vec::new())
+    }
+
     /// A [`Blocker`] as a help says it: "its field `m_header` is a raw pointer".
     pub(crate) fn describe_blocker(&self, b: &Blocker) -> String {
         let what = match &b.ty {
@@ -108,6 +118,52 @@ impl TypeTable {
                         self.payload_types(*sym, args, v)
                             .iter()
                             .any(|t| self.dies_on_main_thread_guarded(t, stack))
+                    }),
+                    _ => false,
+                };
+                stack.pop();
+                answer
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether `ty` is, or holds through its fields and references, a type `is` picks out.
+    fn holds_named(
+        &self,
+        ty: &Ty,
+        is: &dyn Fn(SymbolId) -> bool,
+        stack: &mut Vec<SymbolId>,
+    ) -> bool {
+        match ty {
+            Ty::OwnPtr { inner, .. }
+            | Ty::Ref { inner, .. }
+            | Ty::Optional(inner)
+            | Ty::Fallible(inner)
+            | Ty::Slice { elem: inner, .. }
+            | Ty::ConstSlice(inner)
+            | Ty::Array { elem: inner, .. } => self.holds_named(inner, is, stack),
+            Ty::Tuple(parts) => parts.iter().any(|t| self.holds_named(t, is, stack)),
+            Ty::Named { sym, args } => {
+                if is(*sym) {
+                    return true;
+                }
+                if stack.contains(sym) {
+                    return false;
+                }
+                stack.push(*sym);
+                let answer = match self.get(*sym) {
+                    Some(ItemSig::Struct(_)) => self.with_bases(*sym).into_iter().any(|owner| {
+                        let Some(s) = self.struct_sig(owner) else { return false };
+                        let own_args = self.args_as(*sym, args, owner);
+                        self.field_types(owner, &own_args, &s.fields)
+                            .iter()
+                            .any(|t| self.holds_named(t, is, stack))
+                    }),
+                    Some(ItemSig::Union { variants, .. }) => variants.iter().any(|v| {
+                        self.payload_types(*sym, args, v)
+                            .iter()
+                            .any(|t| self.holds_named(t, is, stack))
                     }),
                     _ => false,
                 };

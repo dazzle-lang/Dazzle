@@ -1,0 +1,26 @@
+// expect: DZ0424
+// A place one call in `parallel` writes is touched by no other: `physics` writes
+// `w.positions` while `render` reads it (spec §22.3).
+
+struct World {
+    pub positions: List<i32>
+    pub velocities: List<i32>
+}
+
+fn physics(positions: &mut List<i32>, velocities: &List<i32>) {
+    for i in 0..positions.len() {
+        positions[i] += velocities[i]
+    }
+}
+
+fn render(positions: &List<i32>) {
+    println!("{}", positions.len())
+}
+
+fn main() {
+    let mut w = World{ positions: List<i32>(), velocities: List<i32>() }
+    parallel {
+        physics(&mut w.positions, &w.velocities)
+        render(&w.positions)
+    }
+}

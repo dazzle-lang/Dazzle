@@ -2111,3 +2111,114 @@ fn main() {
     c.hits.add(1)
 }
 ```
+
+## DZ0597
+
+Each line of `parallel { … }` is one call to a function or a method, and the calls run at
+the same time (spec §22.3). A `let`, an assignment or a loop is not a call, and a call that
+returns a value would lose it, since the block does not hand results back yet. Work out what
+the calls need before the block, and have a call write its result through a `&mut` argument.
+
+```dz
+fn square(n: i32) -> i32 {
+    return n * n
+}
+
+fn main() {
+    parallel {
+        square(3)
+    }
+}
+```
+
+```dz
+fn square(n: i32, out: &mut i32) {
+    out = n * n
+}
+
+fn main() {
+    let mut a = 0
+    let mut b = 0
+    parallel {
+        square(3, &mut a)
+        square(4, &mut b)
+    }
+    println!("{} {}", a, b)
+}
+```
+
+## DZ0598
+
+Every call in `parallel { … }` but the first runs on a thread of its own, so none of them may
+need the main thread: a function that touches a plain static, calls C its recipe does not
+mark `thread_safe`, or is written `#[main_thread]` (spec §22.3, §22.5). `unsafe` vouches for
+a static, never for which thread a function runs on. Call it before or after the block, or
+reach the static through an atomic.
+
+```dz
+static FRAMES: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAMES += 1
+}
+
+fn main() {
+    parallel {
+        tick()
+    }
+}
+```
+
+```dz
+static FRAMES: Atomic<u64> = Atomic<u64>(0)
+
+fn tick() {
+    FRAMES.add(1)
+}
+
+fn main() {
+    parallel {
+        tick()
+    }
+}
+```
+
+## DZ0599
+
+An argument of a call in `parallel { … }` is reached from another thread while the call runs
+(spec §22.2, §22.3). Lent as `&T`, it may be read on two threads at once, so `T` is `Share`;
+lent as `&mut T` or given by value, it is the other thread's for a while, so `T` is `Send`. A
+raw pointer may point at anyone's memory, and a `&mut` inside a view is a second way to write
+it. An `Rc` shares a count with every `Rc` of its value, which threads do not update together
+yet, so an `Rc` or a `Weak` does not reach `parallel`: pass what the call reads out of it.
+
+```dz
+struct Sprite {
+    pub texture: Rc<u32>
+}
+
+fn draw(_s: &Sprite) {}
+
+fn main() {
+    let s = Sprite{ texture: Rc<u32>(1) }
+    parallel {
+        draw(&s)
+    }
+}
+```
+
+```dz
+struct Sprite {
+    pub texture: u32
+}
+
+fn draw(_s: &Sprite) {}
+
+fn main() {
+    let s = Sprite{ texture: 1 }
+    parallel {
+        draw(&s)
+    }
+}
+```

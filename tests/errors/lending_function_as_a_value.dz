@@ -1,0 +1,21 @@
+// expect: DZ0428
+// A function type has no `lends`, so a function that lends a parameter is called by name: a
+// caller through the value could not know to put what it gives on the heap (spec §22.12).
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+    parallel {
+        fill(a)
+        fill(b)
+    }
+}
+
+fn main() {
+    let f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = both
+    let mut a = List<i32>()
+    let mut b = List<i32>()
+    f(&mut a, &mut b)
+}

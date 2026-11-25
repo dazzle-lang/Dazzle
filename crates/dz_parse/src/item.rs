@@ -443,10 +443,11 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        // `kills …` and `sends … to …`, each at most once and in either order; the
-        // formatter writes `kills` first (D-0097).
+        // `kills …`, `sends … to …` and `lends …`, each at most once and in any order; the
+        // formatter writes them in that order (D-0097, spec §22.12).
         let (mut kills, mut kills_span) = (Vec::new(), None);
         let (mut sends, mut sends_span) = (Vec::new(), None);
+        let (mut lends, mut lends_span) = (Vec::new(), None);
         loop {
             let clause_start = self.start();
             if kills_span.is_none() && self.eat(TokenKind::Kills) {
@@ -455,6 +456,9 @@ impl<'a> Parser<'a> {
             } else if sends_span.is_none() && self.eat(TokenKind::Sends) {
                 sends = self.parse_sends(false);
                 sends_span = Some(self.span_from(clause_start));
+            } else if lends_span.is_none() && self.eat(TokenKind::Lends) {
+                lends = self.parse_kills(false);
+                lends_span = Some(self.span_from(clause_start));
             } else {
                 break;
             }
@@ -477,6 +481,8 @@ impl<'a> Parser<'a> {
             kills_span,
             sends,
             sends_span,
+            lends,
+            lends_span,
             body,
             base_init: None,
         }
@@ -1011,6 +1017,8 @@ impl<'a> Parser<'a> {
             kills_span,
             sends: Vec::new(),
             sends_span: None,
+            lends: Vec::new(),
+            lends_span: None,
             body,
             base_init,
         }

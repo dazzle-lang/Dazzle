@@ -2,6 +2,100 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `lends p` (T-0265, D-0119, r152; 2026-11-25)
+
+What replaced r151's runtime lock (below). The user asked what the lock was and whether it
+was the best approach; three ways to tell the function that places a container that a block
+further down will grow it were put: a clause in the signature, inference across functions,
+or the lock. `&mut` alone cannot say it, since nearly every `&mut` is single-threaded. The
+user chose the clause, spelled `lends w`.
+
+- **Syntax.** `lends` is a keyword; the clause is a list of names after `kills` and `sends`,
+  in any order, parsed as `kills` is (`parse_kills`). `FnDecl::lends`, `FnSig::lends`,
+  `dump::lends_str`. A test function named `lends` in `tests/flow/static_kills.dz` was renamed.
+- **The checker.** `ties::lendable`: a whole `&mut`, `[]mut` or `^mut` parameter, `&mut self`,
+  or a view by value (DZ0427). A function with a `lends` used as a value is DZ0428, since a
+  function type has none; an implementation or override lending more than the trait's or the
+  base's method is DZ0429 (`lends_within_ceiling`), one diagnostic per clause.
+- **What a body lends** (`dz_flow/src/ties/body.rs`). `record_parallel` marks every place a
+  block's call writes, and `record_lends` every argument to a callee's `lends` parameter, as
+  lent (`BodyAnalysis::lent`), by its root local after the tie walk's references are followed.
+  Only what may own memory counts (`may_grow`): the first version asked `both` for `lends c`
+  on a `&mut i64`. `report_lends` holds the clause to that, both ways, with the fix `dz fix`
+  applies, as `sends` is held (DZ0425, DZ0426).
+- **Placement.** For a body with a block or a call to a lending function (`lends_anything`),
+  the tie walk is run once more and every lent local leaves (`escape_of_all`): on the heap. It
+  follows references, which the direct-use rule of r151 did not: `let r = &mut xs` and
+  `parallel { fill(r) … }` left `xs` in the region.
+- **Removed**: the guard in every `Allocator` handle method, `ArenaGuard`, `parallel_active`,
+  `parallel_depth`, the arena locks, each arena's `m_lock`, `Hir::runs_parallel` and the build
+  fact it fed. `std`'s C++ is the same in every program again.
+
+`tests/errors/lends_*.dz` and `lending_function_as_a_value.dz` have one mistake each; `typed/`
+has `lends` on a function, a caller passing it on and `&mut self`; `typeerrors/` the checker's
+three; a placement test pins what goes to the heap. `tests/run/parallel`'s world lent only to
+`frame`, which had been in `main`'s region under the lock, is on the heap.
+
+## `parallel { … }` (T-0011, D-0118, r151; 2026-11-24)
+
+The user asked why a program needs `join!` beside `spawn`: `spawn` takes only values, since
+nothing waits for its thread, and `join!` waits, so its calls may borrow. Asked how to build
+it, with no closures to carry a call's arguments to a thread, the user chose a block keyword
+over a compiler-owned macro, and over `run`, which 43 `.dz` files name. Calls return nothing,
+each runs on a thread of its own, and `Rc` is refused, all for now (T-0265 to T-0267).
+
+- **Syntax.** `parallel` is a keyword; `StmtKind::Parallel(Block)` in the AST, so the parser
+  takes any statements and the checker says what is wrong with one. Formatted like `while`.
+- **The checker** (`dz_check/src/check/parallel.rs`). Each statement must be a call that
+  returns nothing (DZ0597). A callee that needs the main thread is caught where
+  `needs_main_thread` sees a need at the call's own span (DZ0598), inside `unsafe` too, and
+  not charged to the enclosing function. Each argument and receiver is held to `Send`/`Share`
+  by how it crosses (DZ0599), with §22.4's help when the type reaches an `Rc` (`holds_rc`).
+  The HIR is `StmtKind::Parallel { calls }`.
+- **Calls against each other** (`dz_flow/src/ties/body.rs`). The tie walk takes the calls in
+  order, as every other pass does; while it walks one, `call_inner` records what its arguments
+  reach and whether they write: `&mut`, a `&mut self` receiver, a view by value that is not
+  `Share`, and a value moved in (its source kept in `moved_from`, since a `Move` node's places
+  are cleared). Pairs that meet on a place, one writing, are DZ0424; `Place::covers` keeps two
+  fields, and two elements with known different indices, apart. Since every argument is
+  evaluated before any call, a move beside a read is a conflict, not a use after move.
+- **Placement.** A local lent `&mut` or given by value to a block's call, and a site made for
+  one, go to the heap (`parallel_call`, `lent_shared_to`). A by-value argument read as a copy
+  leaves its source where it is; `is_copy` alone said "copy" for `&mut xs` too, since `List`
+  can be cloned, and the first version kept such lists in the region.
+- **A lock per arena** (§22.6). A container that reaches a block through a parameter was
+  placed by a caller that cannot see the block, possibly in its region, and two calls may grow
+  two lists of that region at once. Every method of an `Allocator` handle that writes it now
+  starts with an `ArenaGuard`, held while `parallel_depth` is above zero. The first version
+  took one lock for every allocator but the C heap, which serialised each call's own regions
+  too; the user chose a lock per arena instead (`allocator_lock`): a region's or an owner
+  arena's own `m_lock` word, none for the heap, and one shared word, recursive, for any other
+  allocator. An owner arena takes its parent's lock only while holding its own, and a region
+  calls no other allocator, so the order is always child before parent and nothing deadlocks.
+  Whether a signature should make the lock unnecessary is T-0265.
+- **What the check costs.** Measured against the compiler before it, release, twenty
+  alternating runs on this machine: a guard object in each handle method made `frame` 9%
+  slower on clang++ (owner arenas, through the vtable); a second copy of the body under the
+  check, still 9%; the locked call out of line, `DZ_NOINLINE`, 6.5%; passing it the object's
+  address rather than the handle, which then had an address and left a register, 3–4%. On g++
+  that version was still 5% on `astar` and 8% on `words`, a load and a branch on every
+  allocation. So the check is emitted only for a program with a `parallel` block
+  (`Hir::runs_parallel`), which the build folds into its whole-program `templates` fact, so the
+  first block added or the last removed emits `std` again; `std`'s compiled copy is keyed by
+  its contents. Without a block, every program is within noise of before, `frame` within 1.5%
+  (the lock word each arena now carries).
+- **C++.** Every argument, receiver and default of each call is bound to a temporary first
+  (`hold_args`, taken by `call` for the outer call alone, which forces `emit_args`' binding);
+  each call is then a `[&]` lambda, and `::dz::rt::native::parallel_run` runs the first on this
+  thread and the others through `thread_start`, joining them, or running a call here when its
+  thread did not start. The statement is a C++ block, so the temporaries die after the join.
+
+`tests/run/parallel`, `tests/errors/parallel_*`, `tests/flow/parallel_conflict.dz`, the typed
+and typeerrors workspaces, and a placement test cover it. The run test grows a region two calls
+share, a call's own region and an owner arena in one block, and gave the same output on fifteen
+runs, under `--track-memory` and with regions off. The generated C++ was compiled
+warning-clean with g++ and clang++ by hand.
+
 ## `Send`, `Share` and `#[main_thread]` (T-0264, r150; 2026-11-24)
 
 What makes `spawn` safe. It was first built as an `unsafe fn`; the user asked that spawning not

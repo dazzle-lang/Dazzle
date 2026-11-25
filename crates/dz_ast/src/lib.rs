@@ -210,6 +210,12 @@ pub struct FnDecl {
     pub sends: Vec<Send>,
     /// The whole clause, `sends` through its last path.
     pub sends_span: Option<Span>,
+    /// `lends w, self`: the parameters some call in a `parallel` block may change through,
+    /// here or in a function this one lends them to, which its callers place by (spec
+    /// §22.12). Each is a bare name. Empty when it lends nothing.
+    pub lends: Vec<TiePath>,
+    /// The whole clause, `lends` through its last name.
+    pub lends_span: Option<Span>,
     /// `None` for a trait method with no default body.
     pub body: Option<Block>,
     /// `Button(w: i32) : UiElement(w) { … }` — a constructor's base initialiser, and
@@ -724,6 +730,9 @@ pub enum StmtKind {
     While(WhileStmt),
     For(ForStmt),
     Defer(Box<Stmt>),
+    /// `parallel { f(…) g(…) }`: calls that run at the same time (spec §22.3, D-0118). The
+    /// parser takes any statements; the checker holds each to one call.
+    Parallel(Block),
     /// A declaration nested inside a body.
     Item(Box<Item>),
     /// `#if FLAG { … }` around statements (spec §12.10). The active branch's statements

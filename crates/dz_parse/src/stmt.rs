@@ -63,6 +63,10 @@ impl<'a> Parser<'a> {
             TokenKind::While => StmtKind::While(self.parse_while(None)),
             TokenKind::Loop => StmtKind::While(self.parse_loop(None)),
             TokenKind::For => StmtKind::For(self.parse_for(None)),
+            TokenKind::Parallel => {
+                self.bump();
+                StmtKind::Parallel(self.parse_block())
+            }
             TokenKind::Defer => {
                 self.bump();
                 // The inner statement consumes its own terminator, so return directly

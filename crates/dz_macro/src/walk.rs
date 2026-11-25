@@ -179,7 +179,8 @@ fn fn_decl<H: Hooks>(h: &mut H, f: &mut FnDecl) {
     // only a declaration's tie paths are walked.
     let ties = f.params.iter_mut().filter_map(|p| p.tie.as_mut());
     let sends = f.sends.iter_mut().flat_map(|s| [&mut s.what, &mut s.to]);
-    for t in ties.chain(f.ret_ties.iter_mut()).chain(f.kills.iter_mut()).chain(sends) {
+    let lends = f.lends.iter_mut();
+    for t in ties.chain(f.ret_ties.iter_mut()).chain(f.kills.iter_mut()).chain(sends).chain(lends) {
         h.tie_root(&mut t.root);
     }
     if let Some(b) = &mut f.base_init {
@@ -283,6 +284,7 @@ fn stmt<H: Hooks>(h: &mut H, s: &mut Stmt) {
             block(h, &mut f.body);
         }
         StmtKind::Defer(inner) => stmt(h, inner),
+        StmtKind::Parallel(b) => block(h, b),
         StmtKind::Item(i) => item(h, i),
         StmtKind::CfgIf(c) => cfg_stmts(h, c),
         StmtKind::Macro(_) | StmtKind::Error => {}

@@ -83,6 +83,7 @@ impl Hooks for Widen {
         match &s.kind {
             StmtKind::While(w) => add(&w.body),
             StmtKind::For(f) => add(&f.body),
+            StmtKind::Parallel(b) => add(b),
             StmtKind::Let(LetStmt { init: Some(e), .. }) | StmtKind::Expr(e) => {
                 expr_blocks(e, &mut add)
             }

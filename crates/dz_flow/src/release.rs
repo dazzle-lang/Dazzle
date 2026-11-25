@@ -394,7 +394,8 @@ impl Frees<'_, '_> {
             }
             hir::StmtKind::Defer(inner) => self.stmt(*inner),
             hir::StmtKind::Item(_) => true,
-            hir::StmtKind::Error => false,
+            // Threads are more than giving memory back.
+            hir::StmtKind::Parallel { .. } | hir::StmtKind::Error => false,
         }
     }
 

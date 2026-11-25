@@ -1,0 +1,12 @@
+// expect: DZ0427
+// `lends` names a parameter the function can change its caller's memory through: one lent
+// as `&` is only read, and needs nothing (spec §22.12).
+
+fn count(xs: &List<i32>) lends xs {
+    println!("{}", xs.len())
+}
+
+fn main() {
+    let xs = List<i32>()
+    count(&xs)
+}

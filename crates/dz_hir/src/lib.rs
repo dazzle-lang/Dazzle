@@ -354,6 +354,13 @@ pub enum StmtKind {
     },
     /// Runs at scope exit in reverse order, after drops (spec §6.5).
     Defer(StmtId),
+    /// `parallel { … }` (spec §22.3, D-0118): each of `calls` is a call returning nothing.
+    /// Every argument of every call is evaluated first, in order, on this thread; then the
+    /// calls run at the same time, and the statement ends when all of them have. A call the
+    /// checker refused is an `Error` node, so the list keeps one entry per statement.
+    Parallel {
+        calls: Vec<ExprId>,
+    },
     /// A declaration nested in a body. It is checked and emitted as an item; the statement
     /// position only records where it appeared.
     Item(SymbolId),

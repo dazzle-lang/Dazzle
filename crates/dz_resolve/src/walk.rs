@@ -850,6 +850,7 @@ impl<'a, 'w> Walker<'a, 'w> {
                 self.pop_scope();
             }
             StmtKind::Defer(inner) => self.stmt(inner),
+            StmtKind::Parallel(b) => self.block(b),
             StmtKind::Item(item) => self.item(item),
             StmtKind::Error => {}
         }

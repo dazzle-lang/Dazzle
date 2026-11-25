@@ -509,6 +509,17 @@ impl<'a> Flow<'a> {
                 self.stmt(*inner);
                 false
             }
+            // Followed one call after another: whatever two calls would make of the same
+            // place at once, a move in one beside a read in the other included, the ties
+            // analysis refuses (spec §22.3), so the order cannot show.
+            hir::StmtKind::Parallel { calls } => {
+                let calls = calls.clone();
+                let mut diverges = false;
+                for c in calls {
+                    diverges |= self.value(c);
+                }
+                diverges
+            }
             hir::StmtKind::Item(_) | hir::StmtKind::Error => false,
         }
     }

@@ -1058,6 +1058,97 @@ fn main() {
     assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
 }
 
+/// What a call of a `parallel` block is lent `&mut` or given by value, and what is made for
+/// it, is on the heap: another thread may grow it while this one grows its region (spec
+/// §22.6). What it is only lent `&` stays, and so does a list lent to a plain call.
+#[test]
+fn what_a_parallel_call_is_given_is_built_on_the_heap() {
+    let a = analyse(
+        r#"
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+fn keep(xs: List<i32>) {
+}
+fn count(xs: &List<i32>) {
+}
+fn start() {
+    let mut lent = List<i32>()
+    let given = List<i32>()
+    let read = List<i32>()
+    let mut alone = List<i32>()
+    parallel {
+        fill(&mut lent)
+        keep(given)
+        count(&read)
+        keep(List<i32>())
+    }
+    fill(&mut alone)
+}
+fn main() {
+    start()
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    assert_eq!(
+        decisions(&a, &p, "start"),
+        [
+            "List<i32>: heap: lent to a `parallel` block",
+            "List<i32>: heap: given to a call in `parallel`",
+            "List<i32>: region: `start`",
+            "List<i32>: region: `start`",
+            "List<i32>: heap: given to a call in `parallel`",
+        ]
+    );
+    assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
+}
+
+/// What a caller gives a function that `lends` it is on the heap, so no region is ever grown
+/// by two threads (spec §22.12); and so is what a block's call reaches through a reference
+/// local, which the tie walk follows. A list lent to an ordinary call stays.
+#[test]
+fn what_is_lent_to_a_block_is_built_on_the_heap() {
+    let a = analyse(
+        r#"
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+fn both(a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a, b {
+    parallel {
+        fill(a)
+        fill(b)
+    }
+}
+fn start() {
+    let mut first = List<i32>()
+    let mut second = List<i32>()
+    both(&mut first, &mut second)
+    let mut third = List<i32>()
+    let r = &mut third
+    let mut fourth = List<i32>()
+    parallel {
+        fill(r)
+        fill(&mut fourth)
+    }
+    let mut alone = List<i32>()
+    fill(&mut alone)
+}
+fn main() {
+    start()
+}
+"#,
+    );
+    let p = place(&a, Proposer::Rules);
+    let ds = decisions(&a, &p, "start");
+    assert_eq!(ds.len(), 5, "{ds:?}");
+    for d in &ds[..4] {
+        assert!(d.contains(": heap: "), "{d}");
+    }
+    assert_eq!(ds[4], "List<i32>: region: `start`");
+    assert!(body(&a, &p, "start").demoted().is_empty(), "the check refused a placement");
+}
+
 fn corpus_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }

@@ -1,0 +1,16 @@
+// expect: DZ0597
+// Each line of `parallel { … }` is one call, since the calls run at the same time; a `let`
+// is worked out before the block (spec §22.3).
+
+fn work(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let mut a = 0
+    parallel {
+        let b = 2
+        work(&mut a)
+    }
+    println!("{}", a)
+}

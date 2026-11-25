@@ -1,0 +1,25 @@
+// expect: DZ0598
+// `unsafe` vouches for a static, never for which thread a function runs on: a
+// `#[main_thread]` call in `parallel` is refused inside it too (spec §22.3, §22.5).
+
+static FRAME_COUNT: u64 = 0
+
+#[main_thread]
+fn tick() {
+    FRAME_COUNT += 1
+}
+
+fn work(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let mut a = 0
+    unsafe {
+        parallel {
+            tick()
+            work(&mut a)
+        }
+    }
+    println!("{}", a)
+}

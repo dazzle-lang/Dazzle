@@ -1,0 +1,18 @@
+// expect: DZ0424
+// Two elements whose indices are not known to differ may be one, so writing both in
+// `parallel` may race; `cells[0]` beside `cells[1]` is fine (spec §22.3).
+
+fn bump(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let mut cells = [0, 0, 0]
+    let i = 1
+    let j = 1
+    parallel {
+        bump(&mut cells[i])
+        bump(&mut cells[j])
+    }
+    println!("{}", cells[1])
+}

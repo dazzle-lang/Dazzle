@@ -104,6 +104,16 @@ fn deferred(&mut self) {
     Allocators::Temp.reset()
 }
 
+fn systems(w: &mut World) kills w.positions@items lends w {
+    parallel {
+        physics(&mut w.positions, &w.velocities)
+        w.animator.step(dt)
+    }
+
+    parallel {
+    }
+}
+
 fn handling(path: str) {
     let tex = load_texture(path) or { e ->
         log::warn("texture {} failed: {}", path, e.message)

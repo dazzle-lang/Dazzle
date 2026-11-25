@@ -1,0 +1,31 @@
+// expect: DZ0429
+// A call through a trait places what it gives by the trait method's clause, so an
+// implementation lends only what the trait method says it may (spec §22.12).
+
+struct Lists {
+    pub a: List<i32>
+    pub b: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+trait System {
+    fn run(&mut self, lists: &mut Lists) kills lists.a@items, lists.b@items
+}
+
+impl System for i32 {
+    fn run(&mut self, lists: &mut Lists) kills lists.a@items, lists.b@items lends lists {
+        parallel {
+            fill(&mut lists.a)
+            fill(&mut lists.b)
+        }
+    }
+}
+
+fn main() {
+    let mut s: i32 = 0
+    let mut lists = Lists{ a: List<i32>(), b: List<i32>() }
+    s.run(&mut lists)
+}

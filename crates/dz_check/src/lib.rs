@@ -211,6 +211,11 @@ pub struct FnSig {
     pub sends: Vec<dz_ast::Send>,
     /// The whole `sends` clause as written, so a fix can replace it.
     pub sends_span: Option<Span>,
+    /// `lends w, self`, as written: the parameters some call in a `parallel` block may change
+    /// through, which its callers place on the heap (spec §22.12).
+    pub lends: Vec<dz_ast::TiePath>,
+    /// The whole `lends` clause as written, so a fix can replace it.
+    pub lends_span: Option<Span>,
     /// The result's type as written, so a fix can say where the result lives after it.
     pub ret_span: Option<Span>,
     /// `-> String in xs@home`: an owned result that lives in an input's home, not where its
@@ -1666,6 +1671,8 @@ impl Ctx<'_> {
                         entry_point: false,
                         sends: Vec::new(),
                         sends_span: None,
+                        lends: Vec::new(),
+                        lends_span: None,
                         ret_span: None,
                         ret_home: Vec::new(),
                     }),
@@ -1786,6 +1793,8 @@ impl Ctx<'_> {
                 entry_point: false,
                 sends: Vec::new(),
                 sends_span: None,
+                lends: Vec::new(),
+                lends_span: None,
                 ret_span: None,
                 ret_home: Vec::new(),
             };
@@ -2392,6 +2401,7 @@ impl<'a> Ctx<'a> {
             && sig.ret_ties.is_empty()
             && sig.ret_home.is_empty()
             && sig.sends.is_empty()
+            && sig.lends.is_empty()
             && f.params.iter().all(|p| p.tie.is_none())
         {
             return;
@@ -4264,6 +4274,8 @@ impl<'a> Ctx<'a> {
             entry_point: false,
             sends: f.sends.clone(),
             sends_span: f.sends_span,
+            lends: f.lends.clone(),
+            lends_span: f.lends_span,
             ret_span: f.ret.as_ref().map(|r| r.span),
             ret_home,
         }

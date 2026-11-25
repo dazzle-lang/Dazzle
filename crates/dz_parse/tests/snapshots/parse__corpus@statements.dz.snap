@@ -195,6 +195,25 @@ fn deferred(&mut self)
     call
       field .reset
         path Allocators::Temp
+fn systems(w: &mut World) kills w.positions@items lends w
+  block
+    parallel
+      block
+        call
+          path physics
+          ref mut
+            field .positions
+              path w
+          ref
+            field .velocities
+              path w
+        call
+          field .step
+            field .animator
+              path w
+          path dt
+    parallel
+      block
 fn handling(path: str)
   block
     let tex

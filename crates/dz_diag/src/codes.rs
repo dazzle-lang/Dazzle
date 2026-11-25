@@ -216,6 +216,27 @@ pub const SEND_NEVER_HAPPENS: &str = "DZ0422";
 /// whenever it is used by value (D-0106). `move` stays a reserved word so old code gets this,
 /// with the fix that unwraps it, rather than an unknown name.
 pub const MOVE_REMOVED: &str = "DZ0423";
+/// Two calls in one `parallel { … }` that reach the same place, one of them writing it:
+/// lent as `&mut`, or moved, while the other reads or writes it (spec §22.3).
+pub const PARALLEL_CONFLICT: &str = "DZ0424";
+/// A body that gives what a parameter reaches to a call in a `parallel` block, or to a
+/// function that `lends` it, where its signature has no `lends` for that parameter: a
+/// caller would place it where two threads could grow it at once (spec §22.12). `dz fix`
+/// writes it.
+pub const LENDS_NOT_DECLARED: &str = "DZ0425";
+/// A `lends` the body never does: callers would place memory on the heap for nothing (spec
+/// §22.12).
+pub const LENDS_NEVER_HAPPENS: &str = "DZ0426";
+/// A `lends` naming something other than a parameter the function can change: a static, a
+/// part of a parameter, `&self`, or a parameter taken by `&` or by value (spec §22.12).
+pub const LENDS_WHAT_IT_CANNOT_CHANGE: &str = "DZ0427";
+/// A function that `lends` a parameter, used as a function value: a function type has no
+/// `lends`, so a caller through the value could not place what it gives (spec §22.12).
+pub const LENDING_FN_AS_VALUE: &str = "DZ0428";
+/// An implementation of a trait method, or an override, that `lends` a parameter the method
+/// it implements does not: a call through the trait or the base would not place it on the
+/// heap (spec §22.12).
+pub const LENDS_NOT_IN_TRAIT: &str = "DZ0429";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 
@@ -509,6 +530,16 @@ pub const MAIN_THREAD_NOT_IN_TRAIT: &str = "DZ0595";
 /// `impl Send` or `impl Share` outside the standard library: both are worked out from a
 /// type's fields, and only `std` vouches for an exception (spec §22.2).
 pub const CROSSING_IMPL_OUTSIDE_STD: &str = "DZ0596";
+/// A statement in `parallel { … }` that is not one call returning nothing: a `let`, an
+/// assignment, a loop, or a call whose result would be lost (spec §22.3, D-0118).
+pub const PARALLEL_NOT_A_CALL: &str = "DZ0597";
+/// A call in `parallel { … }` to a function that runs on the main thread only: the block runs
+/// its calls on other threads (spec §22.3, §22.5).
+pub const PARALLEL_MAIN_THREAD: &str = "DZ0598";
+/// An argument of a call in `parallel { … }` that may not cross to another thread: lent as
+/// `&T` where `T` is not `Share`, or as `&mut T` or by value where `T` is not `Send` (spec
+/// §22.2, §22.3).
+pub const PARALLEL_NOT_SEND: &str = "DZ0599";
 
 // --- DZ06xx: macros (spec §12) -------------------------------------------------
 

@@ -1,0 +1,25 @@
+// expect: DZ0425
+// A function that gives what a parameter reaches to a call in a `parallel` block says so with
+// `lends`, so its caller puts that memory on the heap, where two threads may grow it at once
+// (spec §22.12). `dz fix` writes it.
+
+struct World {
+    pub positions: List<i32>
+    pub velocities: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn frame(w: &mut World) kills w.positions@items, w.velocities@items {
+    parallel {
+        fill(&mut w.positions)
+        fill(&mut w.velocities)
+    }
+}
+
+fn main() {
+    let mut w = World{ positions: List<i32>(), velocities: List<i32>() }
+    frame(&mut w)
+}

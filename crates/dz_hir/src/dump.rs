@@ -188,6 +188,14 @@ impl<'a> Dumper<'a> {
                 self.line(format_args!("defer"));
                 self.nest(|d| d.stmt(inner));
             }
+            StmtKind::Parallel { calls } => {
+                self.line(format_args!("parallel"));
+                self.nest(|d| {
+                    for c in calls {
+                        d.expr(c);
+                    }
+                });
+            }
             StmtKind::Item(s) => {
                 let name = self.names.name_of_symbol(s);
                 self.line(format_args!("item {name}"));

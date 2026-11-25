@@ -1,0 +1,28 @@
+// expect: DZ0425
+// `lends` is carried up, as `kills` is: a function that passes a parameter on to one that
+// `lends` it lends it too (spec §22.12).
+
+struct World {
+    pub positions: List<i32>
+    pub velocities: List<i32>
+}
+
+fn fill(xs: &mut List<i32>) kills xs@items {
+    xs.push(1)
+}
+
+fn frame(w: &mut World) kills w.positions@items, w.velocities@items lends w {
+    parallel {
+        fill(&mut w.positions)
+        fill(&mut w.velocities)
+    }
+}
+
+fn game_loop(w: &mut World) kills w.positions@items, w.velocities@items {
+    frame(w)
+}
+
+fn main() {
+    let mut w = World{ positions: List<i32>(), velocities: List<i32>() }
+    game_loop(&mut w)
+}

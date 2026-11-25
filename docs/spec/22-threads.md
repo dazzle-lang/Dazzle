@@ -1,6 +1,6 @@
 # 22. Threads
 
-`[DECIDED — D-0096, D-0112; partly built: §22.2, §22.5 and §22.9 to §22.11 are, the parallel loop and `join!` are not (T-0011)]` Threads keep the promise Dazzle makes on
+`[DECIDED — D-0096, D-0112, D-0118, D-0119; partly built: §22.2, §22.5, §22.6, §22.9 to §22.11 and §22.12 are, and `parallel { … }` is, but for `Rc`, results and queries keyed by type; the parallel loop is not (T-0011)]` Threads keep the promise Dazzle makes on
 one thread (§1.1): **a program with no `unsafe` has no undefined behaviour**, data races
 included. They do it without changing single-threaded code: everything §5 to §14 allow on one
 thread stays allowed, a `&mut` beside a `&` included (D-0094). The stricter rule of this
@@ -57,8 +57,10 @@ outside `unsafe`. That is what makes `Share` mean what it says.
 
 ## 22.3 Running at the same time
 
-`std` runs code at the same time in three ways. Each is marked `#[parallel]` there (§12.8),
-which is what tells the checker to hold it to this section's rule; user code never writes it.
+Code runs at the same time in three ways: a parallel loop, a `parallel { … }` block, and a
+thread started on its own. The loop and the thread are `std`'s, each marked `#[parallel]`
+there (§12.8), which is what tells the checker to hold it to this section's rule; user code
+never writes that. The block is the language's own, a keyword (D-0118).
 
 **A parallel loop** is a `for` over a parallel iterator: its passes run on every core, each
 pass given an element no other pass is given.
@@ -88,35 +90,58 @@ at once:
 A loop that must collect, such as two units striking one target, writes into memory of its
 own per pass and is merged after; how `std` helps with that is not designed yet.
 
-**`join!`** runs a few calls at the same time and returns when every one has:
+**`parallel { … }`** runs a few calls at the same time, and ends when every one has
+`[DECIDED — D-0118]`:
 
 ```dz
-join!(
-    physics(w.query<&mut Position, &Velocity>()),
-    animate(w.query<&mut Sprite, &Clock>()),
-)
+parallel {
+    physics(&mut w.positions, &w.velocities)
+    animate(&mut w.skeletons, &w.time)
+}
 ```
+
+- **Each line is one call**, to a function or a method, that returns nothing (DZ0597). A
+  `let`, an assignment or a loop is worked out before the block; a result is written through a
+  `&mut` argument. Handing results back is not designed yet.
+- **Every argument is evaluated first**, in order, on the thread that runs the block, the
+  receiver and default arguments included; then the calls start. So what the arguments make
+  and what they move is done before any call runs.
+- **The first call runs on that thread, and each other on a thread of its own**; the block
+  ends when every call has, and what follows sees every call's writes. A thread that cannot
+  start runs its call on the block's thread, after the first.
+- **No call may need the main thread** (DZ0598, §22.5), inside `unsafe` too, which vouches for
+  a static, not for where a function runs.
+- **What crosses is held to §22.2** (DZ0599), and two calls to the rule below (DZ0424). An
+  `Rc` or a `Weak` reaches none of its calls yet (§22.4).
+
+A block may be in any function, `main` and a call of another block included; it opens no
+scope of its own, since it declares nothing.
 
 **`spawn!`** starts a thread that lives on its own, `spawn!(physics_thread(inbox, outbox))`,
 and gives back a handle that joins it.
 
 **The rule between calls that run at once.** A place one call writes is touched by no other
 call; a place several calls only read is frozen while they run. A `&` beside a `&` is fine, a
-`&mut` beside anything that reaches the same place is an error naming both calls. The check
-reads each call's arguments, as §6.7 reads them for a call's kills:
+`&mut` beside anything that reaches the same place is an error naming both calls (DZ0424). The
+check reads each call's arguments, as §6.7 reads them for a call's kills:
 
 - an argument crosses as `&T` only if `T` is `Share`, and as `&mut T` or by value only if `T`
-  is `Send`;
-- a view (§6.7), a query included, may cross into a parallel loop or a `join!`, which wait
-  for every call; never into `spawn!`, which does not, so its arguments are values;
+  is `Send`; a method's receiver is an argument, `&mut self` a `&mut` and `&self` a `&`;
+- a call writes what it is lent as `&mut`, and what is moved into it, which is gone before
+  any call starts; a value copied into it is read;
+- two fields of one value are apart, and so are two elements whose indices are proven to
+  differ, `cells[0]` and `cells[2]`; `cells[i]` and `cells[j]` may be one;
+- a view (§6.7), a query included, may cross into a parallel loop or a `parallel` block,
+  which wait for every call; never into `spawn!`, which does not, so its arguments are values.
+  A view taken by value writes what it views unless it is `Share`;
 - the access a query gives is read off its type arguments: `&mut Position` writes every
-  `Position`, `&Velocity` reads every `Velocity` (§22.8).
+  `Position`, `&Velocity` reads every `Velocity` (§22.8, not built yet).
 
 ```dz
-join!(
-    physics(w.query<&mut Position, &Velocity>()),
-    render(w.query<&Position, &Sprite>()),       // error: `physics` writes `Position`, which `render` reads
-)
+parallel {
+    physics(&mut w.positions, &w.velocities)
+    render(&w.positions)               // error: `physics` writes `w.positions`, which `render` reads
+}
 ```
 
 Two systems that need the same data run one after the other, or read last frame's copy.
@@ -126,13 +151,16 @@ worker's message and location.
 
 ## 22.4 `Rc` across threads
 
-There is no `Arc`. **`Rc<T>` and `Weak<T>` cross into a parallel loop and a `join!`**, and
+`[Not built yet: a `parallel` block refuses an `Rc` or a `Weak` in any argument, DZ0599, until
+the counts below are atomic (T-0266).]`
+
+There is no `Arc`. **`Rc<T>` and `Weak<T>` cross into a parallel loop and a `parallel` block**, and
 are checked by type, as one thread already checks them (§14.5): every `Rc<T>` of one `T` is one
 place. Calls that only read through `Rc<Texture>` run side by side; a call that writes through
 any `Rc<Texture>` conflicts with every other call that reaches one.
 
 Their counts are **atomic in a program that runs anything at the same time**, one where a
-parallel loop, `join!` or `spawn!` appears, and plain integers in any other, so a
+parallel loop, a `parallel` block or `spawn!` appears, and plain integers in any other, so a
 single-threaded program pays nothing; the compiler sees the whole program (§8.4). Where nothing
 in an `if let` or `or` body can release the handle, no count is taken at all (T-0002).
 
@@ -159,7 +187,7 @@ fn draw_hud(hud: &Hud) { rl::DrawText(hud.title, 10, 10, 20, rl::WHITE) }
 It is held to the body as a `kills` clause is (§6.7): a body that needs it and lacks it is an
 error, and one that has it and does not need it is too; `dz fix` writes it. An entry point
 (`main`, a `#[test]`, a `#[bench]`) is on the main thread already. A `#[main_thread]` function
-is never run by a parallel loop, `join!` or `spawn!`, and becomes a value only of a function
+is never run by a parallel loop, a `parallel` block or `spawn!`, and becomes a value only of a function
 type written with it, `#[main_thread] fn(w: &World)`.
 
 Needing nothing: a `const`; a `#[thread_local]` static, of which each thread has its own
@@ -193,6 +221,12 @@ as for code the compiler cannot see (§14.6): on the heap, or in the worker's ow
 never in the region of the code that started it, whose arena another worker may be growing at
 the same moment. Each worker has its own region pool. A value `spawn!` takes is already on
 the heap, since it outlives every region.
+
+A container that reaches a `parallel` call from further out, through a parameter, is placed
+by a caller that cannot see the block: `lends` in the signature tells it (§22.12), and it puts
+that container on the heap. So a region is only ever grown by the thread that opened it, and
+nothing is locked or checked at run time: a program pays for threads only in what it gives
+them.
 
 ## 22.7 Closures in parallel code
 
@@ -311,3 +345,47 @@ What crosses is checked, so a program with no `unsafe` that starts threads has n
 race: `spawn<A: Send>` takes a value that holds no `Rc`, view or raw pointer (§22.2), and its
 `entry` is a plain `fn(A)`, which a `#[main_thread]` function is not (§22.5). What the value
 holds is placed on the heap, never in a region of the code that started the thread (§22.6).
+
+## 22.12 Lending to a block: `lends`
+
+`[DECIDED — D-0119]` Where memory lives is decided by the function that makes it, which puts
+it in its region, used by one thread at a time, unless it knows two threads may grow it at once
+(§14.6). A container made in a function with a `parallel` block, and given to its calls, is
+placed seeing the block. One made further up and handed down as a parameter is not, so the
+function that gives it to a block says so in its signature:
+
+```dz
+fn frame(w: &mut World) kills w.positions@items, w.velocities@items lends w {
+    parallel {
+        fill(&mut w.positions, 3000)
+        fill(&mut w.velocities, 2000)
+    }
+}
+
+fn game_loop(w: &mut World) kills w.positions@items, w.velocities@items lends w {
+    frame(w)                        // passes `w` on to a function that lends it
+}
+
+fn main() {
+    let mut w = World{ … }          // on the heap: `game_loop` lends what it is given
+    game_loop(&mut w)
+}
+```
+
+- **`lends p`** says that some call in a `parallel` block may change, and grow, what `p`
+  reaches: written through `&mut`, a `&mut self` receiver or a view, directly or through a
+  function that `lends` it in turn. A caller puts what it gives there on the heap.
+- **It names whole parameters** the function can change its caller's memory through: a
+  `&mut`, `[]mut` or `^mut` one, `self` for `&mut self`, or a view taken by value
+  (DZ0427). What is lent as `&` is only read, and what is given by value is the function's
+  own.
+- **It is held to the body**, as `kills` is: a body that lends a parameter its clause leaves
+  out is an error (DZ0425), and so is a clause naming one the body never lends (DZ0426); `dz
+  fix` writes it. Only what may own memory counts: an `i32` lent to a block needs no `lends`.
+- **A function that lends is called by name.** A function type has no `lends`, so such a
+  function is never a function value (DZ0428). An implementation of a trait method, or an
+  override, lends only what the method it implements says (DZ0429).
+
+The clause is about placement alone: it changes where memory lives, never what a program does
+(§14.6). It is what lets a region be grown by one thread only, so nothing is locked or checked
+at run time (§22.6).

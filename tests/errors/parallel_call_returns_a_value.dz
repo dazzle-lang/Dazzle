@@ -1,0 +1,20 @@
+// expect: DZ0597
+// `parallel` hands no results back yet, so a call in it returns nothing; a result is written
+// through a `&mut` argument instead (spec §22.3).
+
+fn square(n: i32) -> i32 {
+    return n * n
+}
+
+fn work(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let mut a = 0
+    parallel {
+        square(3)
+        work(&mut a)
+    }
+    println!("{}", a)
+}

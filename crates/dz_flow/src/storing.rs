@@ -207,6 +207,11 @@ fn stmt_exprs(body: &Body, s: StmtId, out: &mut Vec<ExprId>) {
             block_exprs(body, *b, out);
         }
         hir::StmtKind::Defer(inner) => stmt_exprs(body, *inner, out),
+        hir::StmtKind::Parallel { calls } => {
+            for c in calls {
+                out.extend(subtree(body, *c));
+            }
+        }
         hir::StmtKind::Item(_) | hir::StmtKind::Error => {}
     }
 }
@@ -336,6 +341,11 @@ impl<'b> Walk<'b> {
                 }
                 hir::StmtKind::While { cond: e, .. } | hir::StmtKind::For { subject: e, .. } => {
                     stmt.insert(*e, s);
+                }
+                hir::StmtKind::Parallel { calls } => {
+                    for c in calls {
+                        stmt.insert(*c, s);
+                    }
                 }
                 _ => {}
             }

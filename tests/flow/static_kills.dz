@@ -33,7 +33,7 @@ fn grow(xs: &mut List<i32>) kills xs@items {
 }
 
 #[main_thread]
-fn lends() {
+fn lends_a_static() {
     grow(&mut SCORES.list)
 }
 
@@ -58,7 +58,7 @@ fn main() {
     add(1)
     pushes(2)
     calls_add()
-    lends()
+    lends_a_static()
     says_but_never_does(3)
     counts(4)
     vouched(5)

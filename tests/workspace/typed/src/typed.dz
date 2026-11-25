@@ -2712,6 +2712,88 @@ fn threads() {
     second.join()
 }
 
+// §22.3: the calls of `parallel` run at the same time, each writing places of its own and
+// reading what the others only read; a receiver, a value moved in and an element proven apart
+// from another count as arguments too.
+struct Teams {
+    pub red: List<i32> = List<i32>()
+    pub blue: List<i32> = List<i32>()
+    pub scores: [2]i32 = [0, 0]
+
+    pub fn grow(&mut self, by: i32) kills self.red@items {
+        red.push(by)
+    }
+}
+
+fn typed_fill(xs: &mut List<i32>, n: i32) kills xs@items {
+    for i in 0..n {
+        xs.push(i)
+    }
+}
+
+fn typed_sum(xs: &List<i32>, out: &mut i32) {
+    for &x in xs {
+        out += x
+    }
+}
+
+fn typed_keep(job: Job) {
+    TYPED_COUNTER.add(job.names.len() as u32)
+}
+
+// §22.12: what a parameter reaches, lent to a block, is said with `lends`, carried up through
+// a caller that passes it on, and on `self` for a method; its callers put it on the heap.
+fn typed_fill_both(t: &mut Teams) kills t.red@items, t.blue@items lends t {
+    parallel {
+        typed_fill(&mut t.red, 2)
+        typed_fill(&mut t.blue, 2)
+    }
+}
+
+fn typed_fill_twice(t: &mut Teams) kills t.red@items, t.blue@items lends t {
+    typed_fill_both(t)
+    typed_fill_both(t)
+}
+
+struct Squads {
+    pub first: List<i32> = List<i32>()
+    pub second: List<i32> = List<i32>()
+
+    pub fn grow_both(&mut self) kills self.first@items, self.second@items lends self {
+        parallel {
+            typed_fill(&mut first, 1)
+            typed_fill(&mut second, 1)
+        }
+    }
+}
+
+fn lending() {
+    let mut t = Teams{}
+    typed_fill_twice(&mut t)
+    let mut s = Squads{}
+    s.grow_both()
+}
+
+fn parallel_calls() {
+    let mut t = Teams{}
+    let mut a = 0
+    let mut b = 0
+    let job = Job{}
+    parallel {
+        typed_fill(&mut t.blue, 3)
+        typed_keep(job)
+        typed_sum(&t.red, &mut a)
+    }
+    let mut other = Teams{}
+    parallel {
+        other.grow(2)
+        typed_sum(&t.blue, &mut a)
+        typed_sum(&t.blue, &mut b)
+        typed_sum(&t.blue, &mut t.scores[0])
+        typed_sum(&t.blue, &mut t.scores[1])
+    }
+}
+
 // §4: a private constructor is reached through the type's own functions, a `pub(module)` one
 // anywhere in the module, and a `protected` one from a type that inherits.
 struct Sealed {

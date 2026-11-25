@@ -17,9 +17,12 @@ record the earlier plan.
 
 **Progress.** Atomics are done (`Atomic<T>`, D-0113, §22.9, r146), and so is the mutex
 (`Mutex<T>`, §22.10, r147; its API is proposed in D-0114), and so is `spawn` with `Thread`
-(§22.11, r150; D-0117, proposed), safe with `Send`, `Share` and `#[main_thread]` (T-0264).
-**Next:** the macro `spawn!`; then `join!` and the parallel loop, whose argument rule (§22.3)
-builds on `Send` and `Share`, and the job system.
+(§22.11, r150; D-0117, proposed), safe with `Send`, `Share` and `#[main_thread]` (T-0264),
+and so is `parallel { … }`, which replaced `join!` (§22.3, r151; D-0118): calls checked
+against each other, a thread per call, `Rc` refused (T-0266), no results yet (T-0267), and
+and `lends p` for a container lent to a block from further out, so its caller puts it on the
+heap (§22.12, r152; D-0119, T-0265).
+**Next:** the parallel loop, then the macro `spawn!` and the job system.
 
 ## Where the code is
 
@@ -31,6 +34,11 @@ builds on `Send` and `Share`, and the job system.
 | `spawn` and `Thread` | `crates/dz_project/src/std/sync/thread.dz`; `crates/dz_cpp/src/runtime.rs` (`thread_start`, `thread_join`, `thread_detach`); `-pthread` in `crates/dz/src/toolchain.rs` (`link`) |
 | Reference counts and memory tracker | `crates/dz_project/src/std/memory/` (`rc_block.dz`, `rc.dz`, `weak.dz`, `tracker.dz`) |
 | Type-keyed storage and milestone proof | `crates/dz_project/src/std/collections/type_map.dz` and `tests/bench_programs/ecs` |
+| `parallel { … }`: syntax | `crates/dz_lex/src/token.rs` (`Parallel`); `crates/dz_parse/src/stmt.rs` (`parse_stmt`); `StmtKind::Parallel` in `dz_ast` and `dz_hir` |
+| `parallel { … }`: one call each, main thread, `Send`/`Share` | `crates/dz_check/src/check/parallel.rs`; `parallel_call`/`parallel_needs` in `needs_main_thread` (`check.rs`); `holds_rc` in `threads.rs` |
+| `parallel { … }`: calls against each other | `crates/dz_flow/src/ties/body.rs` (`record_parallel`, `parallel_conflicts`, `moved_from`); `report.rs` (DZ0424, `call_name`) |
+| `parallel { … }`: placement, and `lends` | `crates/dz_flow/src/placement.rs` (`parallel_call`, `lent_shared_to`, `lends_anything`, `Cx::lent`); the rest of `lends` is in T-0265's table |
+| `parallel { … }`: emitted C++ and threads | `crates/dz_cpp/src/lib.rs` (`Emitter::parallel`, `hold_args` in `call`, `CapturedArgs::hold`); `crates/dz_cpp/src/runtime.rs` (`ParallelJob`, `parallel_job`, `parallel_run`) |
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole

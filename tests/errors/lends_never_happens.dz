@@ -1,0 +1,20 @@
+// expect: DZ0426
+// `lends` makes callers put what they give on the heap, so it names only what a block may
+// grow: a number lent to one, which owns no memory, needs none (spec §22.12).
+
+fn bump(n: &mut i32) {
+    n += 1
+}
+
+fn twice(a: &mut i32, b: &mut i32) lends a {
+    parallel {
+        bump(a)
+        bump(b)
+    }
+}
+
+fn main() {
+    let mut a = 0
+    let mut b = 0
+    twice(&mut a, &mut b)
+}

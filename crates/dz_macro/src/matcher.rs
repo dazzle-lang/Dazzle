@@ -317,7 +317,8 @@ fn can_start_fragment(f: Fragment, k: TokenKind) -> bool {
         ),
         Fragment::Expr => starts_expr(k),
         Fragment::Stmt => {
-            starts_expr(k) || matches!(k, Let | While | For | Defer | Fn | Struct | Union | Enum)
+            starts_expr(k)
+                || matches!(k, Let | While | For | Defer | Parallel | Fn | Struct | Union | Enum)
         }
         Fragment::Block => k == LBrace,
         Fragment::Code => !matches!(k, Eof | RParen | RBracket | RBrace),
