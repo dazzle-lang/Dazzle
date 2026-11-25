@@ -424,8 +424,9 @@ template <class F> ParallelJob parallel_job(F& f) {
 }
 
 namespace native {
-/// Run every job, the first on this thread and the others on threads of their own, and
-/// return once all of them have. In `dz_native.cpp`.
+/// Run every job, the first on this thread and the others on the program's workers, a pool
+/// that stays, and return once all of them have; a job no worker has taken by then runs
+/// here. In `dz_native.cpp`.
 void parallel_run(ParallelJob* jobs, size_t count);
 /// Cut the passes `0..count` into one range per core, in order, and run `run(context, lo,
 /// hi)` for each at the same time, the first on this thread; return once all have.
@@ -1923,44 +1924,26 @@ void thread_detach(size_t handle) {
 }
 #endif
 
-// --- `parallel { … }` (spec §22.3) ------------------------------------------
+// --- the workers: `parallel { … }` and `parallel for` (spec §22.3) ----------------
 //
-// Every job but the first on a thread of its own, the first on this one, then all joined:
-// the block ends when every call has. A thread that cannot start runs its job here, after
-// the first, which changes when it runs but not what the block does.
-static void run_parallel_job(uint8_t* raw) {
-    ParallelJob* job = reinterpret_cast<ParallelJob*>(raw);
-    job->run(job->context);
-}
-
+// A pool of threads that stays, so a block or a loop run every frame starts no thread. It is
+// started by the first block or loop that has more than one job, one worker per core but the
+// one the block's own thread runs on, and stopped at exit.
+//
+// A block's jobs are a group, on the block thread's stack. Its first job runs there; the rest
+// are queued for the workers, and the block's thread, once its first is done, runs what no
+// worker has taken yet, then waits for the rest. It runs only its own group's jobs: a job
+// of another group could take a lock its own caller holds, a `Mutex` around the block, and
+// wait on this thread forever. Its own group never can, since a thread per job would have
+// met the same lock. And it is enough: every group can finish on its own thread alone, so a
+// block inside a pass, with every worker busy, still ends.
+//
+// One lock guards it all. It is taken twice a job, and a job is a call or a core's share of
+// a loop, so it is never what a program waits on.
+//
 // No allocator here needs a lock: what a call may grow on another thread was placed on the
 // heap, whose `malloc` is safe on every thread, and every region is used by the thread that
 // opened it alone (spec §22.6, §22.12).
-void parallel_run(ParallelJob* jobs, size_t count) {
-    if (count == 0) { return; }
-    size_t* handles = nullptr;
-    if (count > 1) {
-        handles = static_cast<size_t*>(::calloc(count - 1, sizeof(size_t)));
-    }
-    for (size_t i = 1; i < count && handles != nullptr; ++i) {
-        handles[i - 1] = thread_start(&run_parallel_job, reinterpret_cast<uint8_t*>(&jobs[i]));
-    }
-    jobs[0].run(jobs[0].context);
-    for (size_t i = 1; i < count; ++i) {
-        if (handles != nullptr && handles[i - 1] != 0) {
-            thread_join(handles[i - 1]);
-        } else {
-            jobs[i].run(jobs[i].context);
-        }
-    }
-    ::free(handles);
-}
-
-// --- `parallel for` (spec §22.3) ---------------------------------------------
-//
-// One range of passes per core, cut in order and as even as a division makes them, each a
-// job of `parallel_run`. A thread per range per loop for now: the job system, a pool of
-// workers that stays, is what T-0011 builds next.
 static size_t core_count() {
 #if defined(_WIN32)
     SYSTEM_INFO info;
@@ -1972,6 +1955,145 @@ static size_t core_count() {
 #endif
 }
 
+#if defined(_WIN32)
+typedef CONDITION_VARIABLE PoolSignal;
+static SRWLOCK pool_lock = SRWLOCK_INIT;
+static PoolSignal pool_work = CONDITION_VARIABLE_INIT;
+static PoolSignal pool_done = CONDITION_VARIABLE_INIT;
+
+static void pool_acquire() { ::AcquireSRWLockExclusive(&pool_lock); }
+static void pool_release() { ::ReleaseSRWLockExclusive(&pool_lock); }
+static void pool_wait(PoolSignal* signal) {
+    ::SleepConditionVariableSRW(signal, &pool_lock, INFINITE, 0);
+}
+static void pool_wake_one(PoolSignal* signal) { ::WakeConditionVariable(signal); }
+static void pool_wake_all(PoolSignal* signal) { ::WakeAllConditionVariable(signal); }
+#else
+typedef pthread_cond_t PoolSignal;
+static pthread_mutex_t pool_lock = PTHREAD_MUTEX_INITIALIZER;
+static PoolSignal pool_work = PTHREAD_COND_INITIALIZER;
+static PoolSignal pool_done = PTHREAD_COND_INITIALIZER;
+
+static void pool_acquire() { ::pthread_mutex_lock(&pool_lock); }
+static void pool_release() { ::pthread_mutex_unlock(&pool_lock); }
+static void pool_wait(PoolSignal* signal) { ::pthread_cond_wait(signal, &pool_lock); }
+static void pool_wake_one(PoolSignal* signal) { ::pthread_cond_signal(signal); }
+static void pool_wake_all(PoolSignal* signal) { ::pthread_cond_broadcast(signal); }
+#endif
+
+// One block's jobs. Every field but `jobs` and `count` is read and written under the lock.
+struct JobGroup {
+    ParallelJob* jobs;
+    size_t count;
+    size_t next;      // the first job no thread has taken
+    size_t left;      // the jobs not finished, the first included
+    JobGroup* queued; // the group after this one, while this one has jobs to take
+};
+
+// Under the lock, all of it.
+static JobGroup* pool_queue = nullptr;  // groups with a job no thread has taken, oldest first
+static size_t* pool_handles = nullptr;
+static size_t pool_workers = 0;
+static size_t pool_open = 0;            // groups queued and not yet finished
+static bool pool_started = false;
+static bool pool_stopping = false;
+
+// Take `group`'s next job, and take the group off the queue if that was its last.
+static ParallelJob pool_take(JobGroup* group) {
+    const ParallelJob job = group->jobs[group->next++];
+    if (group->next == group->count) {
+        JobGroup** link = &pool_queue;
+        while (*link != nullptr && *link != group) { link = &(*link)->queued; }
+        if (*link == group) { *link = group->queued; }
+        group->queued = nullptr;
+    }
+    return job;
+}
+
+// Run a job taken under the lock, and count it finished; the lock is held again after.
+static void pool_run(JobGroup* group, const ParallelJob& job) {
+    pool_release();
+    job.run(job.context);
+    pool_acquire();
+    if (--group->left == 0) { pool_wake_all(&pool_done); }
+}
+
+static void pool_worker(uint8_t*) {
+    pool_acquire();
+    for (;;) {
+        while (pool_queue == nullptr && !pool_stopping) { pool_wait(&pool_work); }
+        if (pool_queue == nullptr) { break; }
+        JobGroup* group = pool_queue;
+        pool_run(group, pool_take(group));
+    }
+    pool_release();
+}
+
+// At exit, so a worker's `#[thread_local]` statics are dropped as its thread ends (spec
+// §7.7), before the statics of the process and the memory tracker's report. Only an idle pool
+// is stopped: with a block still running, from `exit` on a worker or a spawned thread, a
+// worker may be waiting on something that never comes, and the process ends around it.
+static void pool_stop() {
+    pool_acquire();
+    if (pool_open > 0 || pool_stopping) {
+        pool_release();
+        return;
+    }
+    pool_stopping = true;
+    pool_wake_all(&pool_work);
+    pool_release();
+    for (size_t i = 0; i < pool_workers; ++i) { thread_join(pool_handles[i]); }
+    ::free(pool_handles);
+    pool_handles = nullptr;
+    pool_workers = 0;
+}
+
+// Under the lock: the workers there are, started the first time. None once stopping, or if
+// no thread could start, and then a block runs every job on its own thread, in order.
+static size_t pool_start() {
+    if (pool_started) { return pool_stopping ? 0 : pool_workers; }
+    pool_started = true;
+    const size_t wanted = core_count() - 1;
+    if (wanted == 0) { return 0; }
+    pool_handles = static_cast<size_t*>(::calloc(wanted, sizeof(size_t)));
+    if (pool_handles == nullptr) { return 0; }
+    for (size_t i = 0; i < wanted; ++i) {
+        const size_t handle = thread_start(&pool_worker, nullptr);
+        if (handle == 0) { break; }
+        pool_handles[pool_workers++] = handle;
+    }
+    ::atexit(&pool_stop);
+    return pool_workers;
+}
+
+void parallel_run(ParallelJob* jobs, size_t count) {
+    if (count == 0) { return; }
+    if (count == 1) {
+        jobs[0].run(jobs[0].context);
+        return;
+    }
+    JobGroup group{jobs, count, 1, count, nullptr};
+    pool_acquire();
+    const size_t workers = pool_start();
+    if (workers > 0) {
+        JobGroup** link = &pool_queue;
+        while (*link != nullptr) { link = &(*link)->queued; }
+        *link = &group;
+        ++pool_open;
+        const size_t wake = count - 1 < workers ? count - 1 : workers;
+        for (size_t i = 0; i < wake; ++i) { pool_wake_one(&pool_work); }
+    }
+    pool_run(&group, jobs[0]);
+    while (group.next < group.count) { pool_run(&group, pool_take(&group)); }
+    while (group.left > 0) { pool_wait(&pool_done); }
+    if (workers > 0) { --pool_open; }
+    pool_release();
+}
+
+// --- `parallel for` (spec §22.3) ---------------------------------------------
+//
+// One range of passes per core, cut in order and as even as a division makes them, each a
+// job of `parallel_run`, so the loop's thread and every worker walks one.
 struct ParallelPart {
     void (*run)(void*, size_t, size_t);
     void* context;

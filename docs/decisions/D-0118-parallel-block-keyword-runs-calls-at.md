@@ -30,7 +30,8 @@ programs; `parallel` appeared only in two comments, and says what the block does
 - Every argument, receiver and default is evaluated first, in order, on the thread running the
   block; then the first call runs there and each other on a thread of its own, the user's
   choice over a persistent pool, which comes with the job system (T-0011); the block ends when
-  all have. A thread that cannot start runs its call after the first.
+  all have. A thread that cannot start runs its call after the first. Since r154 the other
+  calls run on that pool, and one no worker has taken runs on the block's thread.
 - No call may need the main thread (DZ0598), `unsafe` or not; what crosses is held to §22.2
   (DZ0599); and two calls to §22.3's rule (DZ0424).
 - `Rc` and `Weak` are refused for now, the user's choice, until their counts are atomic

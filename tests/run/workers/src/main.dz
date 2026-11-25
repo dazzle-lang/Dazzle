@@ -1,0 +1,104 @@
+// The workers that run `parallel for` and `parallel { … }` (spec §22.3) stay from one loop to
+// the next: a loop run every frame, a block inside a pass and a loop inside a block's call,
+// and statics of each worker's own, which last until the program ends and are dropped then.
+
+static RAN: Atomic<u64> = Atomic<u64>(0)
+
+struct Seen {
+    pub items: List<u64> = List<u64>()
+}
+
+/// Each thread's own: a worker's grows over every loop it runs a part of, and is dropped when
+/// the program ends, so a tracked build frees it and reports no leak.
+#[thread_local]
+static SEEN: Seen = Seen{}
+
+fn note(x: u64) {
+    unsafe {
+        SEEN.items.push(x)
+    }
+    RAN.add(1)
+}
+
+fn set(p: &mut u64, v: u64) {
+    p = v
+    note(v)
+}
+
+/// A block inside a pass: every worker may be busy with the loop, so the pass's own thread
+/// runs what no worker takes.
+fn split(a: &mut u64, b: &mut u64, v: u64) {
+    parallel {
+        set(a, v)
+        set(b, v * 2)
+    }
+}
+
+struct Pair {
+    pub a: u64
+    pub b: u64
+}
+
+/// A loop inside a block's call.
+fn scale(xs: &mut List<u64>, by: u64) {
+    parallel for &mut x in xs {
+        x *= by
+        note(x)
+    }
+}
+
+fn sum(xs: &List<u64>) -> u64 {
+    let mut total: u64 = 0
+    for &x in xs {
+        total += x
+    }
+    return total
+}
+
+fn main() {
+    // A loop every frame, as a game runs one.
+    let mut xs = List<u64>()
+    for i in 0..256 {
+        xs.push(i as u64)
+    }
+    for _ in 0..2000 {
+        parallel for &mut x in xs {
+            x += 1
+        }
+    }
+    println!("frames {} {}", xs[0], sum(&xs))
+
+    // A block inside each pass of a loop.
+    let mut pairs = List<Pair>()
+    for i in 0..64 {
+        pairs.push(Pair{ a: 0, b: i as u64 })
+    }
+    for frame in 0..50 {
+        parallel for &mut p in pairs {
+            split(&mut p.a, &mut p.b, frame as u64 + 1)
+        }
+    }
+    let mut a: u64 = 0
+    let mut b: u64 = 0
+    for &p in pairs {
+        a += p.a
+        b += p.b
+    }
+    println!("pairs {} {}", a, b)
+
+    // Loops inside the calls of a block, every frame.
+    let mut left = List<u64>()
+    let mut right = List<u64>()
+    for i in 0..100 {
+        left.push(1)
+        right.push(i as u64)
+    }
+    for _ in 0..20 {
+        parallel {
+            scale(&mut left, 2)
+            scale(&mut right, 1)
+        }
+    }
+    println!("calls {} {}", sum(&left), sum(&right))
+    println!("ran {}", RAN.load())
+}

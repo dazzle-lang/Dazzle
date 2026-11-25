@@ -100,6 +100,12 @@ and what follows sees every pass's writes. Since the passes run at once:
 - no pass may need the main thread (DZ0598, §22.5), and what a pass makes is placed as §22.6
   says.
 
+**The workers** that run a loop's passes and a block's calls are a pool that stays: one per
+core but the one the loop's or block's own thread runs on, started by the first loop or block
+and stopped when the program ends, so a loop run every frame starts no thread. A
+`#[thread_local]` static (§7.7) on a worker lasts from loop to loop, and is dropped when the
+program ends, as the main thread's are.
+
 A loop that must collect, such as two units striking one target, writes into memory of its
 own per pass and is merged after; how `std` helps with that is not designed yet. A loop that
 consumes an array it owns, moving each element out, is not supported yet.
@@ -120,9 +126,11 @@ parallel {
 - **Every argument is evaluated first**, in order, on the thread that runs the block, the
   receiver and default arguments included; then the calls start. So what the arguments make
   and what they move is done before any call runs.
-- **The first call runs on that thread, and each other on a thread of its own**; the block
-  ends when every call has, and what follows sees every call's writes. A thread that cannot
-  start runs its call on the block's thread, after the first.
+- **The first call runs on that thread, and each other on one of the program's workers**; the
+  block ends when every call has, and what follows sees every call's writes. A call no worker
+  has taken by the time the first ends runs on the block's thread, so a block with more calls
+  than there are cores, or one inside a pass while every worker is busy, runs some calls one
+  after another: one call never waits for another to do something.
 - **No call may need the main thread** (DZ0598, §22.5), inside `unsafe` too, which vouches for
   a static, not for where a function runs.
 - **What crosses is held to §22.2** (DZ0599), and two calls to the rule below (DZ0424). An

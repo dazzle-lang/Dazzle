@@ -26,11 +26,16 @@ r153; D-0120), over a range, an array, a slice or a `List`, through `std`'s
 `ParallelIterate`: a thread per core per loop, the body checked to write only its element and
 leave only by `continue`, what a pass makes on the heap, and the container it is given as
 `&mut` lent, so `lends` covers it.
+And so is **the pool of workers** (r154): a block's calls and a loop's ranges run on workers
+that stay, one per core but the caller's, started on first use and joined at exit so their
+`#[thread_local]` statics drop before the memory report. A loop run 2000 times over 256
+elements took 1.2 s with a thread per range and 65–90 ms on the pool (20 cores, debug build).
 **Left in the loop:** a consuming `parallel for` (refused, `// deferred: T-0011`); a pass's
 own region from the worker's pool, where it is on the heap now; a query keyed by type looped
 over in parallel, which waits on §22.8; per-pass output (D-0096's hole 4).
-**Next:** the job system, a pool of workers that stays, so that a `parallel for` each frame
-stops starting threads; then the macro `spawn!`.
+**Left of the job system:** jobs a program hands the pool itself, with dependencies between
+them, beyond a block and a loop: not designed, and item 4 below (`std` or a library) is
+the user's call. **Next:** the macro `spawn!`.
 
 ## Where the code is
 
@@ -52,6 +57,7 @@ stops starting threads; then the macro `spawn!`.
 | `parallel for`: the body (DZ0430, DZ0431, DZ0433, DZ0598, DZ0599) | `crates/dz_check/src/check/parallel_for.rs` (`parallel_write`, `parallel_body`, `reads_written`, `parallel_elements`, `leaves_pass`); called from `for_stmt`, `require_mutable`, `require_writable`, `require_mutable_receiver`, `loop_jump`, `Return`, `needs_main_thread_as` in `check.rs`; `LoopFrame::parallel`, `Body::parallel_loops` |
 | `parallel for`: placement and `lends` | `crates/dz_flow/src/ties/body.rs` (the `For` arm, `lend_to_thread`); `crates/dz_flow/src/placement.rs` (`Cx::passes`, `pass_of`, `lends_anything`) |
 | `parallel for`: emitted C++ and threads | `crates/dz_cpp/src/lib.rs` (`Emitter::parallel_for`); `crates/dz_cpp/src/runtime.rs` (`parallel_for`, `parallel_range`, `core_count`) |
+| The pool of workers | `crates/dz_cpp/src/runtime.rs`, `NATIVE_CPP` (`JobGroup`, `pool_start`, `pool_worker`, `pool_take`, `pool_run`, `pool_stop`, `parallel_run`); tested by `tests/run/workers` |
 
 **What this row is.** All of concurrency, in the order it has to be built: **atomics**, then
 a **mutex**, then **threads**, then a **job system** on top of them. D-0011 places the whole

@@ -2,6 +2,36 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## The pool of workers (T-0011, r154; 2026-11-25)
+
+The job system's first half: `parallel { … }` and `parallel for` stop starting a thread per
+call or range. All of it is `NATIVE_CPP`'s `parallel_run`; the emitted code is unchanged.
+
+- **The pool.** Started by the first `parallel_run` with more than one job: `core_count() - 1`
+  workers through `thread_start`, since the caller runs jobs too. A block's jobs are a
+  `JobGroup` on the caller's stack, queued for the workers; the caller runs the first, then
+  whatever no worker has taken, then waits. One lock and two condition variables (`SRWLOCK`
+  and `CONDITION_VARIABLE` on Windows, pthreads elsewhere; not `<mutex>`, which MinGW's win32
+  thread model lacks). It is taken twice a job, and a job is a call or a core's share of a loop.
+- **The caller helps with its own group only.** Helping with any queued job would deadlock a
+  call that holds a `Mutex` around a nested block, if the job it picked up takes the same lock;
+  with per-call threads that job would have waited on another thread. Its own group is safe,
+  and enough: every group can finish on its caller alone, so a block inside a pass, every
+  worker busy, still ends. If no worker starts, every job runs on the caller, in order, as a
+  thread that could not start did before.
+- **Exit.** `atexit(pool_stop)`, registered when the pool starts, so after the statics' own
+  hook and run before it: the workers are told to stop and joined, so their `#[thread_local]`
+  statics are dropped as their threads end, before the memory tracker's report. Without it the
+  tracked build of `tests/run/workers` reported 19 leaks, its workers' lists. Only an idle pool
+  is stopped: an `exit` while a block runs leaves the workers to the process's end.
+- **Measured.** `tests/run/workers`' 2000 loops over 256 elements, debug build, 20 cores: 1.2 s
+  with a thread per range, 65–90 ms on the pool. g++ 14 and clang++ 21 compile the runtime
+  warning-clean on Windows; the pthread side is left to CI on Linux and macOS.
+- **Not done:** jobs a program gives the pool itself, with dependencies, which needs a design;
+  a pass's region from its worker's pool (§22.6).
+- **Tests.** `tests/run/workers`: a loop every frame, a block inside each pass, loops inside a
+  block's calls, and a `#[thread_local]` list on every worker that the tracked build must free.
+
 ## `parallel for` (T-0011, D-0120, r153; 2026-11-25)
 
 The parallel loop. §22.3 wrote it `for &mut e in enemies.parallel()`, which r151 had made
