@@ -4,7 +4,7 @@ title: "Type parameter packs: <..T>, as C++ has them, and no spawn! macro"
 status: decided
 ---
 
-**Decided, 2026-11-26, r155: spec §8.7**, with §5.4, §7.2, §22.3 and §22.11. The user's
+**Decided, 2026-11-26, r155 and r156: spec §8.7**, with §5.4, §7.2, §22.3 and §22.11. The user's
 choice: asked for the next task, which was the macro `spawn!`, the user asked why a macro was
 needed at all, and answered that what is needed is "`..T` the same way C++ … already
 support[s]".
@@ -64,7 +64,28 @@ since its arguments cross to another thread.
 function, `spawn(physics_thread, inbox, outbox)`, which is what §22.3's `spawn!(f(a, b))`
 was for. D-0117's question of the macro's spelling is closed by this.
 
-**Not yet, each to be built when a program needs it** (T-0269): a pack on a struct, a union,
-a trait or an implementation (`Query<..C>`); a pack's length; an expression repeated over each
-element (C++'s `g(args)...` and folds), which needs a body checked once per element against
-the bounds; and a function with a pack parameter taken as a value.
+**Completed, 2026-11-26, r156: the rest, the user's choices again** (T-0269).
+
+- **An expression repeated over each element is `..pattern`**, C++'s `f(g(args)...)`. Asked
+  for a spelling, the user preferred C++'s compile-time placing to a loop, which is run-time
+  work, and asked "why not simply `..params`?". So `..` is the one marker: `..e` of a place
+  is a spread, as before, and `..e` of anything else that names a pack's tuple is `e` once per
+  element, the tuple's name standing for the element. The two cannot be confused, since a
+  spread's operand is a place, and a spread is the pattern of the element alone. The same
+  reading holds for types: `..Option<A>` is `Option` of each of `A`'s types, C++'s
+  `Option<Ts>...`. A fold needs no syntax of its own: a pattern into a variadic slice
+  parameter, `total(..args.size())`, is one. A pattern is checked once, against the bounds,
+  with the element as a type of its own that has the pack's bounds; monomorphization copies
+  it once per element, so it holds no block, branch, `or` or formatting macro.
+- **A pack's length is `countof(A)`**, the user's choice beside `sizeof` and `alignof`, as C++
+  writes `sizeof...`. It is not `args.len`, nor a trait with a `len` method on the tuple: the
+  user pointed out that inside a pattern `args` is each element, which may well have a
+  `len()` of its own, a `List`'s.
+- **A pack on a struct, a union, a trait and an implementation** works as on a function: a
+  type's arguments are written flat, `Query<Position, Velocity>`, and its pack is the tuple
+  of them.
+- **A function with a pack parameter is a value**: C++ takes one parameter per element, so
+  `call<i32, f64>` is a `fn(fn(i32, f64), i32, f64)`.
+- **Any tuple may be spread**, a pack with elements beside it included, `(i32, ..A, bool)`,
+  and **a tuple has any number of elements**: the sixteen-element limit (DZ0904) was retired
+  before any release.

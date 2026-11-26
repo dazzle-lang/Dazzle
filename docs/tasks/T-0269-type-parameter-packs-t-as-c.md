@@ -2,45 +2,43 @@
 id: T-0269
 title: Type parameter packs, <..T>, as C++ has them
 milestone: M19
-status: open
+status: done
 kind: feature
 area: generics
 ---
 
-**Asked for by the user on 2026-11-26** in place of the macro `spawn!` (D-0121, spec §8.7,
-r155): "`..T` the same way C++ … already support[s]".
+**Asked for by the user on 2026-11-26** in place of the macro `spawn!` (D-0121, spec §8.7):
+"`..T` the same way C++ … already support[s]". Done the same day, in two revisions.
 
-**Built (r155).** A function or a method declares a pack, `<..A>` or `<view ..A: Send>`,
-last; `..A` stands for its types in a tuple or a function type's parameters; a pack
-parameter, `args: ..A`, takes the rest of the arguments and is the tuple `(..A)` in the body;
-`..t` spreads a tuple, a pack's or one of known types, into a call or a tuple literal. A pack
-is inferred from the arguments or a function type, or written after the fixed type
-arguments, and its bounds hold of each type. `std`'s `spawn` takes any number of
-arguments. Tuples hold up to sixteen elements (the runtime's `Tuple` spells each length out).
+**r155.** A function or a method declares a pack, `<..A>` or `<view ..A: Send>`, last; `..A`
+stands for its types in a tuple or a function type's parameters; a pack parameter, `args:
+..A`, takes the rest of the arguments and is the tuple `(..A)` in the body; `..t` spreads a
+tuple into a call or a tuple literal. A pack is inferred from the arguments or a function
+type, or written after the fixed type arguments, and its bounds hold of each type. `std`'s
+`spawn` takes any number of arguments.
 
-**Left, each for when a program needs it:**
+**r156**, the user's choices of spelling: `..pattern` repeats an expression per element
+(`..e` of a place is a spread, `..e` of anything else naming a pack's tuple a pattern); `..R`
+in a type, `(..A?)`; `countof(A)`; packs on structs, unions, traits and implementations; a
+pack function as a value; a tuple with a pack and more spread; tuples of any length.
 
-- **A pack on a struct, union, trait or implementation**, `Query<..C>` (D-0096 writes five
-  `Query`s without it). Refused now with DZ0901. The representation is ready: a `Named`'s
-  argument for the pack would be the `Ty::Tuple` of its types, which `substitute` splices.
-- **A pack's length**, C++'s `sizeof...(T)`.
-- **An expression repeated over each element**, C++'s `g(args)...` and its folds: needs a
-  body checked once per element against the bounds (spec §8.1), so it is a design question.
-- **A function with a pack parameter taken as a value** (DZ0902 now): its C++ takes one
-  tuple, so a value of it would need a wrapper taking the elements.
-- **A tuple with a pack and more spread**, `..t` with `t: (i32, ..A)` (DZ0903 now).
-- **Tuples longer than sixteen** (DZ0904): a generated `Tuple` specialization per length
-  used would lift the limit.
+**Not done**, each for when a program needs it: a pattern naming two packs (C++ expands them
+in step); a pattern with a block, branch, `or` or formatting macro in it (DZ0903); `..R` in an
+implementation's own pattern (`match_list` in `impls.rs` matches `..A`, not `..R`). Found on
+the way and recorded apart: T-0270 (a long `+` chain overflows the checker's stack) and
+T-0271 (an implementation generic only through its trait's arguments).
 
 ## Where the code is
 
 | Piece | Location |
 |---|---|
-| Syntax: `<..T>`, `..T` in a type list | `crates/dz_parse/src/item.rs` (`parse_generics`), `crates/dz_parse/src/ty.rs` (`parse_type`, `TokenKind::DotDot`); `GenericParam::is_pack`, `TypeKind::Expand` in `dz_ast`; printed by `dz_ast::dump` and `dz_fmt` |
-| A pack in the type system | `ty::Param::pack`, `substitute_list` and `pack_in` in `crates/dz_hir/src/ty.rs`: a pack is solved to a `Ty::Tuple`, spliced into the list it stands in |
-| Where a pack may be declared and written (DZ0901, DZ0902) | `crates/dz_check/src/lib.rs`: `check_packs` (from `declare_params`), `lower_type_list`, `lower_expansion`, `pack_named`, the bare-pack check in `lower_path_type`, `param_sigs` (a pack parameter's type is `(..T)`), `FnSig::pack_param` |
-| A call: inference, gathering, spreads (DZ0903, DZ0904) | `crates/dz_check/src/check/packs.rs` (`Slot`, `slots`, `unify_args`, `bind_written`, `check_pack_bounds`, `check_pack_args`, `check_spread_args`, `fn_value_args`, `tuple_with_spread`); called from `check_args`, `solve_call`, `check_bounds`, `fn_value_type_args` in `check.rs`; `unify_list` there; element by position in `field_type` |
-| The spread node | `hir::ExprKind::Spread` in `crates/dz_hir/src/lib.rs`; moves in `crates/dz_check/src/moves.rs`; flow in `crates/dz_flow/src/lib.rs` (`read`), `ties/body.rs`, `placement.rs`, `release.rs`, `storing.rs` |
-| C++ | `crates/dz_cpp/src/lib.rs`: `expr_node` (`Spread` as its elements), `capture_each` and `emit_args` (never held, an empty one left out); `Tuple` up to sixteen in `crates/dz_cpp/src/runtime.rs` |
-| `spawn` over a pack | `crates/dz_project/src/std/sync/thread.dz` (`spawn`, `Start<F, P>`, `start_thread`) |
-| Tests | `tests/run/packs`, `tests/run/threads`; `tests/workspace/typed` and `typeerrors`; `tests/errors/pack_*.dz`; `tests/parse/items.dz`, `tests/fmt/items.dz`; `dz explain DZ0901`…`DZ0904` in `crates/dz_diag/explain/generics.md` |
+| Syntax: `<..T>`, `..T` and `..R` in a type list | `crates/dz_parse/src/item.rs` (`parse_generics`), `crates/dz_parse/src/ty.rs` (`parse_type`, `TokenKind::DotDot`); `GenericParam::is_pack`, `TypeKind::Expand` in `dz_ast`; printed by `dz_ast::dump` and `dz_fmt` |
+| A pack in the type system | `crates/dz_hir/src/ty.rs`: `Param::pack`, `Param::element` (the `ELEMENT` bit), `Ty::Each` and `each`, `substitute_list` (splices `..A` and `..R`), `pack_in`, `pack_entry` |
+| Declaring and writing packs (DZ0901, DZ0902) | `crates/dz_check/src/lib.rs`: `check_packs`, `ParamDef::as_arg`, `lower_type_list`, `lower_expansion` (`..R` with the element bound), `names_in_type`, `pack_named`, `type_args` and `trait_args` (a pack's arguments grouped), `param_sigs`, `FnSig::pack_param`; `Symbol::packed` in `dz_resolve` prints a type's pack flat |
+| A call: inference, gathering, spreads, patterns (DZ0903) | `crates/dz_check/src/check/packs.rs` (`Slot`, `slots`, `expansion`, `names_in_expr`, `expand_node`, `expand_into_slice`, `refuse_uncopyable`, `unify_args`, `bind_written`, `check_pack_bounds`, `check_pack_args`, `check_spread_args`, `fn_value_args`, `tuple_with_spread`, `count_query`); from `check_args`, `solve_call`, `check_bounds`, `fn_value_type_args`, `variadic_positional` in `check.rs`; `unify_list` and `value_params` there |
+| Implementations over packs | `match_list`, `lists_might_overlap` in `crates/dz_check/src/impls.rs` |
+| HIR nodes | `Spread`, `SpreadRest`, `TupleEnd`, `Expand`, `Expanded`, `Body::pack_param`, `TypeQuery::Count` in `crates/dz_hir/src/lib.rs`; `expand_patterns` and `copy_tree` (one copy of a pattern per element, in `map_body_types`), `remap_children` |
+| Ownership | `crates/dz_check/src/moves.rs` (a pattern takes its tuple where it takes the element); `crates/dz_flow/src/lib.rs` (`read`), `ties/body.rs`, `placement.rs`, `release.rs`, `storing.rs` |
+| C++ | `crates/dz_cpp/src/lib.rs`: `spread_text`, `Expanded` and `SpreadRest` in `expr_node`, `emit_args` (`SPREAD_SEP`), `tuple_member` and `tuple_braces` (past sixteen), `pack_arg` and `decl_params`/`take_ownership_of_params` (a pack parameter as one C++ parameter per element), `type_query` (`Count`); `Tuple` and `leave_empty` in `crates/dz_cpp/src/runtime.rs` |
+| `spawn` over a pack | `crates/dz_project/src/std/sync/thread.dz` |
+| Tests | `tests/run/packs`, `tests/run/pack_types`, `tests/run/pack_patterns`, `tests/run/threads`; `tests/workspace/typed` and `typeerrors`; `tests/errors/pack_*.dz`; the feature matrix; `tests/parse/items.dz`, `tests/fmt/items.dz`; `dz explain DZ0901`…`DZ0903` |

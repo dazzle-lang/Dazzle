@@ -1,0 +1,9 @@
+[module]
+name    = "pack_patterns"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

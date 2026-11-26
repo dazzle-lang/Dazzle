@@ -502,8 +502,7 @@ fn check_overrides(cx: &mut Ctx, sym: SymbolId) {
         // The nearest base declaring a method of this name is the one being replaced.
         // A generic base's method is compared at the base's arguments: `Panel<T>`'s
         // `fn set(&mut self, v: T)` is `set(&mut self, v: i32)` to `Button : Panel<i32>`.
-        let own: Vec<Ty> =
-            cx.table.type_params(sym).iter().map(|d| Ty::Param(d.param.clone())).collect();
+        let own: Vec<Ty> = cx.table.type_params(sym).iter().map(ParamDef::as_arg).collect();
         let found = bases.iter().find_map(|b| {
             let bsig = cx.table.struct_sig(*b)?;
             let bkey = bsig.overloads.get(name)?.first()?;
@@ -1237,6 +1236,9 @@ struct Body<'a, 'c> {
     parallel_call: Option<Span>,
     /// What that call needs of the main thread, and why.
     parallel_needs: Vec<(Span, String)>,
+    /// The first node built for each spread of a tuple holding a pack, by the spread's span:
+    /// the rest of its elements are `SpreadRest`s of it, so the tuple is taken once (§8.7).
+    spread_leads: HashMap<(u32, u32), hir::ExprId>,
     /// The `parallel for` loops enclosing what is being checked, innermost last: what a
     /// pass may touch outside its loop (spec §22.3).
     parallel_loops: Vec<parallel_for::ParallelLoop>,
@@ -1309,6 +1311,7 @@ impl<'a, 'c> Body<'a, 'c> {
             unbound: Vec::new(),
             main_thread_needs: Vec::new(),
             parallel_call: None,
+            spread_leads: HashMap::new(),
             parallel_needs: Vec::new(),
             parallel_loops: Vec::new(),
             binding_prefix: false,
@@ -2350,7 +2353,8 @@ impl<'a, 'c> Body<'a, 'c> {
                 }
             }
         }
-        for (p, ps) in f.params.iter().zip(&sig.params) {
+        let pack_param = sig.pack_param();
+        for (i, (p, ps)) in f.params.iter().zip(&sig.params).enumerate() {
             let ty = self.subst(&ps.ty);
             // A default on a variadic parameter was reported where the signature was built;
             // checking it against the `[]T` as well would report the one mistake twice.
@@ -2378,7 +2382,10 @@ impl<'a, 'c> Body<'a, 'c> {
                 );
             }
             self.note_main_thread_value(p.name.span, &ty);
-            self.bind(&ps.name, ty, p.is_mut, LocalKind::Param, p.name.span);
+            let id = self.bind(&ps.name, ty, p.is_mut, LocalKind::Param, p.name.span);
+            if pack_param == Some(i) {
+                self.hir.pack_param = Some(id);
+            }
         }
         // A constructor's `: Base(…)`, checked here because C++ runs it before the body
         // and its arguments see the constructor's parameters — which are in scope exactly
@@ -4061,9 +4068,6 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.tuple_with_spread(e, elems, expected)
             }
             ExprKind::Tuple(elems) => {
-                if elems.len() > packs::MAX_TUPLE {
-                    self.too_long(elems.len(), e.span);
-                }
                 let checked: Vec<Checked> = match expected.map(|t| self.subst(t)) {
                     Some(Ty::Tuple(want)) if want.len() == elems.len() => {
                         elems.iter().zip(&want).map(|(x, w)| self.expr(x, Some(w))).collect()
@@ -5826,19 +5830,6 @@ impl<'a, 'c> Body<'a, 'c> {
             return Vec::new();
         }
         let name = seg.name.name.clone();
-        if sig.pack_param().is_some() {
-            self.cx.error_help(
-                codes::BAD_PACK_USE,
-                span,
-                format!("`{name}` takes a pack of arguments, so it is not a value yet"),
-                "a function with a pack parameter taken as a value",
-                format!(
-                    "call it, `{name}(…)`, or write a function of the arguments you want that \
-                     calls it, and pass that (spec §8.7, T-0269)"
-                ),
-            );
-            return sig.generics.iter().map(|_| Ty::Error).collect();
-        }
         let mut map: HashMap<u32, Ty> = HashMap::new();
         if !seg.generics.is_empty() {
             let written: Vec<Ty> =
@@ -5857,9 +5848,7 @@ impl<'a, 'c> Body<'a, 'c> {
                 );
             }
         } else if let Some(Ty::Fn { params, ret, .. }) = expected.map(|t| self.subst(t)) {
-            for (p, a) in sig.params.iter().zip(params.iter()) {
-                unify(&p.ty, a, &mut map);
-            }
+            unify_list(&value_params(sig), &params, &mut map);
             unify(&sig.ret, &ret, &mut map);
         }
         let mut args = Vec::with_capacity(sig.generics.len());
@@ -7229,6 +7218,11 @@ impl<'a, 'c> Body<'a, 'c> {
                         return self.mk(e, q.0, q.1);
                     }
                 }
+                // `countof(A)`: how many types a pack holds, C++'s `sizeof...(A)` (§8.7).
+                if name == "countof" && args.len() == 1 {
+                    let (ty, kind) = self.count_query(&args[0]);
+                    return self.mk(e, ty, kind);
+                }
                 // Codegen reads these by position, so a missing argument must be a Dazzle
                 // diagnostic rather than a panic in the compiler or bad C++ (invariant 7).
                 if let Some((lo, hi)) = builtin_arity(&name) {
@@ -7545,7 +7539,7 @@ impl<'a, 'c> Body<'a, 'c> {
         let rest = &args[fixed..];
         // `f(..xs)`: the caller's slice, passed as it is.
         if let [only] = rest {
-            if let Some(inner) = spread(only) {
+            if let Some(inner) = spread(only).filter(|_| self.expansion(only).is_none()) {
                 let c = self.expr(inner, Some(&slice_ty));
                 if !c.ty.is_wildcard()
                     && !matches!(c.ty.peeled_refs(), Ty::Slice { .. } | Ty::Array { .. })
@@ -7567,6 +7561,11 @@ impl<'a, 'c> Body<'a, 'c> {
         }
         let mut elems = Vec::with_capacity(rest.len());
         for a in rest {
+            // `..args.size()`: one element per element of a pack (spec §8.7).
+            if let Some(id) = self.expand_into_slice(a, &elem) {
+                elems.push(id);
+                continue;
+            }
             if spread(a).is_some() {
                 self.cx.error_help(
                     codes::BAD_VARIADIC,
@@ -8701,13 +8700,15 @@ impl<'a, 'c> Body<'a, 'c> {
                             .map(|g| g.param.id)
                             .zip(type_args.iter().cloned())
                             .collect();
+                        // Substituted as one list, so a pack's types are spliced in.
+                        let params = match self.cx.table.subst(&Ty::Tuple(value_params(&sig)), &map)
+                        {
+                            Ty::Tuple(params) => params,
+                            _ => Vec::new(),
+                        };
                         (
                             Ty::Fn {
-                                params: sig
-                                    .params
-                                    .iter()
-                                    .map(|p| self.cx.table.subst(&p.ty, &map))
-                                    .collect(),
+                                params,
                                 ret: Rc::new(self.cx.table.subst(&sig.ret, &map)),
                                 // Its own clauses, held to the type it is stored in (§6.7).
                                 kills: if sig.kills_unknown {
@@ -10526,6 +10527,20 @@ fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
     }
 }
 
+/// The parameters a function has as a value: its signature's, with a pack parameter's
+/// tuple, `(..T)`, standing as the `..T` it holds, since C++ takes one argument per element
+/// (spec §8.7).
+fn value_params(sig: &FnSig) -> Vec<Ty> {
+    let mut out = Vec::with_capacity(sig.params.len());
+    for (i, p) in sig.params.iter().enumerate() {
+        match &p.ty {
+            Ty::Tuple(parts) if sig.pack_param() == Some(i) => out.extend(parts.iter().cloned()),
+            t => out.push(t.clone()),
+        }
+    }
+    out
+}
+
 /// [`unify`] over two lists of types, element by element. A pack in the pattern, `..T`,
 /// takes whatever the actual list has between the elements before it and those after it,
 /// as the tuple of them (spec §8.7): `(i32, ..T)` against `(i32, f32, bool)` makes `T` the
@@ -10550,9 +10565,27 @@ fn unify_list(ps: &[Ty], qs: &[Ty], out: &mut HashMap<u32, Ty>) {
         unify(x, y, out);
     }
     let middle = &qs[at..qs.len() - after];
-    if !middle.iter().any(Ty::is_wildcard) {
-        out.entry(pack.id).or_insert_with(|| Ty::Tuple(middle.to_vec()));
+    if middle.iter().any(Ty::is_wildcard) {
+        return;
     }
+    // `..R` over the pack: each type of the list matched against `R`, the element solved
+    // from each, `fn(..A?)` against `fn(i32?, f64?)` making `A` the pack `i32, f64`.
+    if let Ty::Each(e) = &ps[at] {
+        let element = e.pack.element().id;
+        let mut parts = Vec::with_capacity(middle.len());
+        for y in middle {
+            let mut one = HashMap::new();
+            unify(&e.ty, y, &mut one);
+            let Some(part) = one.remove(&element) else { return };
+            for (k, v) in one {
+                out.entry(k).or_insert(v);
+            }
+            parts.push(part);
+        }
+        out.entry(pack.id).or_insert_with(|| Ty::Tuple(parts));
+        return;
+    }
+    out.entry(pack.id).or_insert_with(|| Ty::Tuple(middle.to_vec()));
 }
 
 /// Can `actual` be passed where some instantiation of the generic `pattern` is wanted? Its
@@ -10744,7 +10777,7 @@ pub(crate) fn is_source_location(t: &Ty) -> bool {
 /// variadic formatting calls, which §12.9's format-string checking will cover.
 fn builtin_arity(name: &str) -> Option<(usize, usize)> {
     Some(match name {
-        "destroy" | "move_out" | "sizeof" | "alignof" | "blackbox" | "dyn_sizeof"
+        "destroy" | "move_out" | "sizeof" | "alignof" | "countof" | "blackbox" | "dyn_sizeof"
         | "dyn_alignof" => (1, 1),
         // `construct(dst)` default-constructs; `construct(dst, v)` copies or moves in.
         "construct" => (1, 2),
@@ -10755,7 +10788,7 @@ fn builtin_arity(name: &str) -> Option<(usize, usize)> {
 
 fn builtin_call_type(name: &str) -> Ty {
     match name {
-        "sizeof" | "alignof" | "dyn_sizeof" | "dyn_alignof" => Ty::Int(IntTy::Usize),
+        "sizeof" | "alignof" | "countof" | "dyn_sizeof" | "dyn_alignof" => Ty::Int(IntTy::Usize),
         // `error(...)` is the failure case of whatever `!->` signature encloses it, so its
         // payload is `Never` and unifies with any success type (spec §9.1).
         "error" => Ty::Fallible(Rc::new(Ty::Never)),

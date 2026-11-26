@@ -1349,7 +1349,7 @@ impl<'a> Cx<'a> {
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Move(base)
-            | hir::ExprKind::Spread(base)
+            | hir::ExprKind::Spread { base, .. }
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. } => sub(self, base),
@@ -1378,8 +1378,13 @@ impl<'a> Cx<'a> {
                     sub(self, x);
                 }
             }
+            hir::ExprKind::Expand { over, pattern, .. } => {
+                sub(self, over);
+                sub(self, pattern);
+            }
             hir::ExprKind::Tuple(parts)
             | hir::ExprKind::ArrayLit(parts)
+            | hir::ExprKind::Expanded(parts)
             | hir::ExprKind::Builtin { args: parts, .. }
             | hir::ExprKind::Intrinsic { args: parts, .. } => {
                 for x in parts {

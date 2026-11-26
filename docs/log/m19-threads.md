@@ -2,6 +2,41 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Packs completed: patterns, `countof`, packs on types (T-0269, D-0121, r156; 2026-11-26)
+
+The rest of T-0269, with the user's spellings: `..pattern` (the user's "why not simply
+`..params`?") and `countof(A)` (not `args.len`: inside a pattern `args` is each element).
+
+- **Patterns.** `..e` where `e` is not a place and names a pack's tuple is checked once with
+  that name bound to a local of the pack's *element*, a parameter whose id is the pack's with
+  the `ELEMENT` bit set, so its bounds are the pack's with no table. The node is a
+  `hir::ExprKind::Expand`; `map_body_types`, the one place a body becomes an instance, turns
+  it into an `Expanded` of one copy per element (`copy_tree`), the element local replaced by
+  `t.i` and the element's type by the part's. So mono asks for each copy's instances, and the
+  emitter writes copies as it writes a spread's elements. A variadic slice's array, whose
+  length was unknown, is sized there too. The moves pass moves the tuple only where the
+  pattern moves the element. A pattern may hold only what `remap_children` can copy.
+- **`..R` in types** is `Ty::Each { pack, ty }`, spliced per part like a pack, and unified
+  per element, so `fn(..A?)` solves `A` from `fn(i32?, f64?)`.
+- **Packs on types** keep one argument per parameter, the pack's being the tuple of its
+  types, so every place that pairs parameters with arguments was already right; only reading
+  written arguments, a type's own `Self`, printing (`Symbol::packed`) and the implementation
+  matcher (`match_list`) changed.
+- **A pack function as a value**: a pack parameter is now one C++ parameter per element, the
+  tuple built at the top of the body, and a call passes the tuple literal's elements. The
+  function's value type is its parameters with the pack spliced.
+- **Mixed spreads**: `..t` of `(i32, ..A, bool)` is a `Spread` over a run `from..to` (ends
+  counted from either side, `TupleEnd`), the first run taking the tuple and the others
+  `SpreadRest`s of it, so flow sees one move.
+- **Tuples of any length**: the runtime nests past sixteen (`more`), and `tuple_member` and
+  `tuple_braces` write the path and the braces; DZ0904 is retired. `leave_empty` had reset
+  only four elements, from before tuples of five existed; it resets all now.
+- **Found, not fixed:** T-0270, fifteen `+` in a row overflow the checker's stack in a debug
+  build; T-0271, an implementation generic only through its trait's arguments emits broken
+  C++. Both predate packs.
+- **Tests.** `tests/run/pack_types`, `tests/run/pack_patterns`, more of `tests/run/packs`;
+  the `typed`/`typeerrors` pair.
+
 ## Type parameter packs, and `spawn` of any number of arguments (T-0269, D-0121, r155; 2026-11-26)
 
 `spawn!` was next. The user asked why a macro was needed at all, and chose C++'s parameter

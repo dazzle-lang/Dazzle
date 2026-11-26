@@ -399,8 +399,7 @@ template <class A, class B> struct Tuple<A, B> { A v0; B v1; };
 template <class A, class B, class C> struct Tuple<A, B, C> { A v0; B v1; C v2; };
 template <class A, class B, class C, class D>
 struct Tuple<A, B, C, D> { A v0; B v1; C v2; D v3; };
-// Up to sixteen: a pack makes tuples of any length (spec §8.7), and the checker refuses
-// a longer one rather than let it reach C++ (invariant 7).
+// Spelled out up to sixteen; a pack makes tuples of any length (spec §8.7).
 template <class A0, class A1, class A2, class A3, class A4>
 struct Tuple<A0, A1, A2, A3, A4> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; };
 template <class A0, class A1, class A2, class A3, class A4, class A5>
@@ -425,6 +424,10 @@ template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, 
 struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; A14 v14; };
 template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12, class A13, class A14, class A15>
 struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; A14 v14; A15 v15; };
+// Past sixteen, the first sixteen in place and the rest in `more`: element `i` is reached
+// through `i / 16` `.more`s, the path the emitter writes (`tuple_member`).
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12, class A13, class A14, class A15, class A16, class... Rest>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15, A16, Rest...> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; A14 v14; A15 v15; Tuple<A16, Rest...> more; };
 
 // --- access helpers -------------------------------------------------------
 //
@@ -654,6 +657,19 @@ DZ_INLINE void leave_empty(Tuple<Ts...>& x) {
     if constexpr (sizeof...(Ts) >= 2) { leave_empty(x.v1); }
     if constexpr (sizeof...(Ts) >= 3) { leave_empty(x.v2); }
     if constexpr (sizeof...(Ts) >= 4) { leave_empty(x.v3); }
+    if constexpr (sizeof...(Ts) >= 5) { leave_empty(x.v4); }
+    if constexpr (sizeof...(Ts) >= 6) { leave_empty(x.v5); }
+    if constexpr (sizeof...(Ts) >= 7) { leave_empty(x.v6); }
+    if constexpr (sizeof...(Ts) >= 8) { leave_empty(x.v7); }
+    if constexpr (sizeof...(Ts) >= 9) { leave_empty(x.v8); }
+    if constexpr (sizeof...(Ts) >= 10) { leave_empty(x.v9); }
+    if constexpr (sizeof...(Ts) >= 11) { leave_empty(x.v10); }
+    if constexpr (sizeof...(Ts) >= 12) { leave_empty(x.v11); }
+    if constexpr (sizeof...(Ts) >= 13) { leave_empty(x.v12); }
+    if constexpr (sizeof...(Ts) >= 14) { leave_empty(x.v13); }
+    if constexpr (sizeof...(Ts) >= 15) { leave_empty(x.v14); }
+    if constexpr (sizeof...(Ts) >= 16) { leave_empty(x.v15); }
+    if constexpr (sizeof...(Ts) > 16) { leave_empty(x.more); }
 }
 // An empty optional of plain data has no payload to reset (`OptStore`).
 template <class T>

@@ -1,0 +1,88 @@
+// A pattern repeated over a pack (spec §8.7), C++'s `f(g(args)...)`: `..pattern` is the
+// pattern once per element, into a variadic slice (a fold), a function value, another pack
+// function and a tuple literal; and `..R` in a type, `(..A?)`, solved from the arguments.
+
+trait Measure {
+    fn size(&self) -> usize
+}
+
+struct Word {
+    pub text: String
+
+    pub Word(t: &str) {
+        text = String(t)
+    }
+}
+
+impl Measure for Word {
+    fn size(&self) -> usize {
+        return text.len()
+    }
+}
+
+struct Box3 {
+    pub w: usize = 0
+}
+
+impl Measure for Box3 {
+    fn size(&self) -> usize {
+        return w * 3
+    }
+}
+
+fn total(xs: ..usize) -> usize {
+    let mut t: usize = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+/// A fold: each element's size, into a variadic slice.
+fn total_size<..A: Measure>(args: ..A) -> usize {
+    return total(..args.size())
+}
+
+fn echo<T>(x: T) -> T in x@home {
+    return x
+}
+
+fn show3(a: i32, b: i32, c: i32) {
+    println!("{} {} {}", a, b, c)
+}
+
+/// A pattern into a function value: each element passed through a generic function.
+fn passed<..A>(f: fn(..A), args: ..A) {
+    f(..echo(args))
+}
+
+fn wrap<T>(x: T) -> T? in x@home {
+    return x
+}
+
+fn count_some<..A>(_xs: ..A) -> usize {
+    return countof(A)
+}
+
+/// A pattern into another pack function, with a type pattern in between.
+fn wrapped<..A>(args: ..A) -> usize {
+    let opts: (..A?) = (..wrap(args),)
+    return count_some(..opts)
+}
+
+fn takes_options(a: i32?, b: f64?) {
+    println!("{} {}", a or 0, b or 0.0)
+}
+
+/// A pack solved from a pattern's type: `A` is `i32, f64` from `fn(i32?, f64?)`.
+fn call_some<..A>(f: fn(..A?), args: ..A) {
+    f(..wrap(args))
+}
+
+fn main() {
+    call_some(takes_options, 4, 5.5)
+    println!("{}", total_size(Word("four"), Box3{ w: 2 }, Word("ab")))
+    println!("{}", total_size())
+    passed(show3, 1, 2, 3)
+    println!("{}", wrapped(1, true, 3.0))
+}

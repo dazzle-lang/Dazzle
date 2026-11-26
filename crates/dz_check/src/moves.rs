@@ -185,7 +185,20 @@ impl Walk<'_> {
                 }
             }
             // A pack's tuple passed on as its elements: every one is taken (spec §8.7).
-            hir::ExprKind::Spread(inner) => self.value(inner),
+            hir::ExprKind::Spread { base: inner, .. } => self.value(inner),
+            // A pattern over a pack takes its tuple only where it takes the element.
+            hir::ExprKind::Expand { over, elem, pattern, .. } => {
+                let before = self.wrap.len();
+                self.value(pattern);
+                let takes = self.wrap[before..].iter().any(
+                    |w| matches!(self.body.expr(*w).kind, hir::ExprKind::Local(l) if l == elem),
+                );
+                if takes {
+                    self.value(over);
+                } else {
+                    self.read(over);
+                }
+            }
             hir::ExprKind::Call { callee, args } => {
                 match callee {
                     hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {

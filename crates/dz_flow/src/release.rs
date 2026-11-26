@@ -418,6 +418,7 @@ impl Frees<'_, '_> {
             | K::EnumVariant { .. }
             | K::TypeQuery { .. }
             | K::DefaultArg(_)
+            | K::SpreadRest { .. }
             | K::Break(_)
             | K::Continue(_) => true,
             K::Field { base, .. }
@@ -444,9 +445,13 @@ impl Frees<'_, '_> {
             K::Tuple(parts) | K::ArrayLit(parts) => {
                 self.d.only_frees(self.body.ty(e)) && all(parts)
             }
-            K::Move(inner) | K::Spread(inner) => {
+            K::Move(inner) | K::Spread { base: inner, .. } => {
                 self.d.only_frees(self.body.ty(e)) && self.expr(*inner)
             }
+            K::Expand { over, pattern, .. } => {
+                self.d.only_frees(self.body.ty(e)) && self.expr(*over) && self.expr(*pattern)
+            }
+            K::Expanded(copies) => all(copies),
             K::Block(b) => self.block(*b),
             K::If { cond, then, else_branch } => match self.fold(*cond) {
                 Some(true) => self.block(*then),
@@ -905,7 +910,7 @@ fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
-        | K::Spread(base)
+        | K::Spread { base, .. }
         | K::Ref { place: base, .. }
         | K::Unary { operand: base, .. }
         | K::Cast { operand: base, .. } => vec![*base],
@@ -920,9 +925,11 @@ fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         }
         K::Tuple(parts)
         | K::ArrayLit(parts)
+        | K::Expanded(parts)
         | K::Builtin { args: parts, .. }
         | K::Intrinsic { args: parts, .. }
         | K::Formatted { args: parts, .. } => parts.clone(),
+        K::Expand { over, pattern, .. } => vec![*over, *pattern],
         K::Call { callee, args } => {
             let mut out = match callee {
                 Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => vec![*recv],

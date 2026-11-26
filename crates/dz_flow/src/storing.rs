@@ -269,7 +269,7 @@ pub(crate) fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
-        | K::Spread(base)
+        | K::Spread { base, .. }
         | K::Ref { place: base, .. }
         | K::Unary { operand: base, .. }
         | K::Cast { operand: base, .. } => vec![*base],
@@ -284,9 +284,11 @@ pub(crate) fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         }
         K::Tuple(parts)
         | K::ArrayLit(parts)
+        | K::Expanded(parts)
         | K::Builtin { args: parts, .. }
         | K::Intrinsic { args: parts, .. }
         | K::Formatted { args: parts, .. } => parts.clone(),
+        K::Expand { over, pattern, .. } => vec![*over, *pattern],
         K::Call { callee, args } => {
             let mut out = match callee {
                 Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => vec![*recv],

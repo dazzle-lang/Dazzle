@@ -132,6 +132,10 @@ pub struct Symbol {
     /// needs it so a derived type's methods see the base's fields unqualified, and the
     /// editor needs it for the same reason (spec §7.3, 18.32).
     pub base: Option<SymbolId>,
+    /// Its last type parameter is a pack, `struct Query<..C>` (spec §8.7): its last type
+    /// argument is then the tuple of the pack's types, which is printed as they were
+    /// written, `Query<i32, f64>`.
+    pub packed: bool,
 }
 
 impl Symbol {
@@ -430,6 +434,7 @@ pub const BUILTIN_FNS: &[&str] = &[
     // `Allocators::Global` is `std`'s own import of `stdlib.h` (spec §14.2, r74).
     "sizeof",
     "alignof",
+    "countof",
     "construct",
     "destroy",
     "move_out",
@@ -749,6 +754,18 @@ fn walk_via(
     Ok(at)
 }
 
+/// Whether a declaration's last type parameter is a pack (spec §8.7).
+fn last_generic_is_pack(item: &Item) -> bool {
+    let generics = match &item.kind {
+        ItemKind::Struct(s) => &s.generics,
+        ItemKind::Union(u) => &u.generics,
+        ItemKind::Trait(t) => &t.generics,
+        ItemKind::Fn(f) => &f.generics,
+        _ => return false,
+    };
+    generics.params.last().is_some_and(|p| p.is_pack)
+}
+
 fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, pf: &ParsedFile) {
     r.file_module.insert(pf.file, module);
     for item in &pf.ast.items {
@@ -763,6 +780,7 @@ fn collect_file(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId, p
             span: name.span,
             members,
             base: None,
+            packed: last_generic_is_pack(item),
         };
 
         if let Some(previous) = scope.items.get(&symbol.name).copied() {
@@ -824,6 +842,7 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
                         span,
                         members: Vec::new(),
                         base: None,
+                        packed: false,
                     });
                     namespaces.insert(path.clone(), id);
                     match parent {
@@ -881,6 +900,7 @@ fn collect_foreign(r: &mut Resolution, scope: &mut ModuleScope, module: ModuleId
             span,
             members,
             base: None,
+            packed: false,
         });
         r.foreign_decl.insert((module, index), id);
         // A function whose name an earlier one holds is another overload of it: the name

@@ -65,6 +65,17 @@ impl ParamDef {
     pub fn name(&self) -> &str {
         &self.param.name
     }
+
+    /// The parameter as the type argument it stands for inside its declaration: itself, or
+    /// for a pack the tuple of its types, `(..A)`, which is how a pack is passed as one
+    /// argument (spec §8.7).
+    pub fn as_arg(&self) -> Ty {
+        if self.param.pack {
+            Ty::Tuple(vec![Ty::Param(self.param.clone())])
+        } else {
+            Ty::Param(self.param.clone())
+        }
+    }
 }
 
 /// One trait applied to arguments: `Ord`, `Mul<f32>`, `Iterate` (spec §7.6, §11.2).
@@ -595,7 +606,8 @@ impl TypeTable {
     /// What a generic parameter is allowed to do (spec §8.1). Empty means §8.2's
     /// unbounded case, not "unknown".
     pub fn bounds_of(&self, p: &ty::Param) -> &[TraitRef] {
-        self.param_bounds.get(&p.id).map_or(&[], |v| v.as_slice())
+        // A pack's element is bounded as the pack is (spec §8.7).
+        self.param_bounds.get(&p.declared()).map_or(&[], |v| v.as_slice())
     }
 
     /// `trait Ord : Eq` — the traits a trait requires (spec §7.6).
@@ -2103,8 +2115,18 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
                 name
             } else {
                 // As written in source: `Buffer<f32>`, never a mangled instantiation name.
-                // Diagnostics quote user syntax (principle 4, §1).
-                let args = args.iter().map(&name_of).collect::<Vec<_>>().join(", ");
+                // Diagnostics quote user syntax (principle 4, §1). A pack's types are
+                // written one by one, `Query<i32, f64>` (spec §8.7).
+                let mut shown: Vec<String> = Vec::with_capacity(args.len());
+                for (i, a) in args.iter().enumerate() {
+                    match a {
+                        Ty::Tuple(parts) if res.symbol(*id).packed && i + 1 == args.len() => {
+                            shown.extend(parts.iter().map(&name_of))
+                        }
+                        _ => shown.push(name_of(a)),
+                    }
+                }
+                let args = shown.join(", ");
                 format!("{name}<{args}>")
             }
         }
@@ -2120,6 +2142,7 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
         Ty::SelfTy => "Self".to_owned(),
         // A pack stands only in a list, where it is written `..T` (spec §8.7).
         Ty::Param(p) if p.pack => format!("..{}", p.name),
+        Ty::Each(e) => format!("..{}", name_of(&e.ty)),
         Ty::Param(p) => p.name.to_string(),
         // As written: `T::Item`, and `C::Iter::Item` for a projection of one (spec §8.5).
         Ty::Assoc(p) => format!("{}::{}", name_of(&p.on), p.name),
@@ -2134,11 +2157,8 @@ impl<'a> Ctx<'a> {
     /// Bounds are resolved here rather than lazily because a bound that names something
     /// which is not a trait is a mistake worth reporting once, at the declaration, instead
     /// of at every use of the parameter.
-    ///
-    /// `holder` names what declares them when it is not a function — `"struct"`, `"trait"` —
-    /// for a pack, which only a function may declare yet (spec §8.7).
-    fn declare_params(&mut self, g: &Generics, holder: Option<&str>) -> Vec<ParamDef> {
-        self.check_packs(g, holder);
+    fn declare_params(&mut self, g: &Generics) -> Vec<ParamDef> {
+        self.check_packs(g);
         let mut defs = Vec::new();
         // A duplicate name is not checked here: name resolution binds generic parameters
         // through the same path as any other binding, so `<T, T>` is already DZ0306
@@ -2155,8 +2175,7 @@ impl<'a> Ctx<'a> {
                     name: Rc::from(name.as_str()),
                     id,
                     view: p.is_view,
-                    // A type's pack, refused above, is checked as one type.
-                    pack: p.is_pack && holder.is_none(),
+                    pack: p.is_pack,
                 },
                 bounds: Vec::new(),
                 default: None,
@@ -2166,22 +2185,13 @@ impl<'a> Ctx<'a> {
         defs
     }
 
-    /// Where a pack may be declared (spec §8.7): last in a function's parameters, without a
-    /// default. Each mistake is reported, and the pack is then kept as one, so its uses check.
-    fn check_packs(&mut self, g: &Generics, holder: Option<&str>) {
+    /// Where a pack may be declared (spec §8.7): last in its list, without a default. Each
+    /// mistake is reported, and the pack is then kept as one, so its uses check.
+    fn check_packs(&mut self, g: &Generics) {
         let last = g.params.len().saturating_sub(1);
         for (i, p) in g.params.iter().enumerate().filter(|(_, p)| p.is_pack) {
             let name = &p.name.name;
-            if let Some(what) = holder {
-                self.error_help(
-                    codes::BAD_PACK_DECLARATION,
-                    p.span,
-                    format!("a {what} cannot take a pack `..{name}` yet"),
-                    "a pack on a type",
-                    "only a function or a method takes a type parameter pack so far; give the \
-                     type a tuple parameter, `T`, and pass it `(A, B)` (spec §8.7, T-0269)",
-                );
-            } else if i != last {
+            if i != last {
                 self.error_help(
                     codes::BAD_PACK_DECLARATION,
                     p.span,
@@ -2404,7 +2414,7 @@ impl<'a> Ctx<'a> {
     /// What `Self` means inside `sym`'s body: the declaration applied to its own
     /// parameters, so `Self` inside `Buffer<T>` is `Buffer<T>` and not a bare `Buffer`.
     pub(crate) fn self_type_of(&self, sym: SymbolId) -> Ty {
-        let args = self.table.type_params(sym).iter().map(|p| Ty::Param(p.param.clone())).collect();
+        let args = self.table.type_params(sym).iter().map(ParamDef::as_arg).collect();
         Ty::Named { sym, args }
     }
 
@@ -2472,7 +2482,19 @@ impl<'a> Ctx<'a> {
     /// trait's parameter defaults (spec §11.2).
     fn trait_args(&mut self, trait_sym: SymbolId, seg: &PathSegment, self_ty: &Ty) -> Vec<Ty> {
         let params: Vec<ParamDef> = self.table.type_params(trait_sym).to_vec();
-        let written: Vec<Ty> = seg.generics.iter().map(|t| self.lower_type(t)).collect();
+        let mut written: Vec<Ty> = seg
+            .generics
+            .iter()
+            .map(|t| match &t.kind {
+                TypeKind::Expand(inner) => self.lower_expansion(inner, t.span),
+                _ => self.lower_type(t),
+            })
+            .collect();
+        // A pack takes the rest, as the tuple of them (spec §8.7).
+        if params.last().is_some_and(|d| d.param.pack) && written.len() + 1 >= params.len() {
+            let rest = written.split_off(params.len() - 1);
+            written.push(Ty::Tuple(rest));
+        }
         if written.len() > params.len() {
             let name = self.res.symbol(trait_sym).name.clone();
             let (wanted, got) = (params.len(), written.len());
@@ -3001,18 +3023,55 @@ impl<'a> Ctx<'a> {
         if let Some(pack) = self.pack_named(inner) {
             return pack;
         }
+        // `..Option<A>`: the type written once, with the pack's name standing for each of
+        // its types, as C++ writes `Option<Ts>...` (spec §8.7).
+        let mut names = Vec::new();
+        names_in_type(inner, &mut names);
+        let mut packs: Vec<ty::Param> = Vec::new();
+        for n in &names {
+            if let Some(Ty::Param(p)) = self.param_in_scope(n) {
+                if p.pack && !packs.contains(&p) {
+                    packs.push(p);
+                }
+            }
+        }
         let shown = dz_ast::dump::type_str(inner);
-        self.error_help(
-            codes::BAD_PACK_USE,
-            span,
-            format!("`{shown}` is not a pack, so `..{shown}` is not a type"),
-            "`..` before a type that is not a pack",
-            format!(
-                "`..` spreads a pack, declared `<..{shown}>`; a list of known types is written \
-                 out, `(A, B)` (spec §8.7)"
-            ),
-        );
-        Ty::Error
+        match packs.as_slice() {
+            [pack] => {
+                let pack = pack.clone();
+                let mut scope = HashMap::new();
+                scope.insert(pack.name.to_string(), Ty::Param(pack.element()));
+                self.param_scopes.push(scope);
+                let lowered = self.lower_type_inner(inner);
+                self.param_scopes.pop();
+                if lowered.is_wildcard() {
+                    return Ty::Error;
+                }
+                ty::each(pack, lowered)
+            }
+            [] => {
+                self.error_help(
+                    codes::BAD_PACK_USE,
+                    span,
+                    format!("`{shown}` names no pack, so `..{shown}` is not a type"),
+                    "`..` before a type with no pack in it",
+                    "`..` repeats a type once for each type of a pack it names, `..Option<A>` \
+                     for `<..A>`; a list of known types is written out, `(A, B)` (spec §8.7)",
+                );
+                Ty::Error
+            }
+            _ => {
+                self.error_help(
+                    codes::BAD_PACK_USE,
+                    span,
+                    format!("`..{shown}` names more than one pack"),
+                    "two packs in one pattern",
+                    "a pattern is repeated over one pack; name one, and pass the others on \
+                     as packs of their own (spec §8.7)",
+                );
+                Ty::Error
+            }
+        }
     }
 
     /// The pack `t` names, when it is a pack's name alone.
@@ -3186,8 +3245,27 @@ impl<'a> Ctx<'a> {
     fn type_args(&mut self, sym: SymbolId, seg: &PathSegment) -> Vec<Ty> {
         let wanted = self.table.type_params(sym).len();
         let handle = self.is_prelude_handle(sym);
-        let args: Vec<Ty> =
-            seg.generics.iter().map(|t| self.lower_checked_type(t, handle)).collect();
+        let args: Vec<Ty> = seg
+            .generics
+            .iter()
+            .map(|t| match &t.kind {
+                TypeKind::Expand(inner) => self.lower_expansion(inner, t.span),
+                _ => self.lower_checked_type(t, handle),
+            })
+            .collect();
+        // A pack takes every argument after the fixed ones, as the tuple of them, so a
+        // `Query<i32, f64>` is a `Query` of one argument, `(i32, f64)` (spec §8.7).
+        let pack = self.table.type_params(sym).last().is_some_and(|d| d.param.pack);
+        if pack && !args.is_empty() && args.len() + 1 >= wanted {
+            let fixed = wanted - 1;
+            let params: Vec<ParamDef> = self.table.type_params(sym).to_vec();
+            for ((def, arg), written) in params.iter().zip(&args).zip(&seg.generics).take(fixed) {
+                self.check_view_arg(sym, def, arg, written.span);
+            }
+            let mut grouped = args[..fixed].to_vec();
+            grouped.push(Ty::Tuple(args[fixed..].to_vec()));
+            return grouped;
+        }
         if args.len() == wanted {
             let params: Vec<ParamDef> = self.table.type_params(sym).to_vec();
             for ((def, arg), written) in params.iter().zip(&args).zip(&seg.generics) {
@@ -3204,7 +3282,7 @@ impl<'a> Ctx<'a> {
             let own: Vec<ParamDef> = self.table.type_params(sym).to_vec();
             if own.iter().all(|p| self.param_in_scope(p.name()) == Some(Ty::Param(p.param.clone())))
             {
-                return own.into_iter().map(|p| Ty::Param(p.param)).collect();
+                return own.iter().map(ParamDef::as_arg).collect();
             }
             self.error_help(
                 codes::WRONG_TYPE_ARG_COUNT,
@@ -3337,7 +3415,7 @@ impl<'a> Ctx<'a> {
     /// unchanged.
     fn collect_type_params(&mut self, item: &Item) {
         if let ItemKind::Impl(i) = &item.kind {
-            let defs = self.declare_params(&i.generics, Some("implementation"));
+            let defs = self.declare_params(&i.generics);
             self.impl_params.insert((self.file, item.span.start), defs);
             return;
         }
@@ -3395,13 +3473,7 @@ impl<'a> Ctx<'a> {
             }
         }
         if !generics.is_empty() {
-            let holder = match &item.kind {
-                ItemKind::Struct(_) => Some("struct"),
-                ItemKind::Trait(_) => Some("trait"),
-                ItemKind::Union(_) => Some("union"),
-                _ => None,
-            };
-            let params = self.declare_params(generics, holder);
+            let params = self.declare_params(generics);
             self.table.type_params.insert(sym, params);
         }
         if let ItemKind::Trait(t) = &item.kind {
@@ -4322,7 +4394,7 @@ impl<'a> Ctx<'a> {
                 // A method's parameters have no symbol of their own for pass 1 to fill in,
                 // so their bounds are resolved here — every trait exists by the time member
                 // signatures are read. Without this `fn twice<T: Copy>` lost its bound.
-                let mut defs = self.declare_params(&f.generics, None);
+                let mut defs = self.declare_params(&f.generics);
                 self.push_params(&defs);
                 for (def, p) in defs.iter_mut().zip(&f.generics.params) {
                     let self_ty = Ty::Param(def.param.clone());
@@ -4492,6 +4564,38 @@ impl<'a> Ctx<'a> {
             ItemKind::Impl(_) | ItemKind::MacroInvocation(_) | ItemKind::Error => return None,
         };
         self.res.lookup(self.module, name)
+    }
+}
+
+/// Every name a written type uses alone, one segment and no arguments of its own: what a
+/// pattern `..Option<A>` may name a pack by (spec §8.7).
+fn names_in_type(t: &Type, out: &mut Vec<String>) {
+    match &t.kind {
+        TypeKind::Path(p) => {
+            if let [seg] = &p.segments[..] {
+                out.push(seg.name.name.clone());
+            }
+            for seg in &p.segments {
+                for g in &seg.generics {
+                    names_in_type(g, out);
+                }
+            }
+        }
+        TypeKind::Ptr { inner, .. }
+        | TypeKind::OwnPtr { inner, .. }
+        | TypeKind::Ref { inner, .. }
+        | TypeKind::Optional(inner)
+        | TypeKind::Const(inner)
+        | TypeKind::Expand(inner) => names_in_type(inner, out),
+        TypeKind::Array { elem, .. } | TypeKind::Slice { elem, .. } => names_in_type(elem, out),
+        TypeKind::Tuple(parts) => parts.iter().for_each(|p| names_in_type(p, out)),
+        TypeKind::Fn { params, ret, .. } => {
+            params.iter().for_each(|p| names_in_type(p, out));
+            if let Some(r) = ret {
+                names_in_type(r, out);
+            }
+        }
+        TypeKind::SelfType | TypeKind::Error => {}
     }
 }
 

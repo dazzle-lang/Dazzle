@@ -220,7 +220,6 @@ fn every_rule_has_a_failing_case() {
         BAD_PACK_DECLARATION,
         BAD_PACK_USE,
         BAD_SPREAD,
-        TUPLE_TOO_LONG,
     ] {
         assert!(r.codes.contains(&expected), "expected {expected} in:\n{}", r.rendered);
     }

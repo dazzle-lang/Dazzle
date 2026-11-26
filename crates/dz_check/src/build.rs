@@ -51,6 +51,7 @@ pub(crate) struct BodyBuilder {
     unsafe_blocks: Vec<BlockId>,
     clones: Vec<ExprId>,
     method_keys: Vec<(ExprId, String)>,
+    pub(crate) pack_param: Option<LocalId>,
 }
 
 impl BodyBuilder {
@@ -68,6 +69,7 @@ impl BodyBuilder {
             blocks: Vec::new(),
             base_init: None,
             unsafe_blocks: Vec::new(),
+            pack_param: None,
             clones: Vec::new(),
             method_keys: Vec::new(),
         }
@@ -281,6 +283,7 @@ impl BodyBuilder {
             unsafe_blocks: self.unsafe_blocks,
             clones: self.clones,
             method_keys: self.method_keys,
+            pack_param: self.pack_param,
         }
     }
 }

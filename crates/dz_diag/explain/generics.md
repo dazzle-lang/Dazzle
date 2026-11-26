@@ -965,8 +965,8 @@ fn main() {
 
 A pack, `<..T>`, stands for any number of types, so it takes every type argument written
 after the fixed ones: it comes last, there is one, and an empty pack needs no default
-(spec §8.7). Only a function or a method declares one so far; a struct can take a tuple
-parameter instead.
+(spec §8.7). A function, a method, a struct, a union, a trait and an implementation may
+each declare one.
 
 ```dz
 fn first<..A, B>(_b: B) {}
@@ -987,8 +987,9 @@ fn main() {
 A pack is several types, so it is written where several may go: `..T` in a tuple, `(..T)`,
 or in a function type's parameters, `fn(..T)`, and its values are taken as `args: ..T`,
 which the body sees as the tuple `(..T)`. `T` alone is not a type, `..` before a type that
-is not a pack means nothing, and a pack's elements have no positions, since how many there
-are is up to each call: they are passed on together, `f(..args)` (spec §8.7).
+names no pack means nothing, and a pack's elements have no positions, since how many there
+are is up to each call: they are passed on together, `f(..args)`, or each through a
+pattern, `f(..g(args))`. `countof(A)` counts a pack, and takes nothing else (spec §8.7).
 
 ```dz
 fn first<..A>(args: ..A) {
@@ -1017,7 +1018,9 @@ fn main() {
 `..t` spreads a tuple into the arguments it holds, so each element is read from `t` in turn:
 `t` is a local, a parameter or a field, not a call. A pack's tuple has as many elements as
 each call gives it, so it is spread only into a function that takes a pack, never into
-fixed parameters (spec §8.7).
+fixed parameters. A pattern, `..g(args)`, is copied once per element, so it is made of
+calls, operators, fields and literals, without a block, a branch, `or` or a formatting
+macro (spec §8.7).
 
 ```dz
 fn add(a: i32, b: i32) -> i32 {
@@ -1045,28 +1048,5 @@ fn pair() -> (i32, i32) {
 fn main() {
     let p = pair()
     println!("{}", add(..p))
-}
-```
-
-## DZ0904
-
-The C++ a tuple becomes holds up to sixteen elements, and a pack's tuple is one, so a
-tuple, or a call that gives a pack, has at most sixteen (spec §8.7). Group what belongs
-together into a struct.
-
-```dz
-fn main() {
-    let _t = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
-}
-```
-
-```dz
-struct Span {
-    pub first: i32
-    pub last: i32
-}
-
-fn main() {
-    let _t = (Span{ first: 1, last: 8 }, Span{ first: 9, last: 17 })
 }
 ```

@@ -199,6 +199,10 @@ pub struct Body {
     /// (`count#1`), where the call node carries only the name: an imported C++ method's
     /// casts at the boundary are its own (spec §15.2, T-0017).
     pub method_keys: Vec<(ExprId, String)>,
+    /// The pack parameter, `args: ..T` (spec §8.7), whose tuple C++ takes as one parameter
+    /// per element and builds at the top of the body, so that the function is called, and
+    /// taken as a value, with the elements as its arguments.
+    pub pack_param: Option<LocalId>,
 }
 
 impl Body {
@@ -477,12 +481,42 @@ pub enum ExprKind {
         fields: Vec<Option<ExprId>>,
     },
     Tuple(Vec<ExprId>),
-    /// `..t` where `t` is a pack's tuple, `(..T)`: its elements, spliced into the call's
-    /// arguments or the tuple literal it stands in, where it is the one entry that fills the
-    /// `..T` of the list it matches (spec §8.7). `t` is a place, read once per element, and
-    /// the node's type is `t`'s. A tuple of known types is never spread this way: the checker
-    /// passes its elements, `t.0`, `t.1`, …, as arguments of their own.
-    Spread(ExprId),
+    /// `..t` where `t` holds a pack, `(..T)` or `(i32, ..T)`: elements `from` up to `to` of
+    /// `base`, spliced into the call's arguments or the tuple literal it stands in (spec
+    /// §8.7). Where the run is the pack's, it is the one entry that fills the `..T` of the
+    /// list it matches, and its type is the tuple `(..T)`; an element after the pack, whose
+    /// place depends on the pack's length, is a run of one counted from the back, typed as
+    /// that element. `base` is a place, read once per element. A tuple of known types is
+    /// never spread this way: the checker passes its elements, `t.0`, `t.1`, ….
+    Spread {
+        base: ExprId,
+        from: TupleEnd,
+        to: TupleEnd,
+    },
+    /// More elements of the tuple a [`ExprKind::Spread`] earlier in the same list read,
+    /// `from` up to `to`: a spread of `(i32, ..T, bool)` fills three entries of its list, and
+    /// takes its tuple once, in the first. So this node has no operand of its own, and
+    /// whatever walks the tree meets the tuple once (spec §8.7).
+    SpreadRest {
+        of: ExprId,
+        from: TupleEnd,
+        to: TupleEnd,
+    },
+    /// `..pattern`: `pattern` once for each element of `over`, a pack's tuple `(..A)`, with
+    /// the local `elem` standing for the element, of the type `A`'s element (spec §8.7). It
+    /// fills the one entry of its list that a pack does, and its type is the tuple of what
+    /// the pattern makes. Checked once, as the generic body is; when the body is copied
+    /// for an instance, [`map_body_types`] makes it an [`ExprKind::Expanded`], one copy of
+    /// `pattern` per element, so nothing after monomorphization meets one.
+    Expand {
+        over: ExprId,
+        elem: LocalId,
+        pack: ty::Param,
+        pattern: ExprId,
+    },
+    /// The copies an [`ExprKind::Expand`] became, one per element: several values standing
+    /// in the one entry of their list, as a spread's elements do.
+    Expanded(Vec<ExprId>),
     ArrayLit(Vec<ExprId>),
     /// A bare enum constant.
     EnumVariant {
@@ -634,31 +668,226 @@ pub fn map_body_types(body: &Body, f: impl Fn(&Ty) -> Ty) -> Body {
         l.ty = s(&l.ty);
     }
     for e in &mut b.exprs {
-        e.ty = s(&e.ty);
-        match &mut e.kind {
-            ExprKind::TypeQuery { ty: queried, .. } | ExprKind::Reflect { ty: queried, .. } => {
-                *queried = s(queried)
+        map_node_types(e, &s);
+    }
+    expand_patterns(&mut b);
+    b
+}
+
+/// A node's own type, and the types inside the two kinds that carry them, with `s` applied.
+fn map_node_types(e: &mut Expr, s: &dyn Fn(&Ty) -> Ty) {
+    e.ty = s(&e.ty);
+    match &mut e.kind {
+        ExprKind::TypeQuery { ty: queried, .. } | ExprKind::Reflect { ty: queried, .. } => {
+            *queried = s(queried)
+        }
+        ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. }
+        | ExprKind::FnItem { type_args, .. } => {
+            for t in type_args.iter_mut() {
+                *t = s(t);
             }
-            ExprKind::Call { callee: Callee::Fn { type_args, .. }, .. }
-            | ExprKind::FnItem { type_args, .. } => {
-                for t in type_args.iter_mut() {
-                    *t = s(t);
-                }
+        }
+        ExprKind::Call { callee: Callee::Assoc { type_args, method_args, .. }, .. } => {
+            for t in type_args.iter_mut().chain(method_args.iter_mut()) {
+                *t = s(t);
             }
-            ExprKind::Call { callee: Callee::Assoc { type_args, method_args, .. }, .. } => {
-                for t in type_args.iter_mut().chain(method_args.iter_mut()) {
-                    *t = s(t);
-                }
+        }
+        ExprKind::Call { callee: Callee::Method { method_args, .. }, .. } => {
+            for t in method_args.iter_mut() {
+                *t = s(t);
             }
-            ExprKind::Call { callee: Callee::Method { method_args, .. }, .. } => {
-                for t in method_args.iter_mut() {
-                    *t = s(t);
-                }
-            }
-            _ => {}
+        }
+        _ => {}
+    }
+}
+
+/// Each `..pattern` whose pack is now of known types made into one copy of the pattern per
+/// element, the element read from the tuple as `t.0`, `t.1`, … (spec §8.7). A pack still
+/// passed on as a pack, in a copy that is not yet an instance, is left as it is.
+fn expand_patterns(b: &mut Body) {
+    let ids: Vec<ExprId> = (0..b.exprs.len() as u32)
+        .map(ExprId)
+        .filter(|e| matches!(b.expr(*e).kind, ExprKind::Expand { .. }))
+        .collect();
+    for id in ids {
+        let ExprKind::Expand { over, elem, pack, pattern } = b.expr(id).kind.clone() else {
+            continue;
+        };
+        let place = match b.expr(over).kind {
+            ExprKind::Move(p) => p,
+            _ => over,
+        };
+        let parts = match b.ty(place) {
+            Ty::Tuple(parts) if parts.iter().all(|p| ty::pack_entry(p).is_none()) => parts.clone(),
+            _ => continue,
+        };
+        let mut copies = Vec::with_capacity(parts.len());
+        for (index, part) in parts.iter().enumerate() {
+            let mut map = HashMap::new();
+            map.insert(pack.element().id, part.clone());
+            let read = Element { local: elem, place, index, ty: part.clone() };
+            copies.push(copy_tree(b, pattern, &map, &read));
+        }
+        b.exprs[id.index()].kind = ExprKind::Expanded(copies);
+    }
+    // A variadic slice's array holds what the copies became: its length is known now.
+    for i in 0..b.exprs.len() {
+        let ExprKind::ArrayLit(parts) = &b.exprs[i].kind else { continue };
+        if !parts.iter().any(|p| matches!(b.expr(*p).kind, ExprKind::Expanded(_))) {
+            continue;
+        }
+        let len: usize = parts
+            .iter()
+            .map(|p| match &b.expr(*p).kind {
+                ExprKind::Expanded(c) => c.len(),
+                _ => 1,
+            })
+            .sum();
+        let elem = match &b.exprs[i].ty {
+            Ty::Array { elem, .. } | Ty::Slice { elem, .. } => elem.clone(),
+            _ => continue,
+        };
+        // None at all is the empty slice a variadic call with no arguments passes (§7.2).
+        if len == 0 {
+            b.exprs[i].ty = Ty::Slice { mutable: false, elem };
+            b.exprs[i].kind = ExprKind::ArrayLit(Vec::new());
+        } else {
+            b.exprs[i].ty = Ty::Array { len: len as u64, elem };
         }
     }
-    b
+}
+
+/// Each of `xs` replaced by `f`'s answer.
+fn all(xs: &[ExprId], f: &mut dyn FnMut(ExprId) -> ExprId) -> Vec<ExprId> {
+    xs.iter().map(|x| f(*x)).collect()
+}
+
+/// What a pattern's element local becomes in one copy: element `index` of `place`.
+struct Element {
+    local: LocalId,
+    place: ExprId,
+    index: usize,
+    ty: Ty,
+}
+
+/// A copy of the tree at `e`, with `map` applied to its types and the element local read
+/// from its tuple (spec §8.7). The checker allows in a pattern only what this copies.
+fn copy_tree(b: &mut Body, e: ExprId, map: &HashMap<u32, Ty>, read: &Element) -> ExprId {
+    let mut node = b.expr(e).clone();
+    if let ExprKind::Local(l) = node.kind {
+        if l == read.local {
+            let base = copy_tree(b, read.place, &HashMap::new(), read);
+            node.kind = ExprKind::TupleIndex { base, index: read.index };
+            node.ty = read.ty.clone();
+            return push_expr(b, node);
+        }
+    }
+    let kind = remap_children(&node.kind, &mut |c| copy_tree(b, c, map, read));
+    node.kind = kind.unwrap_or(ExprKind::Error);
+    map_node_types(&mut node, &|t| ty::substitute(t, map));
+    push_expr(b, node)
+}
+
+fn push_expr(b: &mut Body, e: Expr) -> ExprId {
+    let id = ExprId(b.exprs.len() as u32);
+    b.exprs.push(e);
+    id
+}
+
+/// `kind` with each node it holds replaced by `f`'s answer, for the kinds a pattern may
+/// be made of (spec §8.7). `None` for one that holds a block, a local or a jump, which a
+/// pattern may not.
+pub fn remap_children(kind: &ExprKind, f: &mut dyn FnMut(ExprId) -> ExprId) -> Option<ExprKind> {
+    use ExprKind as K;
+    Some(match kind {
+        K::Error
+        | K::Int(_)
+        | K::Float(_)
+        | K::Bool(_)
+        | K::Char(_)
+        | K::Str(_)
+        | K::Null
+        | K::NoneOpt
+        | K::Local(_)
+        | K::Const(_)
+        | K::Static(_)
+        | K::AssocConst { .. }
+        | K::FnItem { .. }
+        | K::EnumVariant { .. }
+        | K::TypeQuery { .. }
+        | K::Reflect { .. }
+        | K::DefaultArg(_) => kind.clone(),
+        K::Field { base, index } => K::Field { base: f(*base), index: *index },
+        K::TupleIndex { base, index } => K::TupleIndex { base: f(*base), index: *index },
+        K::Index { base, index } => {
+            let base = f(*base);
+            K::Index { base, index: f(*index) }
+        }
+        K::SliceRange { base, start, end } => {
+            let base = f(*base);
+            let start = start.map(&mut *f);
+            K::SliceRange { base, start, end: end.map(&mut *f) }
+        }
+        K::Deref(x) => K::Deref(f(*x)),
+        K::Ref { mutable, place, temporary } => {
+            K::Ref { mutable: *mutable, place: f(*place), temporary: *temporary }
+        }
+        K::Unary { op, operand } => K::Unary { op: *op, operand: f(*operand) },
+        K::Binary { op, lhs, rhs } => {
+            let lhs = f(*lhs);
+            K::Binary { op: *op, lhs, rhs: f(*rhs) }
+        }
+        K::Cast { operand, explicit } => K::Cast { operand: f(*operand), explicit: *explicit },
+        K::Range { start, end, inclusive } => {
+            let start = start.map(&mut *f);
+            K::Range { start, end: end.map(&mut *f), inclusive: *inclusive }
+        }
+        K::StructLit { ty, fields } => {
+            K::StructLit { ty: *ty, fields: fields.iter().map(|x| x.map(&mut *f)).collect() }
+        }
+        K::UnionVariant { owner, index, payload } => K::UnionVariant {
+            owner: *owner,
+            index: *index,
+            payload: payload.iter().map(|x| x.map(&mut *f)).collect(),
+        },
+        K::Tuple(xs) => K::Tuple(all(xs, f)),
+        K::ArrayLit(xs) => K::ArrayLit(all(xs, f)),
+        K::Expanded(xs) => K::Expanded(all(xs, f)),
+        K::Builtin { name, args } => K::Builtin { name: name.clone(), args: all(args, f) },
+        K::Intrinsic { name, args } => K::Intrinsic { name: name.clone(), args: all(args, f) },
+        K::Move(x) => K::Move(f(*x)),
+        K::Len(x) => K::Len(f(*x)),
+        K::DataPtr(x) => K::DataPtr(f(*x)),
+        K::Spread { base, from, to } => K::Spread { base: f(*base), from: *from, to: *to },
+        K::Call { callee, args } => {
+            let callee = match callee {
+                Callee::Method { recv, owner, name, method_args } => Callee::Method {
+                    recv: f(*recv),
+                    owner: *owner,
+                    name: name.clone(),
+                    method_args: method_args.clone(),
+                },
+                Callee::BaseMethod { recv, owner, name } => {
+                    Callee::BaseMethod { recv: f(*recv), owner: *owner, name: name.clone() }
+                }
+                Callee::Value(v) => Callee::Value(f(*v)),
+                other => other.clone(),
+            };
+            K::Call { callee, args: all(args, f) }
+        }
+        K::Block(_)
+        | K::If { .. }
+        | K::IfLet { .. }
+        | K::Switch { .. }
+        | K::Guarded { .. }
+        | K::Formatted { .. }
+        | K::Or { .. }
+        | K::Return(_)
+        | K::Break(_)
+        | K::Continue(_)
+        | K::SpreadRest { .. }
+        | K::Expand { .. } => return None,
+    })
 }
 
 /// The compile-time questions every type answers (spec §5.5).
@@ -680,6 +909,10 @@ pub enum TypeQuery {
     IsCopyable,
     /// `T::has_drop`.
     HasDrop,
+    /// `countof(A)`: how many types the pack `A` holds, asked of its tuple `(..A)`, which
+    /// monomorphization makes one of known length (spec §8.7). There is no `A::count`: a
+    /// name after `::` could be an element's own.
+    Count,
 }
 
 impl TypeQuery {
@@ -705,13 +938,14 @@ impl TypeQuery {
             TypeQuery::IsRelocatable => "is_relocatable",
             TypeQuery::IsCopyable => "is_copyable",
             TypeQuery::HasDrop => "has_drop",
+            TypeQuery::Count => "count",
         }
     }
 
     /// The type of the answer.
     pub fn result(&self) -> Ty {
         match self {
-            TypeQuery::Size | TypeQuery::Align => Ty::Int(ty::IntTy::Usize),
+            TypeQuery::Size | TypeQuery::Align | TypeQuery::Count => Ty::Int(ty::IntTy::Usize),
             TypeQuery::Name => Ty::Str,
             TypeQuery::IsTriviallyCopyable
             | TypeQuery::IsRelocatable
@@ -747,6 +981,25 @@ pub enum ForShape {
     /// `for e in move(xs)` — `subject` is `xs`, which the loop consumes, moving each
     /// element into `e`.
     Consuming,
+}
+
+/// One end of a [`ExprKind::Spread`]'s run of elements, counted from the tuple's front or
+/// from its back: before monomorphization a pack's length is not known, so an element
+/// after it has no index from the front (spec §8.7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TupleEnd {
+    Front(usize),
+    Back(usize),
+}
+
+impl TupleEnd {
+    /// The index this end is in a tuple of `len` elements.
+    pub fn index(self, len: usize) -> usize {
+        match self {
+            TupleEnd::Front(i) => i,
+            TupleEnd::Back(i) => len.saturating_sub(i),
+        }
+    }
 }
 
 /// What a call actually calls, decided by the checker rather than re-derived downstream.

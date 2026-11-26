@@ -2575,12 +2575,12 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Binary { lhs, rhs, .. } => {
                 !number(body.ty(e)) || self.runs_code(body, *lhs) || self.runs_code(body, *rhs)
             }
-            hir::ExprKind::Cast { operand, .. } | hir::ExprKind::Spread(operand) => {
+            hir::ExprKind::Cast { operand, .. } | hir::ExprKind::Spread { base: operand, .. } => {
                 self.runs_code(body, *operand)
             }
-            hir::ExprKind::Tuple(parts) | hir::ExprKind::ArrayLit(parts) => {
-                parts.iter().any(|p| self.runs_code(body, *p))
-            }
+            hir::ExprKind::Tuple(parts)
+            | hir::ExprKind::ArrayLit(parts)
+            | hir::ExprKind::Expanded(parts) => parts.iter().any(|p| self.runs_code(body, *p)),
             hir::ExprKind::StructLit { ty, fields } => {
                 fields.iter().enumerate().any(|(i, f)| match f {
                     Some(v) => self.runs_code(body, *v),
@@ -4225,6 +4225,17 @@ impl<'a> Emitter<'a> {
         let mut parts: Vec<String> = Vec::new();
         for p in body.params.iter().skip(start) {
             let local = body.local(*p);
+            // A pack parameter is one C++ parameter per element; the body builds the tuple
+            // from them (`take_ownership_of_params`, spec §8.7).
+            if body.pack_param == Some(*p) {
+                if let Ty::Tuple(elems) = &local.ty {
+                    for (i, t) in elems.iter().enumerate() {
+                        let ty = self.cpp_ty(t);
+                        parts.push(format!("{ty} {}__{i}", names[p.index()]));
+                    }
+                }
+                continue;
+            }
             let ty = self.cpp_ty(&local.ty);
             let unused = if uses[p.index()].read { "" } else { "[[maybe_unused]] " };
             let by = if consumed.contains(p) { "&&" } else { "" };
@@ -4489,6 +4500,42 @@ impl<'a> Emitter<'a> {
                 defaults
             }
         }
+    }
+
+    /// Which of a call's arguments is its callee's pack parameter, if it has one (spec §8.7),
+    /// counted as the call's arguments are, after the receiver.
+    fn pack_arg(&self, callee: &hir::Callee, node_ty: &Ty) -> Option<usize> {
+        let hir = self.hir;
+        let body = match callee {
+            hir::Callee::Value(_) => None,
+            hir::Callee::Fn { sym, type_args } => {
+                let owner = BodyOwner::Fn(*sym);
+                self.instance_body(*sym, type_args, &owner).or_else(|| hir.find(&owner))
+            }
+            hir::Callee::Ctor { owner, index } => {
+                let type_args = match node_ty {
+                    Ty::Named { args, .. } => args.as_slice(),
+                    _ => &[],
+                };
+                let o = BodyOwner::Ctor { owner: *owner, index: *index };
+                self.instance_body(*owner, type_args, &o).or_else(|| hir.find(&o))
+            }
+            hir::Callee::Assoc { owner, type_args, name, method_args } => {
+                self.method_body(*owner, type_args, name, method_args)
+            }
+            hir::Callee::BaseMethod { owner, name, .. } => {
+                hir.find(&BodyOwner::Method { owner: *owner, name: name.clone() })
+            }
+            hir::Callee::Method { recv, owner, name, method_args } => {
+                let owner_args = match self.cur().ty(*recv).peeled() {
+                    Ty::Named { sym, args } if sym == owner => args.clone(),
+                    _ => Vec::new(),
+                };
+                self.method_body(*owner, &owner_args, name, method_args)
+            }
+        }?;
+        let pack = body.pack_param?;
+        body.params.iter().filter(|p| body.local(**p).name != "self").position(|p| *p == pack)
     }
 
     /// A type's method or associated function, from the instance a call reaches: the type's
@@ -4806,6 +4853,28 @@ impl<'a> Emitter<'a> {
         }
         for p in &body.params {
             let local = body.local(*p);
+            // The pack's tuple, from the parameters its elements came in (spec §8.7).
+            if body.pack_param == Some(*p) {
+                let Ty::Tuple(elems) = &local.ty else { continue };
+                let ty = self.cpp_ty(&local.ty);
+                let name = &names[p.index()];
+                let values: Vec<String> = elems
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        if self.table.trivially_copyable(t) {
+                            format!("{name}__{i}")
+                        } else {
+                            format!("::dz::rt::mv({name}__{i})")
+                        }
+                    })
+                    .collect();
+                // An empty pack's tuple is read by nothing C++ sees.
+                let read = uses[p.index()].read && !elems.is_empty();
+                let unused = if read { "" } else { "[[maybe_unused]] " };
+                self.line(&format!("{unused}{ty} {name}{{{}}};", tuple_braces(&values)));
+                continue;
+            }
             // One moved into its field by the member-initialiser list has no use left here.
             if local.name == "self"
                 || !self.table.needs_drop(&local.ty)
@@ -5024,7 +5093,7 @@ impl<'a> Emitter<'a> {
             // So is a generic parameter, by monomorphization (spec §8.4). Nothing generic
             // reaches codegen: `dz_mono` has already replaced every `T` with a concrete
             // type, so this arm exists only to keep the match total.
-            Ty::Param(_) => "void".to_owned(),
+            Ty::Param(_) | Ty::Each(_) => "void".to_owned(),
             // A projection whose base is concrete has an answer, and monomorphization gave
             // it; asking the table again here keeps a missed path from emitting `void`.
             Ty::Assoc(_) => {
@@ -5401,8 +5470,10 @@ impl<'a> Emitter<'a> {
                 let ty = self.cpp_ty(body.ty(*init));
                 let v = self.expr(*init);
                 self.line(&format!("{ty} {tmp} = {v};"));
+                let n = locals.len();
                 for (i, l) in locals.iter().enumerate() {
                     let Some(l) = l else { continue };
+                    let m = tuple_member(i, n);
                     let lty = self.cpp_ty(&body.local(*l).ty);
                     let name = self.names[l.index()].clone();
                     let unused = self.unused_attr(l.index());
@@ -5414,7 +5485,7 @@ impl<'a> Emitter<'a> {
                             "alignas({lty}) unsigned char {storage}[sizeof({lty})];"
                         ));
                         self.line(&format!(
-                            "{unused}{lty}& {name} = *::new (static_cast<void*>({storage})) {lty}(::dz::rt::mv({tmp}.v{i}));"
+                            "{unused}{lty}& {name} = *::new (static_cast<void*>({storage})) {lty}(::dz::rt::mv({tmp}{m}));"
                         ));
                         continue;
                     }
@@ -5422,9 +5493,9 @@ impl<'a> Emitter<'a> {
                     // anything is moved out of it: `(str, Expr)` from a parser, where
                     // copying `Expr` is deleted, or a `String`, where it would allocate.
                     if self.copy_is_free(&body.local(*l).ty) {
-                        self.line(&format!("{unused}{lty} {name} = {tmp}.v{i};"));
+                        self.line(&format!("{unused}{lty} {name} = {tmp}{m};"));
                     } else {
-                        self.line(&format!("{unused}{lty} {name} = ::dz::rt::mv({tmp}.v{i});"));
+                        self.line(&format!("{unused}{lty} {name} = ::dz::rt::mv({tmp}{m});"));
                     }
                 }
             }
@@ -5752,7 +5823,11 @@ impl<'a> Emitter<'a> {
             self.line(&format!("auto&& {t} = {item};"));
             for (i, l) in element_bindings.iter().enumerate() {
                 if let Some(l) = l {
-                    self.for_binding(*l, &format!("{t}.v{i}"), false);
+                    self.for_binding(
+                        *l,
+                        &format!("{t}{}", tuple_member(i, element_bindings.len())),
+                        false,
+                    );
                 }
             }
         } else if let Some(Some(l)) = element_bindings.first() {
@@ -5914,7 +5989,11 @@ impl<'a> Emitter<'a> {
             self.line(&format!("auto&& {t} = {item};"));
             for (k, l) in element_bindings.iter().enumerate() {
                 if let Some(l) = l {
-                    self.for_binding(*l, &format!("{t}.v{k}"), false);
+                    self.for_binding(
+                        *l,
+                        &format!("{t}{}", tuple_member(k, element_bindings.len())),
+                        false,
+                    );
                 }
             }
         } else if let Some(Some(l)) = element_bindings.first() {
@@ -6359,6 +6438,41 @@ impl<'a> Emitter<'a> {
         self.expr_node(e)
     }
 
+    /// Elements `from` up to `to` of the tuple `operand` reads, by now of known types (spec
+    /// §8.7): each read from the place in turn, and moved unless it is trivially copyable.
+    /// The text is the elements joined by `SPREAD_SEP`, which `emit_args` splits into
+    /// arguments of their own, and empty for an empty run, which it leaves out.
+    fn spread_text(&mut self, operand: ExprId, from: hir::TupleEnd, to: hir::TupleEnd) -> String {
+        let body = self.cur();
+        let place = match body.expr(operand).kind {
+            hir::ExprKind::Move(p) => p,
+            _ => operand,
+        };
+        let parts = match body.ty(place).peeled_refs() {
+            Ty::Tuple(parts) => parts.clone(),
+            _ => Vec::new(),
+        };
+        let n = parts.len();
+        let (from, to) = (from.index(n), to.index(n).max(from.index(n)));
+        let base = self.expr(place);
+        // An empty pack passes nothing, and C++ would warn of a parameter or a local that
+        // nothing reads: it is read here, ahead of the call, as Dazzle reads it.
+        if from == to {
+            self.line(&format!("(void)({base});"));
+        }
+        let elems: Vec<String> = (from..to)
+            .map(|i| {
+                let x = format!("::dz::rt::obj({base}){}", tuple_member(i, n));
+                if self.table.trivially_copyable(&parts[i]) {
+                    x
+                } else {
+                    format!("::dz::rt::mv({x})")
+                }
+            })
+            .collect();
+        elems.join(SPREAD_SEP)
+    }
+
     /// [`Self::expr`], for anything but a placed copy.
     fn expr_node(&mut self, e: ExprId) -> String {
         let body = self.cur();
@@ -6466,8 +6580,9 @@ impl<'a> Emitter<'a> {
                 }
             }
             hir::ExprKind::TupleIndex { base, index } => {
+                let n = tuple_len(self.cur().ty(*base));
                 let b = self.expr(*base);
-                format!("::dz::rt::obj({b}).v{index}")
+                format!("::dz::rt::obj({b}){}", tuple_member(*index, n))
             }
             hir::ExprKind::SliceRange { base, start, end } => {
                 let base_ty = self.cur().ty(*base).peeled_refs().clone();
@@ -6640,40 +6755,31 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Tuple(parts) => {
                 let t = self.cpp_ty(body.ty(e));
                 let vs = self.sequenced_elements(parts);
-                format!("{t}{{{}}}", vs.join(", "))
+                format!("{t}{{{}}}", tuple_braces(&vs))
             }
-            // A pack's tuple passed on as its elements, by now of known types (spec §8.7):
-            // each read from the place in turn, and moved unless it is trivially copyable.
-            // The text is the elements separated by commas, empty for an empty pack, which
-            // `emit_args` leaves out.
-            hir::ExprKind::Spread(inner) => {
-                let place = match body.expr(*inner).kind {
-                    hir::ExprKind::Move(p) => p,
-                    _ => *inner,
-                };
-                let parts = match body.ty(place) {
-                    Ty::Tuple(parts) => parts.clone(),
-                    _ => Vec::new(),
-                };
-                let base = self.expr(place);
-                // An empty pack passes nothing, and C++ would warn of a parameter or a local
-                // that nothing reads: it is read here, ahead of the call, as Dazzle reads it.
-                if parts.is_empty() {
-                    self.line(&format!("(void)({base});"));
-                }
-                let elems: Vec<String> = parts
-                    .iter()
-                    .enumerate()
-                    .map(|(i, t)| {
-                        let x = format!("{base}.v{i}");
-                        if self.table.trivially_copyable(t) {
-                            x
-                        } else {
-                            format!("::dz::rt::mv({x})")
-                        }
-                    })
-                    .collect();
-                elems.join(", ")
+            // A run of a tuple's elements passed on, by now of known types (spec §8.7): each
+            // read from the place in turn, and moved unless it is trivially copyable. The text
+            // is the elements joined by `SPREAD_SEP`, which `emit_args` splits into arguments
+            // of their own, and empty for an empty pack, which it leaves out.
+            hir::ExprKind::Spread { base: inner, from, to } => self.spread_text(*inner, *from, *to),
+            // The rest of a spread whose first node took the tuple: read from the same place.
+            hir::ExprKind::SpreadRest { of, from, to } => match body.expr(*of).kind {
+                hir::ExprKind::Spread { base, .. } => self.spread_text(base, *from, *to),
+                _ => String::new(),
+            },
+            // A pattern's copies, one per element, as a spread's elements are written.
+            hir::ExprKind::Expanded(copies) => {
+                let copies = copies.clone();
+                copies.iter().map(|c| self.expr(*c)).collect::<Vec<_>>().join(SPREAD_SEP)
+            }
+            // Monomorphization makes every one of these its copies (spec §8.7).
+            hir::ExprKind::Expand { .. } => {
+                self.diags.push(
+                    Diagnostic::error(codes::INTERNAL_ERROR, "a pattern over a pack reached C++")
+                        .at(self.file, node.span, "no C++ can be generated for this pattern")
+                        .with_help("this is a bug in the Dazzle compiler, not in your code"),
+                );
+                String::new()
             }
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
             hir::ExprKind::Reflect { ty, info } => self.reflect_expr(ty, *info),
@@ -7356,6 +7462,25 @@ impl<'a> Emitter<'a> {
             _ => None,
         };
         self.callees.push(defaults.clone());
+        // A pack parameter's tuple is passed as its elements, one C++ argument each (spec
+        // §8.7): the callee builds the tuple. `shift` is how many more arguments C++ sees
+        // after it than Dazzle does.
+        let pack = self.pack_arg(callee, &node_ty).and_then(|i| {
+            match &self.cur().expr(*args.get(i)?).kind {
+                hir::ExprKind::Tuple(elems) => Some((i, elems.clone())),
+                _ => None,
+            }
+        });
+        let (passed, shift): (Vec<ExprId>, Option<(usize, isize)>) = match pack {
+            Some((i, elems)) => {
+                let n = elems.len() as isize - 1;
+                let mut v = args[..i].to_vec();
+                v.extend(elems);
+                v.extend_from_slice(&args[i + 1..]);
+                (v, Some((i, n)))
+            }
+            None => (args.to_vec(), None),
+        };
         // An imported function's arguments are rendered for its parameters' types, so a
         // `&x` is the pointer or the reference the header asked for, never a proxy a C++
         // overload set could read both ways (see [`Emitter::stored`]).
@@ -7367,7 +7492,7 @@ impl<'a> Emitter<'a> {
                     .collect(),
                 true,
             ),
-            None => self.capture_args(args, true),
+            None => self.capture_args(&passed, true),
         };
         let mut captured = captured;
         captured.hold = hold;
@@ -7529,6 +7654,10 @@ impl<'a> Emitter<'a> {
             rendered.push(arg);
         } else if let Some((index, at)) = placed {
             let receiver = usize::from(rendered_receiver);
+            let index = match shift {
+                Some((i, n)) if index > i => index.saturating_add_signed(n),
+                _ => index,
+            };
             if index + receiver < rendered.len() {
                 let arg = self.placement_arg(at);
                 rendered[index + receiver] = arg;
@@ -7600,7 +7729,12 @@ impl<'a> Emitter<'a> {
             });
             // A move-only value is handed over; a copyable one is copied by C++ itself. A
             // spread hands over each of its elements already.
-            let spread = matches!(self.cur().expr(a).kind, hir::ExprKind::Spread(_));
+            let spread = matches!(
+                self.cur().expr(a).kind,
+                hir::ExprKind::Spread { .. }
+                    | hir::ExprKind::SpreadRest { .. }
+                    | hir::ExprKind::Expanded(_)
+            );
             let v = if consume && !spread && !self.table.copyable(self.cur().ty(a)) {
                 format!("::dz::rt::mv({v})")
             } else {
@@ -7631,11 +7765,14 @@ impl<'a> Emitter<'a> {
             // A spread is several reads of one place, which nothing later can change: it is
             // never held in a temporary, which would hold only its first element, and an
             // empty pack's leaves no argument at all (spec §8.7).
-            if matches!(self.cur().expr(a.id).kind, hir::ExprKind::Spread(_)) {
+            if matches!(
+                self.cur().expr(a.id).kind,
+                hir::ExprKind::Spread { .. }
+                    | hir::ExprKind::SpreadRest { .. }
+                    | hir::ExprKind::Expanded(_)
+            ) {
                 self.write_captured(&a.pre);
-                if !a.value.is_empty() {
-                    out.push(a.value.clone());
-                }
+                out.extend(a.value.split(SPREAD_SEP).filter(|v| !v.is_empty()).map(str::to_owned));
                 continue;
             }
             let later = &args[i + 1..];
@@ -7968,7 +8105,8 @@ impl<'a> Emitter<'a> {
             // A default argument is an expression of the callee's, and could be a call.
             | hir::ExprKind::DefaultArg(_)
             | hir::ExprKind::Error => true,
-            hir::ExprKind::Int(_)
+            hir::ExprKind::SpreadRest { .. }
+            | hir::ExprKind::Int(_)
             | hir::ExprKind::Float(_)
             | hir::ExprKind::Bool(_)
             | hir::ExprKind::Char(_)
@@ -7990,7 +8128,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Move(base)
-            | hir::ExprKind::Spread(base)
+            | hir::ExprKind::Spread { base, .. }
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. } => self.has_effects(*base),
@@ -8002,7 +8140,10 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Range { start, end, .. } => opt(start) || opt(end),
             hir::ExprKind::StructLit { fields: xs, .. }
             | hir::ExprKind::UnionVariant { payload: xs, .. } => xs.iter().any(opt),
-            hir::ExprKind::Tuple(xs) | hir::ExprKind::ArrayLit(xs) => any(xs),
+            hir::ExprKind::Tuple(xs) | hir::ExprKind::ArrayLit(xs) | hir::ExprKind::Expanded(xs) => {
+                any(xs)
+            }
+            hir::ExprKind::Expand { .. } => true,
         }
     }
 
@@ -8030,10 +8171,10 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Ref { place, .. } => self.fixed_place(*place),
             hir::ExprKind::Cast { operand, .. }
             | hir::ExprKind::Unary { operand, .. }
-            | hir::ExprKind::Spread(operand) => self.order_stable(*operand),
-            hir::ExprKind::ArrayLit(elems) | hir::ExprKind::Tuple(elems) => {
-                elems.iter().all(|e| self.order_stable(*e))
-            }
+            | hir::ExprKind::Spread { base: operand, .. } => self.order_stable(*operand),
+            hir::ExprKind::ArrayLit(elems)
+            | hir::ExprKind::Tuple(elems)
+            | hir::ExprKind::Expanded(elems) => elems.iter().all(|e| self.order_stable(*e)),
             hir::ExprKind::Binary { lhs, rhs, .. } => {
                 self.order_stable(*lhs) && self.order_stable(*rhs)
             }
@@ -8789,6 +8930,8 @@ impl<'a> Emitter<'a> {
             IsRelocatable => self.table.relocatable(ty).to_string(),
             IsCopyable => self.table.copyable(ty).to_string(),
             HasDrop => self.table.needs_drop(ty).to_string(),
+            // The pack's tuple, by now of known length (spec §8.7).
+            Count => format!("size_t({})", tuple_len(ty)),
         }
     }
 
@@ -9012,7 +9155,7 @@ fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool
     let any = |xs: &[hir::ExprId]| xs.iter().any(|x| always_reaches(body, *x, target));
     match &body.expr(e).kind {
         K::Move(x)
-        | K::Spread(x)
+        | K::Spread { base: x, .. }
         | K::Cast { operand: x, .. }
         | K::Field { base: x, .. }
         | K::Deref(x) => always_reaches(body, *x, target),
@@ -9029,7 +9172,8 @@ fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool
         K::Builtin { args, .. }
         | K::Intrinsic { args, .. }
         | K::Tuple(args)
-        | K::ArrayLit(args) => any(args),
+        | K::ArrayLit(args)
+        | K::Expanded(args) => any(args),
         K::StructLit { fields, .. } | K::UnionVariant { payload: fields, .. } => {
             fields.iter().flatten().any(|x| always_reaches(body, *x, target))
         }
@@ -9138,6 +9282,7 @@ fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
     match &body.expr(e).kind {
         K::Call { .. } | K::Builtin { .. } | K::Formatted { .. } | K::Guarded { .. } => true,
         K::Error
+        | K::SpreadRest { .. }
         | K::Int(_)
         | K::Float(_)
         | K::Bool(_)
@@ -9162,7 +9307,7 @@ fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
-        | K::Spread(base)
+        | K::Spread { base, .. }
         | K::Cast { operand: base, .. }
         | K::Unary { operand: base, .. }
         | K::Ref { place: base, .. } => one(*base),
@@ -9171,7 +9316,8 @@ fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
         K::Binary { lhs, rhs, .. } => one(*lhs) || one(*rhs),
         K::Range { start, end, .. } => opt(start) || opt(end),
         K::StructLit { fields: fs, .. } | K::UnionVariant { payload: fs, .. } => fields(fs),
-        K::Tuple(es) | K::ArrayLit(es) | K::Intrinsic { args: es, .. } => all(es),
+        K::Tuple(es) | K::ArrayLit(es) | K::Expanded(es) | K::Intrinsic { args: es, .. } => all(es),
+        K::Expand { .. } => true,
         K::Return(v) => opt(v),
         K::Block(b) => block_effects(body, *b),
         K::If { cond, then, else_branch } => {
@@ -9579,7 +9725,7 @@ impl Namer<'_> {
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. }
             | hir::ExprKind::Move(base)
-            | hir::ExprKind::Spread(base) => self.expr(*base),
+            | hir::ExprKind::Spread { base, .. } => self.expr(*base),
             hir::ExprKind::Index { base, index } => {
                 self.expr(*base);
                 self.expr(*index);
@@ -10059,6 +10205,39 @@ fn quote_cpp(text: &str) -> String {
 }
 
 /// Order types so a struct is emitted after anything it stores by value.
+/// Joins the elements a spread writes, so `emit_args` can tell them apart: a character no
+/// C++ the emitter writes contains.
+const SPREAD_SEP: &str = "\u{1f}";
+
+/// How many elements a tuple type has, through references.
+fn tuple_len(t: &Ty) -> usize {
+    match t.peeled_refs() {
+        Ty::Tuple(parts) => parts.len(),
+        _ => 0,
+    }
+}
+
+/// The member path to element `i` of a tuple of `n` elements: `.v3`, or past sixteen,
+/// through the runtime's nested `more`, `.more.v1` (spec §5.4, §8.7).
+fn tuple_member(mut i: usize, mut n: usize) -> String {
+    let mut path = String::new();
+    while n > 16 && i >= 16 {
+        path.push_str(".more");
+        i -= 16;
+        n -= 16;
+    }
+    format!("{path}.v{i}")
+}
+
+/// A tuple's initialiser, its values in order: past sixteen, the rest in braces of their own
+/// for the nested `more`.
+fn tuple_braces(values: &[String]) -> String {
+    if values.len() <= 16 {
+        return values.join(", ");
+    }
+    format!("{}, {{{}}}", values[..16].join(", "), tuple_braces(&values[16..]))
+}
+
 /// Every named type `t` holds **by value**, with its arguments: what a declaration of `t`
 /// needs declared first. A pointer or reference does not count — a forward declaration
 /// would do — but an array, a tuple and an optional all store their element in place.

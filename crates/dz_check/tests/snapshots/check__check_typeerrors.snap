@@ -2472,66 +2472,74 @@ error[DZ0901]: the pack `..A` is not the last type parameter
      │
      = help: a pack takes every type argument after the fixed ones, so it comes last, and there is at most one (spec §8.7)
 
-error[DZ0901]: a struct cannot take a pack `..A` yet
-     ┌─ typeerrors/src/errors.dz:2001:19
-     │
-2001 │ struct PackHolder<..A> {
-     │                   ^^^ a pack on a type
-     │
-     = help: only a function or a method takes a type parameter pack so far; give the type a tuple parameter, `T`, and pass it `(A, B)` (spec §8.7, T-0269)
-
 error[DZ0902]: `A` is a pack, not a type
-     ┌─ typeerrors/src/errors.dz:2007:24
+     ┌─ typeerrors/src/errors.dz:2003:24
      │
-2007 │ fn pack_alone<..A>(_x: A) {}
+2003 │ fn pack_alone<..A>(_x: A) {}
      │                        ^ a pack written as one type
      │
      = help: a pack stands for several types: write `..A` where several may go, `(..A)` or `fn(..A)`, or take its values as `args: ..A` (spec §8.7)
 
-error[DZ0902]: `T` is not a pack, so `..T` is not a type
-     ┌─ typeerrors/src/errors.dz:2009:26
+error[DZ0902]: `T` names no pack, so `..T` is not a type
+     ┌─ typeerrors/src/errors.dz:2005:26
      │
-2009 │ fn dots_on_one<T>(_f: fn(..T)) {}
-     │                          ^^^ `..` before a type that is not a pack
+2005 │ fn dots_on_one<T>(_f: fn(..T)) {}
+     │                          ^^^ `..` before a type with no pack in it
      │
-     = help: `..` spreads a pack, declared `<..T>`; a list of known types is written out, `(A, B)` (spec §8.7)
+     = help: `..` repeats a type once for each type of a pack it names, `..Option<A>` for `<..A>`; a list of known types is written out, `(A, B)` (spec §8.7)
 
 error[DZ0902]: `..A` is not a type of its own
-     ┌─ typeerrors/src/errors.dz:2011:34
+     ┌─ typeerrors/src/errors.dz:2007:34
      │
-2011 │ fn pack_outside_a_list<..A>(_r: &..A) {}
+2007 │ fn pack_outside_a_list<..A>(_r: &..A) {}
      │                                  ^^^ a pack's types outside a list
      │
      = help: `..A` stands for several types, so it is written where several may go: a tuple, `(..A)`, or a function type's parameters, `fn(..A)` (spec §8.7)
 
 error[DZ0902]: element `0` is in the pack `..A`, which has no positions
-     ┌─ typeerrors/src/errors.dz:2014:19
+     ┌─ typeerrors/src/errors.dz:2010:19
      │
-2014 │     let _x = args.0
+2010 │     let _x = args.0
      │                   ^ a pack's element named by position
      │
      = help: how many types `A` holds is up to each call; pass the elements on together, spread: `f(..t)` (spec §8.7)
 
 error[DZ0903]: `add_two` takes a fixed number of arguments, and a pack's is up to each call
-     ┌─ typeerrors/src/errors.dz:2024:20
+     ┌─ typeerrors/src/errors.dz:2020:20
      │
-2024 │     return add_two(..args)
+2020 │     return add_two(..args)
      │                    ^^^^^^ a pack spread into fixed parameters
      │
      = help: a pack is passed on whole, to a function that takes one: a pack parameter, `args: ..T`, or a function value of type `fn(..T)` (spec §8.7)
 
 error[DZ0903]: `..` spreads a tuple that is not a place
-     ┌─ typeerrors/src/errors.dz:2032:22
+     ┌─ typeerrors/src/errors.dz:2028:22
      │
-2032 │     return add_two(..make_two())
+2028 │     return add_two(..make_two())
      │                      ^^^^^^^^^^ not a local, a parameter or a field
      │
      = help: each element is read from the tuple in turn, so the tuple must be kept somewhere: bind it first, `let t = …`, and spread `..t` (spec §8.7)
 
-error[DZ0904]: a tuple of 17 elements is longer than 16
-     ┌─ typeerrors/src/errors.dz:2037:14
+error[DZ0903]: this pattern cannot be repeated over a pack
+     ┌─ typeerrors/src/errors.dz:2035:17
      │
-2037 │     let _t = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
-     │              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ too many elements
+2035 │     show_each(..format!("{}", args))
+     │                 ^^^^^^^^^^^^^^^^^^^ a block, a branch, `or` or a formatting macro in a pattern
      │
-     = help: a tuple, a pack included, holds at most 16 elements for now; group some into a struct (spec §8.7)
+     = help: a pattern repeated per element is made of calls, operators, fields and literals; put the rest in a function the pattern calls (spec §8.7)
+
+error[DZ0902]: `i32?` names no pack, so `..i32?` is not a type
+     ┌─ typeerrors/src/errors.dz:2039:28
+     │
+2039 │ fn pattern_of_no_pack(_x: (..i32?)) {}
+     │                            ^^^^^^ `..` before a type with no pack in it
+     │
+     = help: `..` repeats a type once for each type of a pack it names, `..Option<A>` for `<..A>`; a list of known types is written out, `(A, B)` (spec §8.7)
+
+error[DZ0902]: `countof` takes a pack, and `i32` is not one
+     ┌─ typeerrors/src/errors.dz:2042:20
+     │
+2042 │     return countof(i32)
+     │                    ^^^ not a pack
+     │
+     = help: `countof(A)` is how many types the pack `A`, declared `<..A>`, holds; a tuple's length is known where its type is written out (spec §8.7)

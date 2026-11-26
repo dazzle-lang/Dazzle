@@ -794,7 +794,23 @@ impl<'a> Flow<'a> {
                 false
             }
             // A pack's tuple passed on as its elements, each taken (spec §8.7).
-            hir::ExprKind::Spread(inner) => self.value(inner),
+            hir::ExprKind::Spread { base: inner, .. } => self.value(inner),
+            // A pattern over a pack: its tuple taken when the pattern takes the element,
+            // which the moves pass wrote as a move of the tuple, and read otherwise.
+            hir::ExprKind::Expand { over, pattern, .. } => {
+                if matches!(self.body.expr(over).kind, hir::ExprKind::Move(_)) {
+                    self.value(over);
+                } else {
+                    self.place_only(over);
+                }
+                self.value(pattern)
+            }
+            hir::ExprKind::Expanded(copies) => {
+                for c in copies {
+                    self.value(c);
+                }
+                false
+            }
 
             hir::ExprKind::Call { callee, args } => {
                 // A base-qualified call borrows its receiver exactly as `recv.m()` does

@@ -54,7 +54,7 @@ impl<T: Clone> Clone for Buffer<T> {            // copy constructor -> `b.clone(
 | Sum type | `union S { A{…} B{} C }` + `switch` | tagged, exhaustive, no fallthrough; bare `C` carries `struct C` |
 | Interface | `trait X` + `impl X for Y` | bound `<T: X>` = static dispatch; `^X` = fat pointer, object stays the same size (`^mut Allocator` alone is one word, D-0103); an `impl` lives with the trait or with the type, so a module can add a trait to a type it did not write |
 | Generics | `fn f<T: Ord>(…)` | checked once at the definition, then monomorphized by Dazzle |
-| Packs | `fn call<..A>(f: fn(..A), args: ..A) { f(..args) }` | any number of types, as C++'s `Ts...`; the body sees a tuple, and `..t` spreads one into a call (§8.7) |
+| Packs | `fn call<..A>(f: fn(..A), args: ..A) { f(..args) }` | any number of types, as C++'s `Ts...`; the body sees a tuple, `..t` spreads one, `..g(args)` repeats a pattern per element, `countof(A)` counts them (§8.7) |
 | Closures | `xs.sort_by(fn(a, b) { return a.hp < b.hp })` | a function without a name; captures what it uses by reference, worked out from use; a view, never stored (§7.8) |
 | Threads | `parallel for &mut e in xs { … }`, `parallel { a(…) b(…) }` | passes and calls run at once; what one writes no other touches, checked at compile time; `Send`/`Share` say what crosses; statics and C are `#[main_thread]`; a function that gives a parameter to a block says `lends` (§22) |
 | Module | one `dazzle.toml` = one module | folders mean nothing; `name = "engine::render"` for nesting |

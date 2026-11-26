@@ -628,16 +628,16 @@ pub const INTERNAL_ERROR: &str = "DZ0804";
 
 // --- DZ09xx: type checking, continued (DZ05xx is full) -------------------------
 
-/// A type parameter pack declared where it cannot be: not the last parameter, with a
-/// default, or on a struct, union, trait or implementation, which take none yet (spec §8.7).
+/// A type parameter pack declared where it cannot be: not the last parameter, or with a
+/// default (spec §8.7).
 pub const BAD_PACK_DECLARATION: &str = "DZ0901";
-/// A pack used as one type: `T` alone where `T` is a pack, `..` before a type that is not
-/// one, `..T` outside a list of types, a pack's element named by position, or a function
-/// with a pack parameter taken as a value (spec §8.7).
+/// A pack used as one type: `T` alone where `T` is a pack, `..R` naming no pack or two,
+/// `..T` outside a list of types, a pack's element named by position, or `countof` of
+/// something that is not a pack (spec §8.7).
 pub const BAD_PACK_USE: &str = "DZ0902";
-/// A spread `..t` that cannot be one: of something that is not a tuple where no variadic
-/// parameter takes a slice, or of a tuple that is not a place (spec §7.2, §8.7).
+/// A spread `..t` that cannot be one: of a tuple that is not a place, or of a pack's tuple
+/// into fixed parameters; or a pattern `..e` that cannot be copied per element (spec §7.2,
+/// §8.7).
 pub const BAD_SPREAD: &str = "DZ0903";
-/// A tuple of more than sixteen elements, a pack's included, which the C++ runtime does not
-/// hold yet (spec §8.7).
-pub const TUPLE_TOO_LONG: &str = "DZ0904";
+// DZ0904, a tuple longer than sixteen elements, was retired unreleased (T-0269): the
+// runtime's `Tuple` nests past sixteen, so a tuple of any length reaches C++.

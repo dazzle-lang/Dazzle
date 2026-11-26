@@ -26530,3 +26530,108 @@ body fn add_pair -> i32
       binary +: i32
         local _0 a: i32
         local _1 b: i32
+body field-default PackPair.0 -> void
+  block
+    int 0: i32
+body impl#234 method length -> usize
+  param _0 self: PackPair<..A>
+  block
+    return: !
+      binary +: usize
+        type-query (..A)::count: usize
+        int 1: usize
+body fn pack_sum_of -> usize
+  param _0 xs: &[]usize
+  block
+    let _1 t: usize
+      int 0: usize
+    for _2 x
+      local _0 xs: &[]usize
+      block
+        assign +=
+          local _1 t: usize
+          local _2 x: usize
+    return: !
+      local _1 t: usize
+body fn lengths -> usize
+  param _0 args: (..A)
+  block
+    return: !
+      call pack_sum_of: usize
+        array: [1]usize
+          expand: (..usize)
+            local _0 args: (..A)
+            call-method PackLength::length: usize
+              local _1 args: A
+body fn pack_optional -> T?
+  param _0 x: T
+  block
+    return: !
+      local _0 x: T
+body fn pack_optionals -> (..A?)
+  param _0 args: (..A)
+  block
+    return: !
+      tuple: (..A?)
+        expand: (..A?)
+          move: (..A)
+            local _0 args: (..A)
+          call pack_optional: A?
+            move: A
+              local _1 args: A
+body fn framed_pack -> void
+  param _0 f: fn(i32, ..A, bool) -> void
+  param _1 args: (..A)
+  block
+    let _2 t: (i32, ..A, bool)
+      tuple: (i32, ..A, bool)
+        int 1: i32
+        spread: (..A)
+          move: (..A)
+            local _1 args: (..A)
+        bool true: bool
+    call-value: void
+      local _0 f: fn(i32, ..A, bool) -> void
+      spread: i32
+        move: (i32, ..A, bool)
+          local _2 t: (i32, ..A, bool)
+      spread-rest: (..A)
+      spread-rest: bool
+body fn uses_more_packs -> usize
+  block
+    let _0 p: PackPair<f64, bool>
+      struct-lit PackPair: PackPair<f64, bool>
+        #0 (default)
+        #1
+          tuple: (f64, bool)
+            float 1.5: f64
+            bool true: bool
+    let _1 as_value: fn(fn(i32, f64, bool) -> void, i32, f64, bool) -> void
+      fn-item apply_pack<(i32, f64, bool)>: fn(fn(i32, f64, bool) -> void, i32, f64, bool) -> void
+    call-value: void
+      local _1 as_value: fn(fn(i32, f64, bool) -> void, i32, f64, bool) -> void
+      fn-item three_of: fn(i32, f64, bool) -> void
+      int 1: i32
+      float 2.5: f64
+      bool true: bool
+    let (_2 a, _)
+      call pack_optionals: (i32?, f64?)
+        tuple: (i32, f64)
+          int 1: i32
+          float 2.5: f64
+    call framed_pack: void
+      fn-item three_of: fn(i32, f64, bool) -> void
+      tuple: (f64)
+        float 2.5: f64
+    return: !
+      binary +: usize
+        binary +: usize
+          call-method PackLength::length: usize
+            local _0 p: PackPair<f64, bool>
+          call lengths: usize
+            tuple: (PackPair<f64, bool>)
+              local _0 p: PackPair<f64, bool>
+        cast: usize
+          or: i32
+            local _2 a: i32?
+            int 0: i32

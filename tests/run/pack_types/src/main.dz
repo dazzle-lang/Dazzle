@@ -1,0 +1,88 @@
+// Packs on types (spec §8.7): a struct, a union, a trait used as a bound, and an
+// implementation for a struct generic over a pack.
+struct Deferred<..A: Clone> {
+    pub f:    fn(..A)
+    pub args: (..A)
+
+    pub Deferred(f: fn(..A), args: ..A) {
+        self.f = f
+        self.args = args
+    }
+
+    pub fn run(&mut self) {
+        let f = f
+        let again = args.clone()
+        f(..again)
+    }
+
+    pub fn count(&self) -> usize {
+        return countof(A)
+    }
+}
+
+/// A union with a pack: a call not yet made, or nothing.
+union Maybe<..A> {
+    Call { f: fn(..A), args: (..A) }
+    Nothing {}
+}
+
+trait Describe {
+    fn describe(&self) -> usize
+}
+
+impl<..A: Clone> Describe for Deferred<..A> {
+    fn describe(&self) -> usize {
+        return countof(A) * 10
+    }
+}
+
+/// A trait with a pack, used as a bound.
+trait Takes<..A> {
+    fn arity(&self) -> usize
+}
+
+struct Widget {
+    pub n: i32 = 0
+}
+
+impl Takes<i32, bool> for Widget {
+    fn arity(&self) -> usize {
+        return 2
+    }
+}
+
+fn arity_of<T: Takes<i32, bool>>(t: &T) -> usize {
+    return t.arity()
+}
+
+fn show(name: String, n: i32) {
+    println!("{} {}", name, n)
+}
+
+fn nothing() {
+    println!("nothing")
+}
+
+fn make<..A: Clone>(f: fn(..A), args: ..A) -> Deferred<..A> in args@home {
+    return Deferred<..A>(f, ..args)
+}
+
+fn main() {
+    let mut d = Deferred<String, i32>(show, String("later"), 3)
+    println!("{}", d.count())
+    d.run()
+    let mut e = make(nothing)
+    e.run()
+    let m = Maybe<i32>::Nothing{}
+    switch m {
+        case Nothing {
+            println!("none")
+        }
+        default {
+            println!("call")
+        }
+    }
+    println!("{} {}", d.describe(), e.describe())
+    let w = Widget{}
+    println!("{}", arity_of(&w))
+}

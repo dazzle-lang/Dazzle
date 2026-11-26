@@ -60,4 +60,60 @@ fn main() {
     println!("{} {} {}", all.0, all.1, all.2)
     let owned = (String("lin"), 3 as u32)
     greet(..owned)
+
+    // How many types a pack holds.
+    println!("{} {} {}", how_many(), how_many(1), how_many("a", 2.5, String("c")))
+
+    // A function with a pack parameter as a value: its elements are its parameters.
+    let g = call_with<i32, f64>
+    g(measure, 7, 7.5)
+    let h: fn(fn(i32, f64), i32, f64) = twice
+    h(measure, 8, 8.5)
+
+    // A pack with elements on both sides, kept in one tuple and spread again.
+    around(framed, String("middle"), 2.5)
+
+    // A tuple longer than sixteen.
+    let long = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18)
+    println!("{} {} {}", long.0, long.16, long.17)
+    println!("{}", sum18(..long))
+    let (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, seventeen, eighteen) = long
+    println!("{} {}", seventeen, eighteen)
+}
+
+fn how_many<view ..A>(_args: ..A) -> usize {
+    return countof(A)
+}
+
+fn framed(first: i32, name: String, f: f64, last: bool) {
+    println!("{} {} {} {}", first, name, f, last)
+}
+
+fn around<..A>(f: fn(i32, ..A, bool), args: ..A) {
+    let t = (1, ..args, true)
+    f(..t)
+}
+
+fn sum18(
+    a: i32,
+    b: i32,
+    c: i32,
+    d: i32,
+    e: i32,
+    f: i32,
+    g: i32,
+    h: i32,
+    i: i32,
+    j: i32,
+    k: i32,
+    l: i32,
+    m: i32,
+    n: i32,
+    o: i32,
+    p: i32,
+    q: i32,
+    r: i32
+) -> i32 {
+    let first = a + b + c + d + e + f + g + h + i
+    return first + j + k + l + m + n + o + p + q + r
 }

@@ -8,21 +8,23 @@
 //! `(..T)`, whose length is up to each call, stays a [`hir::ExprKind::Spread`]: one entry,
 //! standing in a list exactly where that list has its `..T`, until monomorphization knows
 //! the types and the C++ emitter writes one argument per element.
+//!
+//! `..pattern`, where the pattern is not a place and names a pack's tuple, is the pattern
+//! once per element, C++'s `f(g(args)...)`: checked once here with the tuple's name standing
+//! for the element, an [`hir::ExprKind::Expand`] until monomorphization copies it.
 
 use std::collections::HashMap;
 
-use dz_ast::{Expr, ExprKind};
+use dz_ast::{Expr, ExprKind, Ident, Path, PathSegment};
 use dz_diag::codes;
-use dz_hir as hir;
+use dz_hir::{self as hir, TupleEnd};
 use dz_span::Span;
 
 use super::{plural, spread, unify, Body};
 use crate::build::Checked;
 use crate::ty::{self, Ty};
 use crate::{FnSig, ParamDef};
-
-/// The most elements a tuple may have: the C++ runtime spells out each length it holds.
-pub(super) const MAX_TUPLE: usize = 16;
+use dz_hir::LocalKind;
 
 /// One argument as the parameters it fills see it.
 pub(super) enum Slot<'e> {
@@ -30,9 +32,23 @@ pub(super) enum Slot<'e> {
     Arg(&'e Expr),
     /// Element `index` of a tuple of known types spread with `..t`.
     Elem { spread: &'e Expr, tuple: &'e Expr, index: usize, ty: Ty },
-    /// A pack's tuple spread, `..args` with `args: (..T)`: one entry standing for all of
-    /// `T`, whose type is the `..T` it fills.
-    Pack { spread: &'e Expr, tuple: &'e Expr, ty: Ty },
+    /// A run of a tuple holding a pack, counted from either end: the pack's own run, one
+    /// entry standing for all of `T` whose type `ty` is the `..T` it fills, or one element
+    /// after the pack, whose index from the front depends on the pack's length. `node` is
+    /// the type its node has: the tuple `(..T)` for the pack's run, the element otherwise.
+    /// The first run of a spread, `lead`, takes the tuple; the others continue from it.
+    Run {
+        spread: &'e Expr,
+        tuple: &'e Expr,
+        from: TupleEnd,
+        to: TupleEnd,
+        ty: Ty,
+        node: Ty,
+        lead: bool,
+    },
+    /// `..pattern`: the pattern once for each element of the pack's tuple `name`, which
+    /// stands for the element inside it (spec §8.7).
+    Expand { spread: &'e Expr, pattern: &'e Expr, name: String, pack: ty::Param },
     /// An element of a spread already reported, which fits anything, so the count of the
     /// call's arguments is not reported again (invariant 6).
     Broken(&'e Expr),
@@ -42,9 +58,25 @@ impl Slot<'_> {
     fn span(&self) -> Span {
         match self {
             Slot::Arg(a) | Slot::Broken(a) => a.span,
-            Slot::Elem { spread, .. } | Slot::Pack { spread, .. } => spread.span,
+            Slot::Elem { spread, .. } | Slot::Run { spread, .. } | Slot::Expand { spread, .. } => {
+                spread.span
+            }
         }
     }
+
+    /// Whether this slot stands for a whole pack, whose length is up to each call.
+    fn is_pack(&self) -> bool {
+        match self {
+            Slot::Run { ty, .. } => is_pack_entry(ty),
+            Slot::Expand { .. } => true,
+            _ => false,
+        }
+    }
+}
+
+/// Whether a list's entry stands for a pack's types rather than one type (spec §8.7).
+pub(super) fn is_pack_entry(t: &Ty) -> bool {
+    ty::pack_entry(t).is_some()
 }
 
 /// How a slot is held to the type its place in the list wants.
@@ -68,10 +100,149 @@ impl Body<'_, '_> {
         }
     }
 
-    /// Whether any of `args` spreads a tuple.
+    /// Whether any of `args` spreads a tuple, or repeats a pattern over a pack.
     pub(super) fn has_tuple_spread(&mut self, args: &[Expr]) -> bool {
         args.iter().any(|a| spread(a).is_some())
-            && args.iter().any(|a| self.spread_tuple(a).is_some())
+            && args.iter().any(|a| self.expansion(a).is_some() || self.spread_tuple(a).is_some())
+    }
+
+    /// `..pattern`, when `a` is one: not a place, and naming one pack's tuple, which it is
+    /// repeated over (spec §8.7). The pattern, the tuple's name, and the pack.
+    pub(super) fn expansion<'e>(&self, a: &'e Expr) -> Option<(&'e Expr, String, ty::Param)> {
+        let inner = spread(a)?;
+        if is_place(inner) {
+            return None;
+        }
+        let mut names = Vec::new();
+        names_in_expr(inner, &mut names);
+        let mut found: Option<(String, ty::Param)> = None;
+        for n in names {
+            let Some(local) = self.local(&n) else { continue };
+            let Ty::Tuple(parts) = &local.ty else { continue };
+            let [Ty::Param(p)] = parts.as_slice() else { continue };
+            if !p.pack {
+                continue;
+            }
+            match &found {
+                Some((m, _)) if *m != n => return None,
+                _ => found = Some((n, p.clone())),
+            }
+        }
+        found.map(|(n, p)| (inner, n, p))
+    }
+
+    /// The pattern of an expansion checked with `name` standing for the element: its node
+    /// and the local the element is (spec §8.7).
+    fn check_pattern(
+        &mut self,
+        pattern: &Expr,
+        name: &str,
+        pack: &ty::Param,
+        want: Option<&Ty>,
+        span: Span,
+    ) -> (Checked, hir::LocalId) {
+        self.push();
+        let elem = self.bind(name, Ty::Param(pack.element()), false, LocalKind::Binding, span);
+        let c = match want {
+            Some(w) => {
+                let id = self.argument(pattern, w);
+                Checked { ty: w.clone(), id }
+            }
+            None => self.expr(pattern, None),
+        };
+        self.pop();
+        (c, elem)
+    }
+
+    /// The type a pattern makes for each element, without building anything.
+    fn pattern_ty(&mut self, pattern: &Expr, name: &str, pack: &ty::Param) -> Ty {
+        let mark = self.hir.mark();
+        let before = self.cx.diags.len();
+        let (c, _) = self.check_pattern(pattern, name, pack, None, pattern.span);
+        self.hir.rollback(mark);
+        self.cx.diags.truncate(before);
+        c.ty.defaulted()
+    }
+
+    /// The expansion's node: its tuple, the element's local, and the pattern checked once.
+    /// A pattern that cannot be copied per element is reported here.
+    fn expand_node(
+        &mut self,
+        spread_at: Span,
+        pattern: &Expr,
+        name: &str,
+        pack: &ty::Param,
+        want: Option<&Ty>,
+    ) -> Checked {
+        let seg = PathSegment {
+            span: pattern.span,
+            name: Ident { name: name.to_owned(), span: pattern.span },
+            generics: Vec::new(),
+        };
+        let path = Path { span: pattern.span, segments: vec![seg] };
+        let over_expr = Expr { span: pattern.span, kind: ExprKind::Path(path) };
+        let over = self.expr(&over_expr, None);
+        let (c, elem) = self.check_pattern(pattern, name, pack, want, spread_at);
+        self.refuse_uncopyable(c.id, pattern.span);
+        let entry = ty::each(pack.clone(), c.ty.defaulted());
+        let kind = hir::ExprKind::Expand { over: over.id, elem, pack: pack.clone(), pattern: c.id };
+        self.hir.expr(spread_at, Ty::Tuple(vec![entry]), kind)
+    }
+
+    /// A pattern monomorphization cannot copy per element, reported.
+    fn refuse_uncopyable(&mut self, e: hir::ExprId, span: Span) {
+        if self.copyable_pattern(e) {
+            return;
+        }
+        self.cx.error_help(
+            codes::BAD_SPREAD,
+            span,
+            "this pattern cannot be repeated over a pack",
+            "a block, a branch, `or` or a formatting macro in a pattern",
+            "a pattern repeated per element is made of calls, operators, fields and literals; \
+             put the rest in a function the pattern calls (spec §8.7)",
+        );
+    }
+
+    /// Whether every node of a pattern is one monomorphization can copy per element.
+    fn copyable_pattern(&self, e: hir::ExprId) -> bool {
+        let mut ok = true;
+        let kind = self.hir.kind(e).clone();
+        let mut children = Vec::new();
+        if hir::remap_children(&kind, &mut |c| {
+            children.push(c);
+            c
+        })
+        .is_none()
+        {
+            return false;
+        }
+        for c in children {
+            ok &= self.copyable_pattern(c);
+        }
+        ok
+    }
+
+    /// A pattern repeated into a variadic slice parameter, each copy an element of the
+    /// array the call builds (spec §7.2, §8.7): checked as one variadic argument is.
+    pub(super) fn expand_into_slice(&mut self, a: &Expr, elem_ty: &Ty) -> Option<hir::ExprId> {
+        let (pattern, name, pack) = self.expansion(a)?;
+        let seg = PathSegment {
+            span: pattern.span,
+            name: Ident { name: name.clone(), span: pattern.span },
+            generics: Vec::new(),
+        };
+        let path = Path { span: pattern.span, segments: vec![seg] };
+        let over_expr = Expr { span: pattern.span, kind: ExprKind::Path(path) };
+        let over = self.expr(&over_expr, None);
+        self.push();
+        let elem = self.bind(&name, Ty::Param(pack.element()), false, LocalKind::Binding, a.span);
+        let c = self.variadic_element(pattern, elem_ty);
+        self.pop();
+        self.refuse_uncopyable(c, pattern.span);
+        let kind = hir::ExprKind::Expand { over: over.id, elem, pack: pack.clone(), pattern: c };
+        let ty = Ty::Tuple(vec![ty::each(pack, elem_ty.clone())]);
+        Some(self.hir.expr(a.span, ty, kind).id)
     }
 
     /// The arguments as slots, each tuple spread replaced by its elements, or by one entry
@@ -80,6 +251,10 @@ impl Body<'_, '_> {
     pub(super) fn slots<'e>(&mut self, args: &'e [Expr], report: bool) -> Vec<Slot<'e>> {
         let mut out = Vec::with_capacity(args.len());
         for a in args {
+            if let Some((pattern, name, pack)) = self.expansion(a) {
+                out.push(Slot::Expand { spread: a, pattern, name, pack });
+                continue;
+            }
             let Some((tuple, parts)) = self.spread_tuple(a) else {
                 out.push(Slot::Arg(a));
                 continue;
@@ -106,23 +281,47 @@ impl Body<'_, '_> {
                     index,
                     ty,
                 })),
-                Some(_) if parts.len() == 1 => {
-                    out.push(Slot::Pack { spread: a, tuple, ty: parts[0].clone() })
-                }
-                Some((_, p)) => {
-                    if report {
-                        let p = p.name.clone();
-                        self.cx.error_help(
-                            codes::BAD_SPREAD,
-                            a.span,
-                            format!("this tuple holds the pack `..{p}` and more, so it is not spread"),
-                            "a pack beside other elements",
-                            "a tuple that is a pack alone, `(..T)`, as a pack parameter is, may be \
-                             spread; one with more in it cannot be yet (spec §8.7, T-0269)",
-                        );
-                        self.expr(tuple, None);
+                // `(i32, ..T, bool)`: each element before the pack, the pack's run, then each
+                // element after it counted from the back. The tuple is taken once, by the
+                // first, so these are runs of one spread rather than elements of their own.
+                Some((at, _)) => {
+                    let n = parts.len();
+                    let first = out.len();
+                    for (index, ty) in parts[..at].iter().enumerate() {
+                        out.push(Slot::Run {
+                            spread: a,
+                            tuple,
+                            from: TupleEnd::Front(index),
+                            to: TupleEnd::Front(index + 1),
+                            ty: ty.clone(),
+                            node: ty.clone(),
+                            lead: false,
+                        });
                     }
-                    out.push(Slot::Broken(a));
+                    out.push(Slot::Run {
+                        spread: a,
+                        tuple,
+                        from: TupleEnd::Front(at),
+                        to: TupleEnd::Back(n - at - 1),
+                        ty: parts[at].clone(),
+                        node: Ty::Tuple(vec![parts[at].clone()]),
+                        lead: false,
+                    });
+                    for (j, ty) in parts[at + 1..].iter().enumerate() {
+                        let back = n - at - 1 - j;
+                        out.push(Slot::Run {
+                            spread: a,
+                            tuple,
+                            from: TupleEnd::Back(back),
+                            to: TupleEnd::Back(back - 1),
+                            ty: ty.clone(),
+                            node: ty.clone(),
+                            lead: false,
+                        });
+                    }
+                    if let Some(Slot::Run { lead, .. }) = out.get_mut(first) {
+                        *lead = true;
+                    }
                 }
             }
         }
@@ -133,7 +332,11 @@ impl Body<'_, '_> {
     fn slot_ty(&mut self, s: &Slot) -> Ty {
         match s {
             Slot::Arg(a) => self.expr_quiet(a).defaulted(),
-            Slot::Elem { ty, .. } | Slot::Pack { ty, .. } => ty.clone(),
+            Slot::Elem { ty, .. } | Slot::Run { ty, .. } => ty.clone(),
+            Slot::Expand { pattern, name, pack, .. } => {
+                let (pattern, name, pack) = (*pattern, name.clone(), pack.clone());
+                ty::each(pack.clone(), self.pattern_ty(pattern, &name, &pack))
+            }
             Slot::Broken(_) => Ty::Error,
         }
     }
@@ -154,6 +357,21 @@ impl Body<'_, '_> {
             }
             (Slot::Arg(a), None) => self.expr(a, None),
             (Slot::Broken(a), _) => self.hir.expr(a.span, Ty::Error, hir::ExprKind::Error),
+            (Slot::Expand { spread, pattern, name, pack }, _) => {
+                // What each copy is held to: the element of the entry the list wants.
+                let each_want = match want {
+                    Some(Ty::Each(e)) if e.pack == *pack => Some(e.ty.clone()),
+                    Some(Ty::Param(p)) if p == pack => Some(Ty::Param(pack.element())),
+                    _ => None,
+                };
+                let c = self.expand_node(spread.span, pattern, name, pack, each_want.as_ref());
+                if let (Some(w), Ty::Tuple(entry)) = (want.filter(|_| how != Want::Hint), &c.ty) {
+                    if let Some(e) = entry.first() {
+                        self.expect(w, e, spread.span);
+                    }
+                }
+                c
+            }
             (Slot::Elem { spread, tuple, index, ty }, _) => {
                 let base = self.expr(tuple, None);
                 if let Some(w) = want.filter(|_| how != Want::Hint) {
@@ -162,12 +380,23 @@ impl Body<'_, '_> {
                 let kind = hir::ExprKind::TupleIndex { base: base.id, index: *index };
                 self.hir.expr(spread.span, ty.clone(), kind)
             }
-            (Slot::Pack { spread, tuple, ty }, _) => {
-                let base = self.expr(tuple, None);
+            (Slot::Run { spread, tuple, from, to, ty, node, lead }, _) => {
                 if let Some(w) = want.filter(|_| how != Want::Hint) {
                     self.expect(w, ty, spread.span);
                 }
-                self.hir.expr(spread.span, base.ty, hir::ExprKind::Spread(base.id))
+                let key = (spread.span.start, spread.span.end);
+                let (from, to) = (*from, *to);
+                if !*lead {
+                    if let Some(&of) = self.spread_leads.get(&key) {
+                        let kind = hir::ExprKind::SpreadRest { of, from, to };
+                        return self.hir.expr(spread.span, node.clone(), kind);
+                    }
+                }
+                let base = self.expr(tuple, None);
+                let kind = hir::ExprKind::Spread { base: base.id, from, to };
+                let c = self.hir.expr(spread.span, node.clone(), kind);
+                self.spread_leads.insert(key, c.id);
+                c
             }
         }
     }
@@ -184,7 +413,7 @@ impl Body<'_, '_> {
         let fixed = pack.unwrap_or(sig.params.len()).min(sig.params.len());
         for (s, p) in slots.iter().zip(&sig.params[..fixed]) {
             // A pack spread into one parameter says nothing of it: the call is refused.
-            if !p.ty.has_params() || matches!(s, Slot::Pack { .. }) {
+            if !p.ty.has_params() || s.is_pack() {
                 continue;
             }
             let actual = self.slot_ty(s);
@@ -194,6 +423,31 @@ impl Body<'_, '_> {
             let rest: Vec<Ty> = slots[at..].iter().map(|s| self.slot_ty(s)).collect();
             unify(&sig.params[at].ty, &Ty::Tuple(rest), map);
         }
+    }
+
+    /// `countof(A)`: the number of types the pack `A` holds, a query of its tuple that
+    /// monomorphization answers (spec §8.7).
+    pub(super) fn count_query(&mut self, arg: &Expr) -> (Ty, hir::ExprKind) {
+        let written = match &arg.kind {
+            ExprKind::Path(p) => {
+                Some(dz_ast::Type { span: arg.span, kind: dz_ast::TypeKind::Path(p.clone()) })
+            }
+            _ => None,
+        };
+        if let Some(pack) = written.as_ref().and_then(|t| self.cx.pack_named(t)) {
+            let query = hir::TypeQuery::Count;
+            return (query.result(), hir::ExprKind::TypeQuery { ty: Ty::Tuple(vec![pack]), query });
+        }
+        let shown = written.as_ref().map(dz_ast::dump::type_str).unwrap_or_else(|| "…".into());
+        self.cx.error_help(
+            codes::BAD_PACK_USE,
+            arg.span,
+            format!("`countof` takes a pack, and `{shown}` is not one"),
+            "not a pack",
+            "`countof(A)` is how many types the pack `A`, declared `<..A>`, holds; a tuple's \
+             length is known where its type is written out (spec §8.7)",
+        );
+        (Ty::Error, hir::ExprKind::Error)
     }
 
     /// One type argument as written after a name, where `..T` passes a pack on (spec §8.7).
@@ -250,25 +504,7 @@ impl Body<'_, '_> {
         for p in parts {
             ok &= self.check_bounds(&one, p, span);
         }
-        if ok && parts.len() > MAX_TUPLE {
-            self.too_long(parts.len(), span);
-            return false;
-        }
         ok
-    }
-
-    /// A tuple longer than the runtime holds.
-    pub(super) fn too_long(&mut self, n: usize, span: Span) {
-        self.cx.error_help(
-            codes::TUPLE_TOO_LONG,
-            span,
-            format!("a tuple of {n} elements is longer than {MAX_TUPLE}"),
-            "too many elements",
-            format!(
-                "a tuple, a pack included, holds at most {MAX_TUPLE} elements for now; group \
-                 some into a struct (spec §8.7)"
-            ),
-        );
     }
 
     /// A call of a function with a pack parameter, `fn f(a: A, args: ..T)`: the fixed
@@ -349,7 +585,7 @@ impl Body<'_, '_> {
         name: &str,
     ) -> Vec<hir::ExprId> {
         let slots = self.slots(args, true);
-        if let Some(s) = slots.iter().find(|s| matches!(s, Slot::Pack { .. })) {
+        if let Some(s) = slots.iter().find(|s| s.is_pack()) {
             self.cx.error_help(
                 codes::BAD_SPREAD,
                 s.span(),
@@ -428,16 +664,59 @@ impl Body<'_, '_> {
         for (i, s) in slots.iter().enumerate() {
             let w = want.as_ref().map(|w| &w[i]);
             let c = self.slot_value(s, w, Want::Hint);
-            tys.push(match s {
-                Slot::Pack { ty, .. } => ty.clone(),
+            tys.push(match (s, &c.ty) {
+                (Slot::Run { ty, .. }, _) => ty.clone(),
+                (Slot::Expand { .. }, Ty::Tuple(entry)) if entry.len() == 1 => entry[0].clone(),
                 _ => c.ty.defaulted(),
             });
             ids.push(c.id);
         }
-        if tys.len() > MAX_TUPLE {
-            self.too_long(tys.len(), e.span);
-        }
         self.mk(e, Ty::Tuple(tys), hir::ExprKind::Tuple(ids))
+    }
+}
+
+/// Every name an expression uses alone, a single segment: what a pattern may name a pack's
+/// tuple by (spec §8.7). A nested spread is a pattern of its own, so its names are not.
+fn names_in_expr(e: &Expr, out: &mut Vec<String>) {
+    let mut go = |x: &Expr| names_in_expr(x, out);
+    match &e.kind {
+        ExprKind::Path(p) if p.segments.len() == 1 => out.push(p.segments[0].name.name.clone()),
+        ExprKind::Call { callee, args } => {
+            go(callee);
+            args.iter().for_each(go);
+        }
+        ExprKind::Field { base, .. } | ExprKind::Deref(base) | ExprKind::Move(base) => go(base),
+        ExprKind::Index { base, index } => {
+            go(base);
+            go(index);
+        }
+        ExprKind::Unary { operand, .. } => go(operand),
+        ExprKind::Binary { lhs, rhs, .. } => {
+            go(lhs);
+            go(rhs);
+        }
+        ExprKind::Cast { expr, .. } | ExprKind::Ref { expr, .. } => go(expr),
+        ExprKind::Tuple(xs) | ExprKind::ArrayLit(xs) => xs.iter().for_each(go),
+        ExprKind::StructLit { fields, .. } => fields.iter().for_each(|f| go(&f.value)),
+        ExprKind::Named { value, .. } => go(value),
+        // What a pattern may not be made of is still a pattern, refused as one, so a name
+        // inside it counts: `..(args or x)`, `..if c(args) { … }`, `..format!("{}", args)`.
+        ExprKind::Or { expr, .. } => go(expr),
+        ExprKind::Intrinsic { args, .. } => args.iter().for_each(go),
+        ExprKind::If(i) => go(&i.cond),
+        ExprKind::MacroCall(m) => out.extend(
+            m.tokens
+                .iter()
+                .filter(|t| t.text.starts_with(|c: char| c.is_alphabetic() || c == '_'))
+                .map(|t| t.text.clone()),
+        ),
+        // A nested spread, `..x`, is a pattern of its own.
+        ExprKind::Range { start: None, end: Some(_), inclusive: false } => {}
+        ExprKind::Range { start, end, .. } => {
+            start.iter().for_each(|x| go(x));
+            end.iter().for_each(|x| go(x));
+        }
+        _ => {}
     }
 }
 

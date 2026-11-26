@@ -2777,6 +2777,8 @@ const WARNING_CLEAN: &[&str] = &[
     "names",
     "value_shapes",
     "packs",
+    "pack_types",
+    "pack_patterns",
 ];
 
 #[test]

@@ -327,9 +327,9 @@ struct Buffer__f32 { /* ... */ };
 
 ## 8.7 Type parameter packs
 
-A generic function may take **any number of types**, as a C++ parameter pack does. `..T`
-declares the pack; `args: ..T` takes the rest of a call's arguments, each of its own type;
-and in the body `args` is the tuple `(..T)`, which `..args` spreads back into a call:
+A generic may take **any number of types**, as a C++ parameter pack does. `..T` declares the
+pack; `args: ..T` takes the rest of a call's arguments, each of its own type; and in the body
+`args` is the tuple `(..T)`, which `..args` spreads back into a call:
 
 ```dz
 fn spawn<..A: Send>(entry: fn(..A), args: ..A) -> Thread { … }
@@ -345,26 +345,41 @@ let t = spawn(physics_thread, inbox, outbox)      // A is the pack Inbox, Outbox
 | `Ts... args` | `args: ..T` |
 | `std::tuple<Ts...>` | `(..T)` |
 | `f(args...)`, `std::apply(f, t)` | `f(..args)`, `f(..t)` |
+| `f(g(args)...)` | `f(..g(args))` |
+| `std::tuple<Opt<Ts>...>` | `(..Opt<T>)` |
+| `sizeof...(Ts)` | `countof(T)` |
 
-- **The pack is declared last**, and a list has at most one. Its bounds hold of every type
-  in it. Type arguments written past the fixed ones are the pack's: `spawn<Inbox, Outbox>(…)`;
-  none is an empty pack.
+- **The pack is declared last**, and a list has at most one. A function, a method, a struct,
+  a union, a trait and an implementation may each declare one. Its bounds hold of every type
+  in it. Type arguments written past the fixed ones are the pack's, `spawn<Inbox, Outbox>(…)`,
+  `Query<Position, Velocity>`; none is an empty pack.
 - **`..T` is written inside a list of types**: a tuple `(..T)` or `(i32, ..T)`, a function
-  type's parameters `fn(..T) -> R`, a generic's arguments. `T` alone is not a type.
+  type's parameters `fn(..T) -> R`, a generic's arguments `Query<..T>`. `T` alone is not a
+  type.
+- **`..R`, where `R` names the pack, is `R` once for each of its types**: `(..T?)` with `T`
+  the pack `i32, f64` is `(i32?, f64?)`. In `R`, `T` is one type of the pack, with the pack's
+  bounds.
 - **A pack parameter**, `args: ..T` where `T` is a pack, is the function's variadic parameter
   (§7.2): at most one of either kind, after the fixed parameters, any after it passed by name.
-  `xs: ..T` is a variadic slice when `T` is any other type.
-- **A spread `..t` passes a tuple's elements** as that many arguments, each moved unless it
-  is plain data, as a call passes any value. Any tuple may be spread, a pack's or not, any
-  number of times, among a call's positional arguments or in a tuple literal, `(..t, 3)`. Its
-  operand must be a place — a local, a parameter, a field — since each element is read from
-  it in turn. A slice is still spread only into a variadic slice parameter (§7.2).
-- **Inference** reads the pack off what its parameter is given, or off a function type:
-  `fn(..A)` matched with `fn(Inbox, Outbox)`.
-- **The body is checked once** (§8.1): a value of `(..T)` may be moved, stored, dropped and
-  spread, and crosses to another thread when the bounds say so. Each pack a call gives is its
-  own instance (§8.4).
-
-Not built yet: a pack on a struct, union, trait or implementation; a pack's length; an
-expression repeated over each element, C++'s `g(args)...` and its folds; and a function with
-a pack parameter taken as a value. `[DECIDED — D-0121]`
+  `xs: ..T` is a variadic slice when `T` is any other type. As a value the function takes the
+  pack's types as parameters of their own: `spawn<Inbox, Outbox>` is a
+  `fn(fn(Inbox, Outbox), Inbox, Outbox) -> Thread`.
+- **A spread `..t` of a place passes a tuple's elements** as that many arguments, each moved
+  unless it is plain data, as a call passes any value. Any tuple may be spread, a pack's or not,
+  `(i32, ..T, bool)` included, any number of times, among a call's positional arguments or in a
+  tuple literal, `(..t, 3)`. A slice is still spread only into a variadic slice parameter (§7.2).
+- **A pattern `..e`**, where `e` is not a place and names a pack's tuple, is `e` once for each
+  element, the tuple's name standing for the element: `show(..describe(args))` calls
+  `describe` on each and passes the results. The pattern is checked once, against the pack's
+  bounds (§8.1), and compiled once per element. It may stand wherever a spread may, and in a
+  variadic slice parameter, where it folds: `total(..args.size())` sums the sizes. It is made
+  of calls, operators, fields and literals; a block, a branch, `or` or a formatting macro goes
+  in a function the pattern calls. It takes an element where it moves one, and the tuple with
+  it.
+- **`countof(T)`** is how many types the pack `T` holds, a constant of each instance. It is
+  not a member of the tuple, since inside a pattern `args.len()` is each element's own.
+- **Inference** reads the pack off what its parameter is given, or off a function type,
+  patterns included: `fn(..A?)` matched with `fn(i32?, f64?)` makes `A` the pack `i32, f64`.
+- **Each pack a generic is given is its own instance** (§8.4). A value of `(..T)` may be
+  moved, stored, dropped and spread, and crosses to another thread when the bounds say so.
+  `[DECIDED — D-0121]`

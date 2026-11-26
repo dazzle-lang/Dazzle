@@ -1995,12 +1995,8 @@ struct LeavesAFieldEmpty {
     }
 }
 
-// §8.7: DZ0901 — a pack comes last, and only a function takes one yet.
+// §8.7: DZ0901 — a pack comes last.
 fn pack_first<..A, B>(_b: B) {}
-
-struct PackHolder<..A> {
-    pub n: i32 = 0
-}
 
 // §8.7: DZ0902 — a pack is several types: never one alone, never `..` of one that is not a
 // pack, never outside a list, and its elements have no positions.
@@ -2032,7 +2028,16 @@ fn spread_of_a_call() -> i32 {
     return add_two(..make_two())
 }
 
-// §8.7: DZ0904 — the runtime holds tuples of up to sixteen elements.
-fn seventeen() {
-    let _t = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+// §8.7: DZ0903 — a pattern repeated per element is made of what can be copied per element.
+fn show_each(xs: ..&Format) {}
+
+fn pattern_with_a_macro<..A: Format>(args: ..A) {
+    show_each(..format!("{}", args))
+}
+
+// §8.7: DZ0902 — `..R` names a pack, and `countof` takes one.
+fn pattern_of_no_pack(_x: (..i32?)) {}
+
+fn count_of_a_type() -> usize {
+    return countof(i32)
 }

@@ -773,9 +773,7 @@ fn match_ty(pat: &Ty, ty: &Ty, params: &[u32], map: &mut HashMap<u32, Ty>) -> bo
             }
         },
         (Ty::Named { sym: a, args: aa }, Ty::Named { sym: b, args: ba }) => {
-            a == b
-                && aa.len() == ba.len()
-                && aa.iter().zip(ba).all(|(x, y)| match_ty(x, y, params, map))
+            a == b && match_list(aa, ba, params, map)
         }
         (Ty::Optional(a), Ty::Optional(b)) => match_ty(a, b, params, map),
         (Ty::Ptr { mutable: ma, inner: a }, Ty::Ptr { mutable: mb, inner: b })
@@ -791,11 +789,33 @@ fn match_ty(pat: &Ty, ty: &Ty, params: &[u32], map: &mut HashMap<u32, Ty>) -> bo
         (Ty::Slice { mutable: ma, elem: a }, Ty::Slice { mutable: mb, elem: b }) => {
             ma == mb && match_ty(a, b, params, map)
         }
-        (Ty::Tuple(a), Ty::Tuple(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| match_ty(x, y, params, map))
-        }
+        (Ty::Tuple(a), Ty::Tuple(b)) => match_list(a, b, params, map),
         _ => pat == ty,
     }
+}
+
+/// [`match_ty`] over two lists, where a pack hole, `..A`, takes whatever lies between the
+/// elements before it and those after it, as the tuple of them (spec §8.7).
+fn match_list(pat: &[Ty], ty: &[Ty], params: &[u32], map: &mut HashMap<u32, Ty>) -> bool {
+    let Some((at, pack)) = dz_hir::ty::pack_in(pat).filter(|(_, p)| params.contains(&p.id)) else {
+        return pat.len() == ty.len()
+            && pat.iter().zip(ty).all(|(x, y)| match_ty(x, y, params, map));
+    };
+    let after = pat.len() - at - 1;
+    if ty.len() < at + after {
+        return false;
+    }
+    let tail = ty.len() - after;
+    let middle = Ty::Tuple(ty[at..tail].to_vec());
+    let fits = match map.get(&pack.id) {
+        Some(bound) => *bound == middle,
+        None => {
+            map.insert(pack.id, middle);
+            true
+        }
+    };
+    fits && pat[..at].iter().zip(ty).all(|(x, y)| match_ty(x, y, params, map))
+        && pat[at + 1..].iter().zip(&ty[tail..]).all(|(x, y)| match_ty(x, y, params, map))
 }
 
 /// Could one type match both patterns? Every parameter is a hole on either side, so this
@@ -806,7 +826,7 @@ pub(crate) fn might_overlap(a: &Ty, b: &Ty) -> bool {
     match (a, b) {
         (Ty::Param(_), _) | (_, Ty::Param(_)) => true,
         (Ty::Named { sym: sa, args: aa }, Ty::Named { sym: sb, args: ab }) => {
-            sa == sb && aa.len() == ab.len() && aa.iter().zip(ab).all(|(x, y)| o(x, y))
+            sa == sb && lists_might_overlap(aa, ab)
         }
         (Ty::Optional(x), Ty::Optional(y)) => o(x, y),
         (Ty::Ptr { mutable: ma, inner: x }, Ty::Ptr { mutable: mb, inner: y })
@@ -820,8 +840,21 @@ pub(crate) fn might_overlap(a: &Ty, b: &Ty) -> bool {
         (Ty::Slice { mutable: ma, elem: x }, Ty::Slice { mutable: mb, elem: y }) => {
             ma == mb && o(x, y)
         }
-        (Ty::Tuple(x), Ty::Tuple(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| o(p, q)),
+        (Ty::Tuple(x), Ty::Tuple(y)) => lists_might_overlap(x, y),
         _ => a == b,
+    }
+}
+
+/// [`might_overlap`] over two lists. A pack on either side may be any length, so only
+/// the elements before it are compared (spec §8.7).
+fn lists_might_overlap(x: &[Ty], y: &[Ty]) -> bool {
+    let pack = |l: &[Ty]| dz_hir::ty::pack_in(l).map(|(at, _)| at);
+    match (pack(x), pack(y)) {
+        (None, None) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| might_overlap(p, q)),
+        (a, b) => {
+            let front = a.unwrap_or(x.len()).min(b.unwrap_or(y.len()));
+            x[..front].iter().zip(&y[..front]).all(|(p, q)| might_overlap(p, q))
+        }
     }
 }
 

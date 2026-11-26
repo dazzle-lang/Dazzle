@@ -246,7 +246,7 @@ fn homes_and_sends(scope: &Scope<'_>, out: &mut Vec<Error>) {
 pub fn check_struct(table: &TypeTable, res: &Resolution, sym: SymbolId) -> Vec<Error> {
     let mut out = Vec::new();
     let Some(s) = table.struct_sig(sym) else { return out };
-    let args: Vec<Ty> = table.type_params(sym).iter().map(|p| Ty::Param(p.param.clone())).collect();
+    let args: Vec<Ty> = table.type_params(sym).iter().map(crate::ParamDef::as_arg).collect();
     let self_ty = Ty::Named { sym, args: args.clone() };
     let type_name = &res.symbol(sym).name;
     for (i, t) in s.ties.iter().enumerate() {

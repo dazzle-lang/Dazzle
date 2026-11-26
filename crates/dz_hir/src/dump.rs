@@ -401,9 +401,25 @@ impl<'a> Dumper<'a> {
                 node!("move");
                 self.nest(|d| d.expr(inner));
             }
-            ExprKind::Spread(inner) => {
+            ExprKind::Spread { base: inner, .. } => {
                 node!("spread");
                 self.nest(|d| d.expr(inner));
+            }
+            ExprKind::SpreadRest { .. } => node!("spread-rest"),
+            ExprKind::Expand { over, pattern, .. } => {
+                node!("expand");
+                self.nest(|d| {
+                    d.expr(over);
+                    d.expr(pattern);
+                });
+            }
+            ExprKind::Expanded(copies) => {
+                node!("expanded");
+                self.nest(|d| {
+                    for c in copies {
+                        d.expr(c);
+                    }
+                });
             }
             ExprKind::Block(b) => {
                 node!("block-value");

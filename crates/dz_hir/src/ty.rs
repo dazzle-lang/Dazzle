@@ -173,6 +173,38 @@ impl PartialEq for Param {
     }
 }
 
+/// The bit that marks a pack's element parameter: the element of the pack whose id is `n`
+/// has the id `n | ELEMENT`, so it needs no table to be found or to find its bounds.
+pub const ELEMENT: u32 = 1 << 30;
+
+impl Param {
+    /// The one type of a pack that a pattern repeated over it is checked with, `A` in
+    /// `..Option<A>`: named as the pack, bounded as it is, and no pack itself (spec §8.7).
+    pub fn element(&self) -> Param {
+        Param { id: self.id | ELEMENT, name: self.name.clone(), view: self.view, pack: false }
+    }
+
+    /// The id whose declaration says what this parameter may do: its own, or for a pack's
+    /// element, the pack's.
+    pub fn declared(&self) -> u32 {
+        self.id & !ELEMENT
+    }
+
+    /// Whether this is a pack's element, [`Param::element`].
+    pub fn is_element(&self) -> bool {
+        self.id & ELEMENT != 0
+    }
+}
+
+/// `..R`, where `R` mentions a pack's element: one `R` for each type of the pack, as C++
+/// writes `Option<Ts>...` (spec §8.7). It stands only in a list, as a pack does, and it is
+/// spliced as one: `(..Option<A>)` with `A` the pack `i32, f64` is `(i32?, f64?)`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Each {
+    pub pack: Param,
+    pub ty: Ty,
+}
+
 impl Eq for Param {}
 
 /// An associated type named off a type: `T::Item`, where `T: Iterate` (spec §8.5).
@@ -542,6 +574,8 @@ pub enum Ty {
     /// `T::Item`: an associated type of a type nobody has chosen yet (spec §8.5). Like a
     /// parameter, never present in emitted code.
     Assoc(Rc<Proj>),
+    /// `..R`, a pattern repeated over a pack (see [`Each`]).
+    Each(Rc<Each>),
 }
 
 impl Ty {
@@ -652,7 +686,7 @@ impl Ty {
     /// needs no substitution, which is what lets monomorphization skip most of the tree.
     pub fn has_params(&self) -> bool {
         match self {
-            Ty::Param(_) => true,
+            Ty::Param(_) | Ty::Each(_) => true,
             Ty::Assoc(p) => p.on.has_params() || p.trait_args.iter().any(Ty::has_params),
             Ty::Optional(i) | Ty::Fallible(i) | Ty::Range(i) => i.has_params(),
             Ty::Ref { inner, .. } | Ty::Ptr { inner, .. } | Ty::OwnPtr { inner, .. } => {
@@ -728,6 +762,7 @@ pub fn substitute_with(
     match t {
         Ty::SelfTy => self_ty.cloned().unwrap_or(Ty::SelfTy),
         Ty::Param(p) => map.get(&p.id).cloned().unwrap_or_else(|| t.clone()),
+        Ty::Each(e) => Ty::Each(Rc::new(Each { pack: e.pack.clone(), ty: substitute(&e.ty) })),
         Ty::Ptr { mutable, inner } => Ty::Ptr { mutable: *mutable, inner: rc(inner) },
         Ty::OwnPtr { mutable, inner } => Ty::OwnPtr { mutable: *mutable, inner: rc(inner) },
         Ty::Ref { mutable, inner } => Ty::Ref { mutable: *mutable, inner: rc(inner) },
@@ -784,6 +819,26 @@ fn substitute_list(
                 Some(other) => out.push(other.clone()),
                 None => out.push(x.clone()),
             },
+            // One `R` per type the pack was solved to, each with the element as that type.
+            Ty::Each(e) => match map.get(&e.pack.id) {
+                Some(Ty::Tuple(parts)) => {
+                    for part in parts {
+                        let mut one = map.clone();
+                        one.insert(e.pack.element().id, part.clone());
+                        // A part that is itself a pack passed on stays a pattern over it.
+                        out.push(match part {
+                            Ty::Param(q) if q.pack => {
+                                let mut over = map.clone();
+                                over.insert(e.pack.element().id, Ty::Param(q.element()));
+                                each(q.clone(), substitute_with(&e.ty, &over, self_ty))
+                            }
+                            _ => substitute_with(&e.ty, &one, self_ty),
+                        });
+                    }
+                }
+                Some(other) => out.push(other.clone()),
+                None => out.push(substitute_with(x, map, self_ty)),
+            },
             _ => out.push(substitute_with(x, map, self_ty)),
         }
     }
@@ -792,15 +847,29 @@ fn substitute_list(
 
 /// Whether a pack in `xs` was solved to the error type.
 fn pack_failed(xs: &[Ty], map: &std::collections::HashMap<u32, Ty>) -> bool {
-    xs.iter().any(|x| matches!(x, Ty::Param(p) if p.pack && map.get(&p.id) == Some(&Ty::Error)))
+    xs.iter().any(|x| pack_entry(x).is_some_and(|p| map.get(&p.id) == Some(&Ty::Error)))
 }
 
-/// The pack a list of types holds, `..T`, and where: at most one does (spec §8.7).
-pub fn pack_in(xs: &[Ty]) -> Option<(usize, &Param)> {
-    xs.iter().enumerate().find_map(|(i, x)| match x {
-        Ty::Param(p) if p.pack => Some((i, p)),
+/// The pack a list's entry stands for, when it is `..A` or `..R` over `A` (spec §8.7).
+pub fn pack_entry(x: &Ty) -> Option<&Param> {
+    match x {
+        Ty::Param(p) if p.pack => Some(p),
+        Ty::Each(e) => Some(&e.pack),
         _ => None,
-    })
+    }
+}
+
+/// The pack a list of types holds, `..T` or `..R` over it, and where (spec §8.7).
+pub fn pack_in(xs: &[Ty]) -> Option<(usize, &Param)> {
+    xs.iter().enumerate().find_map(|(i, x)| pack_entry(x).map(|p| (i, p)))
+}
+
+/// `..R` over `pack`, or `..A` itself where `R` is the element alone.
+pub fn each(pack: Param, ty: Ty) -> Ty {
+    match &ty {
+        Ty::Param(p) if *p == pack.element() => Ty::Param(pack),
+        _ => Ty::Each(Rc::new(Each { pack, ty })),
+    }
 }
 
 /// A result `written` as an optional of a projection, `T::Item?`, whose instance `ret`

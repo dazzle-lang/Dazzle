@@ -315,7 +315,7 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (9 open)
+## M19 — Threads (8 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
@@ -325,7 +325,6 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0266](tasks/T-0266-rc-or-weak-in-parallel-block.md)** An Rc or a Weak in a parallel block: atomic counts, checked by type · feature, concurrency
 - **[T-0267](tasks/T-0267-parallel-block-hands-back-its-calls.md)** A parallel block hands back its calls' results · feature, concurrency
 - **[T-0268](tasks/T-0268-two-parameters-that-may-be-one.md)** Two parameters that may be one place reach a parallel block or loop · design, concurrency
-- **[T-0269](tasks/T-0269-type-parameter-packs-t-as-c.md)** Type parameter packs, <..T>, as C++ has them · feature, generics
 
 ## M20 — Working with an agent (11 open)
 
@@ -355,7 +354,7 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0147](tasks/T-0147-skip-more-drops-value-lent-as.md)** Skip more drops: a value lent as &mut, built by a trait method, or in a generic body · feature, ownership
 - **[T-0201](tasks/T-0201-list-in-region-grows-in-place.md)** A list in a region grows in place beside what is built into its home · feature, ownership
 
-## none — not scheduled (15 open)
+## none — not scheduled (17 open)
 
 - **[T-0068](tasks/T-0068-named-arguments-at-call-site.md)** Named arguments at the call site · design, language
 - **[T-0069](tasks/T-0069-distinct-types.md)** Distinct types · design, language
@@ -372,3 +371,5 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0219](tasks/T-0219-loop-hints-what-loop-does-on.md)** "Loop hints: what a loop does on every pass that it could avoid" · feature, tooling
 - **[T-0226](tasks/T-0226-warn-on-while-true-suggest-loop.md)** Warn on while true and suggest loop, which dz fix rewrites · feature, tooling
 - **[T-0243](tasks/T-0243-hint-dz-fix-for-imgui-imgui.md)** A hint and a dz fix for imgui::ImGui::x where ImGui is named bare · feature, llm-tooling
+- **[T-0270](tasks/T-0270-chain-fifteen-additions-overflows-checker-stack.md)** A chain of fifteen additions overflows the checker's stack · bug, checker
+- **[T-0271](tasks/T-0271-impl-generic-only-through-its-trait.md)** An impl generic only through its trait's arguments generates broken C++ · bug, codegen

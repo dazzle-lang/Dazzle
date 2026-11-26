@@ -2908,3 +2908,55 @@ fn uses_packs() -> i32 {
 fn add_pair(a: i32, b: i32) -> i32 {
     return a + b
 }
+
+// §8.7: a pack on a struct and on an implementation, its length, a function taking one as a
+// value, a pattern repeated per element in a value and in a type, and a tuple with a pack
+// and more spread.
+struct PackPair<..A> {
+    pub first: i32 = 0
+    pub rest: (..A)
+}
+
+trait PackLength {
+    fn length(&self) -> usize
+}
+
+impl<..A> PackLength for PackPair<..A> {
+    fn length(&self) -> usize {
+        return countof(A) + 1
+    }
+}
+
+fn pack_sum_of(xs: ..usize) -> usize {
+    let mut t: usize = 0
+    for x in xs {
+        t += x
+    }
+    return t
+}
+
+fn lengths<..A: PackLength>(args: ..A) -> usize {
+    return pack_sum_of(..args.length())
+}
+
+fn pack_optional<T>(x: T) -> T? in x@home {
+    return x
+}
+
+fn pack_optionals<..A>(args: ..A) -> (..A?) {
+    return (..pack_optional(args),)
+}
+
+fn framed_pack<..A>(f: fn(i32, ..A, bool), args: ..A) {
+    let t = (1, ..args, true)
+    f(..t)
+}
+
+fn uses_more_packs() -> usize {
+    let p = PackPair<f64, bool>{ rest: (1.5, true) }
+    let as_value = apply_pack<i32, f64, bool>
+    as_value(three_of, 1, 2.5, true)
+    let (a, _) = pack_optionals(1, 2.5)
+    framed_pack(three_of, 2.5)
+    return p.length() + lengths(p) + (a or 0) as usize
+}
