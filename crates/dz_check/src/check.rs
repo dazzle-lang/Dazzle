@@ -17,6 +17,7 @@ use crate::{
     parse_int_literal, type_name, Ctx, FnSig, ForeignUnsafe, ImplSig, ItemSig, ParamDef, TraitRef,
 };
 
+mod packs;
 mod parallel;
 mod parallel_for;
 
@@ -4056,7 +4057,13 @@ impl<'a, 'c> Body<'a, 'c> {
                 self.expr(value, None);
                 self.mk(e, Ty::Error, hir::ExprKind::Error)
             }
+            ExprKind::Tuple(elems) if self.has_tuple_spread(elems) => {
+                self.tuple_with_spread(e, elems, expected)
+            }
             ExprKind::Tuple(elems) => {
+                if elems.len() > packs::MAX_TUPLE {
+                    self.too_long(elems.len(), e.span);
+                }
                 let checked: Vec<Checked> = match expected.map(|t| self.subst(t)) {
                     Some(Ty::Tuple(want)) if want.len() == elems.len() => {
                         elems.iter().zip(&want).map(|(x, w)| self.expr(x, Some(w))).collect()
@@ -5072,6 +5079,22 @@ impl<'a, 'c> Body<'a, 'c> {
         // Tuple access: `t.0`
         if let Ty::Tuple(parts) = &peeled {
             if let Ok(i) = name.name.parse::<usize>() {
+                // A pack's elements have no positions the body can name: how many there are,
+                // and so which one `.i` is, depends on the call (spec §8.7).
+                if let Some((_, pack)) = ty::pack_in(parts).filter(|(at, _)| i >= *at) {
+                    let p = pack.name.clone();
+                    self.cx.error_help(
+                        codes::BAD_PACK_USE,
+                        name.span,
+                        format!("element `{i}` is in the pack `..{p}`, which has no positions"),
+                        "a pack's element named by position",
+                        format!(
+                            "how many types `{p}` holds is up to each call; pass the elements on \
+                             together, spread: `f(..t)` (spec §8.7)"
+                        ),
+                    );
+                    return (Ty::Error, None);
+                }
                 return match parts.get(i) {
                     Some(t) => (t.clone(), Some(i)),
                     None => {
@@ -5687,30 +5710,34 @@ impl<'a, 'c> Body<'a, 'c> {
                 .generics
                 .iter()
                 .map(|t| {
-                    let lowered = self.cx.lower_checked_type(t, handle);
+                    let lowered = self.written_type_arg(t, handle);
                     self.subst(&lowered)
                 })
                 .collect();
-            if written.len() != sig.generics.len() {
-                let (wanted, got) = (sig.generics.len(), written.len());
+            let got = written.len();
+            if !self.bind_written(&sig.generics, written, &mut map) {
+                let wanted = sig.generics.len();
+                let pack = sig.generics.last().is_some_and(|d| d.param.pack);
+                let (wanted, at_least) =
+                    if pack { (wanted - 1, "at least ") } else { (wanted, "") };
                 self.cx.error_help(
                     codes::WRONG_TYPE_ARG_COUNT,
                     seg.span,
                     format!(
-                        "`{name}` takes {wanted} type {}, but {got} {} given",
+                        "`{name}` takes {at_least}{wanted} type {}, but {got} {} given",
                         plural(wanted, "argument"),
                         if got == 1 { "was" } else { "were" }
                     ),
-                    format!("expected {wanted}, found {got}"),
+                    format!("expected {at_least}{wanted}, found {got}"),
                     format!(
-                        "`{name}` is declared with {wanted} type {}",
-                        plural(wanted, "parameter")
+                        "`{name}` is declared with {wanted} type {}{}",
+                        plural(wanted, "parameter"),
+                        if pack { " and a pack" } else { "" }
                     ),
                 );
             }
-            for (def, ty) in sig.generics.iter().zip(written) {
-                map.insert(def.param.id, ty);
-            }
+        } else if sig.pack_param().is_some() || self.has_tuple_spread(args) {
+            self.unify_args(sig, args, &mut map);
         } else {
             // Each argument is checked once, without an expected type, and its type is
             // matched against the parameter's to solve for the parameters it mentions.
@@ -5799,11 +5826,26 @@ impl<'a, 'c> Body<'a, 'c> {
             return Vec::new();
         }
         let name = seg.name.name.clone();
+        if sig.pack_param().is_some() {
+            self.cx.error_help(
+                codes::BAD_PACK_USE,
+                span,
+                format!("`{name}` takes a pack of arguments, so it is not a value yet"),
+                "a function with a pack parameter taken as a value",
+                format!(
+                    "call it, `{name}(…)`, or write a function of the arguments you want that \
+                     calls it, and pass that (spec §8.7, T-0269)"
+                ),
+            );
+            return sig.generics.iter().map(|_| Ty::Error).collect();
+        }
         let mut map: HashMap<u32, Ty> = HashMap::new();
         if !seg.generics.is_empty() {
-            let written: Vec<Ty> = seg.generics.iter().map(|t| self.cx.lower_type(t)).collect();
-            if written.len() != sig.generics.len() {
-                let (wanted, got) = (sig.generics.len(), written.len());
+            let written: Vec<Ty> =
+                seg.generics.iter().map(|t| self.written_type_arg(t, false)).collect();
+            let got = written.len();
+            if !self.bind_written(&sig.generics, written, &mut map) {
+                let wanted = sig.generics.len();
                 self.cx.error(
                     codes::WRONG_TYPE_ARG_COUNT,
                     seg.span,
@@ -5813,9 +5855,6 @@ impl<'a, 'c> Body<'a, 'c> {
                     ),
                     format!("expected {wanted}"),
                 );
-            }
-            for (def, t) in sig.generics.iter().zip(written) {
-                map.insert(def.param.id, t);
             }
         } else if let Some(Ty::Fn { params, ret, .. }) = expected.map(|t| self.subst(t)) {
             for (p, a) in sig.params.iter().zip(params.iter()) {
@@ -5896,6 +5935,9 @@ impl<'a, 'c> Body<'a, 'c> {
     fn check_bounds(&mut self, def: &ParamDef, chosen: &Ty, span: Span) -> bool {
         if chosen.is_wildcard() {
             return true;
+        }
+        if def.param.pack {
+            return self.check_pack_bounds(def, chosen, span);
         }
         // A plain parameter is never a view, so its body may store one anywhere; only a
         // `view` parameter may be given a view (spec §6.7, D-0093).
@@ -7267,24 +7309,7 @@ impl<'a, 'c> Body<'a, 'c> {
                     );
                 }
                 let params = params.clone();
-                if params.len() != args.len() {
-                    let (want, got) = (params.len(), args.len());
-                    self.cx.error(
-                        codes::WRONG_ARG_COUNT,
-                        span,
-                        format!("expected {want} {}, found {got}", plural(want, "argument")),
-                        "wrong number of arguments",
-                    );
-                }
-                let mut ids = Vec::new();
-                for (a, p) in args.iter().zip(&params) {
-                    let arg = self.expr(a, Some(p));
-                    self.expect(p, &arg.ty, a.span);
-                    ids.push(arg.id);
-                }
-                for a in args.iter().skip(params.len()) {
-                    ids.push(self.expr(a, None).id);
-                }
+                let ids = self.fn_value_args(&params, args, span);
                 ((**ret).clone(), ids)
             }
             t => {
@@ -7358,8 +7383,14 @@ impl<'a, 'c> Body<'a, 'c> {
         // Every call a program writes comes here, so this is where a call that needs the
         // main thread is seen (spec §22.5).
         self.note_main_thread_call(span, sig, name);
+        if let Some(at) = sig.pack_param() {
+            return self.check_pack_args(sig, at, args, span, name);
+        }
         if let Some(at) = sig.variadic {
             return self.check_variadic_args(sig, at, args, span, name);
+        }
+        if self.has_tuple_spread(args) {
+            return self.check_spread_args(sig, args, span, name);
         }
         let required = sig.required();
         let total = sig.params.len();
@@ -10483,27 +10514,44 @@ fn unify(pattern: &Ty, actual: &Ty, out: &mut HashMap<u32, Ty>) {
             unify(a, b, out)
         }
         (Ty::Array { elem: a, .. }, Ty::Array { elem: b, .. }) => unify(a, b, out),
-        (Ty::Tuple(a), Ty::Tuple(b)) if a.len() == b.len() => {
-            for (x, y) in a.iter().zip(b) {
-                unify(x, y, out);
-            }
+        (Ty::Tuple(a), Ty::Tuple(b)) => unify_list(a, b, out),
+        (Ty::Named { sym: a, args: xs }, Ty::Named { sym: b, args: ys }) if a == b => {
+            unify_list(xs, ys, out)
         }
-        (Ty::Named { sym: a, args: xs }, Ty::Named { sym: b, args: ys })
-            if a == b && xs.len() == ys.len() =>
-        {
-            for (x, y) in xs.iter().zip(ys) {
-                unify(x, y, out);
-            }
-        }
-        (Ty::Fn { params: ps, ret: r1, .. }, Ty::Fn { params: qs, ret: r2, .. })
-            if ps.len() == qs.len() =>
-        {
-            for (x, y) in ps.iter().zip(qs) {
-                unify(x, y, out);
-            }
+        (Ty::Fn { params: ps, ret: r1, .. }, Ty::Fn { params: qs, ret: r2, .. }) => {
+            unify_list(ps, qs, out);
             unify(r1, r2, out);
         }
         _ => {}
+    }
+}
+
+/// [`unify`] over two lists of types, element by element. A pack in the pattern, `..T`,
+/// takes whatever the actual list has between the elements before it and those after it,
+/// as the tuple of them (spec §8.7): `(i32, ..T)` against `(i32, f32, bool)` makes `T` the
+/// pack `f32, bool`.
+fn unify_list(ps: &[Ty], qs: &[Ty], out: &mut HashMap<u32, Ty>) {
+    let Some((at, pack)) = ty::pack_in(ps) else {
+        if ps.len() == qs.len() {
+            for (x, y) in ps.iter().zip(qs) {
+                unify(x, y, out);
+            }
+        }
+        return;
+    };
+    let after = ps.len() - at - 1;
+    if qs.len() < at + after {
+        return;
+    }
+    for (x, y) in ps[..at].iter().zip(qs) {
+        unify(x, y, out);
+    }
+    for (x, y) in ps[at + 1..].iter().zip(&qs[qs.len() - after..]) {
+        unify(x, y, out);
+    }
+    let middle = &qs[at..qs.len() - after];
+    if !middle.iter().any(Ty::is_wildcard) {
+        out.entry(pack.id).or_insert_with(|| Ty::Tuple(middle.to_vec()));
     }
 }
 

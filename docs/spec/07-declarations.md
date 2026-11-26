@@ -122,6 +122,11 @@ sum(..numbers)      // spread: an existing slice or array, passed as it is
 - Methods, constructors and generic functions may be variadic; `fn biggest<T: Ord>(first:
   T, rest: ..T)` infers `T` from the arguments.
 - As a value, a variadic function is a plain `fn(&[]T) -> R` that takes its slice.
+- Arguments each of **its own type**, kept as they are rather than borrowed as one trait,
+  are a pack parameter, `args: ..T` where `T` is declared `<..T>` (§8.7). It is the
+  function's variadic parameter, under the rules above, and its body sees a tuple. A tuple
+  is spread into a call as `..t`, among any of its positional arguments; a slice is spread
+  only into a variadic slice parameter, as above.
 
 C variadic functions (`printf`) are still not imported (§15.2). `[DECIDED — §18.56]`
 
@@ -613,6 +618,6 @@ units.sort_by(fn(a, b) { return a.at.distance(target) < b.at.distance(target) })
   captures' address, so a function taking one is one function, not one per closure (§8.4). A
   plain function converts to a `view fn` of its signature.
 
-Closures that own what they capture, and may therefore be stored or given to `spawn!`, are
+Closures that own what they capture, and may therefore be stored or given to `spawn`, are
 not in the language yet. In parallel code a closure's captures are checked as arguments are
 (§22.7).

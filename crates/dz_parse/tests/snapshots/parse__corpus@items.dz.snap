@@ -188,6 +188,21 @@ fn sum(xs: ..i32) -> i32
       int 0
 fn tell(prefix: str, things: ..&Describe)
   block
+fn spawn<..A: Send>(entry: fn(..A), args: ..A) -> Thread
+  block
+    let kept: (i32, ..A)
+      tuple
+        int 0
+        range
+          <open>
+          path args
+    return
+      call
+        path start<..A>
+        path entry
+        range
+          <open>
+          path args
 fn drain<view T: Iterate>(mut it: T, mut left: i32)
   block
 fn note(fmt: str, args: ..&Format, level: i32 = ..., loc: SourceLocation = ...)

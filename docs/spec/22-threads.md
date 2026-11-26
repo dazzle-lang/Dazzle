@@ -139,8 +139,9 @@ parallel {
 A block may be in any function, `main` and a call of another block included; it opens no
 scope of its own, since it declares nothing.
 
-**`spawn!`** starts a thread that lives on its own, `spawn!(physics_thread(inbox, outbox))`,
-and gives back a handle that joins it.
+**`spawn`** starts a thread that lives on its own, `spawn(physics_thread, inbox, outbox)`,
+and gives back a handle that joins it (§22.11). It is a plain generic function: its
+arguments are a pack (§8.7), so no macro writes it.
 
 **The rule between calls that run at once.** A place one call writes is touched by no other
 call; a place several calls only read is frozen while they run. A `&` beside a `&` is fine, a
@@ -154,7 +155,7 @@ check reads each call's arguments, as §6.7 reads them for a call's kills:
 - two fields of one value are apart, and so are two elements whose indices are proven to
   differ, `cells[0]` and `cells[2]`; `cells[i]` and `cells[j]` may be one;
 - a view (§6.7), a query included, may cross into a parallel loop or a `parallel` block,
-  which wait for every call; never into `spawn!`, which does not, so its arguments are values.
+  which wait for every call; never into `spawn`, which does not, so its arguments are values.
   A view taken by value writes what it views unless it is `Share`;
 - the access a query gives is read off its type arguments: `&mut Position` writes every
   `Position`, `&Velocity` reads every `Velocity` (§22.8, not built yet).
@@ -182,11 +183,11 @@ place. Calls that only read through `Rc<Texture>` run side by side; a call that 
 any `Rc<Texture>` conflicts with every other call that reaches one.
 
 Their counts are **atomic in a program that runs anything at the same time**, one where a
-parallel loop, a `parallel` block or `spawn!` appears, and plain integers in any other, so a
+parallel loop, a `parallel` block or `spawn` appears, and plain integers in any other, so a
 single-threaded program pays nothing; the compiler sees the whole program (§8.4). Where nothing
 in an `if let` or `or` body can release the handle, no count is taken at all (T-0002).
 
-**`spawn!` takes no `Rc` or `Weak`**, in any value it is given: nothing waits for its thread,
+**`spawn` takes no `Rc` or `Weak`**, in any value it is given: nothing waits for its thread,
 so no scope lets the compiler see who writes when. A spawned thread shares through a channel,
 a `Mutex<T>` or an atomic.
 
@@ -209,7 +210,7 @@ fn draw_hud(hud: &Hud) { rl::DrawText(hud.title, 10, 10, 20, rl::WHITE) }
 It is held to the body as a `kills` clause is (§6.7): a body that needs it and lacks it is an
 error, and one that has it and does not need it is too; `dz fix` writes it. An entry point
 (`main`, a `#[test]`, a `#[bench]`) is on the main thread already. A `#[main_thread]` function
-is never run by a parallel loop, a `parallel` block or `spawn!`, and becomes a value only of a function
+is never run by a parallel loop, a `parallel` block or `spawn`, and becomes a value only of a function
 type written with it, `#[main_thread] fn(w: &World)`.
 
 Needing nothing: a `const`; a `#[thread_local]` static, of which each thread has its own
@@ -241,7 +242,7 @@ thread's; which types synchronise is `std`'s to say, with a trait of its own no 
 Anything a parallel call receives by value or as `&mut`, and what it builds there, is placed
 as for code the compiler cannot see (§14.6): on the heap, or in the worker's own pool, and
 never in the region of the code that started it, whose arena another worker may be growing at
-the same moment. Each worker has its own region pool. A value `spawn!` takes is already on
+the same moment. Each worker has its own region pool. A value `spawn` takes is already on
 the heap, since it outlives every region. So, for `parallel for`, is what a pass makes, and a
 container whose elements a pass is given as `&mut` and may grow.
 
@@ -346,29 +347,27 @@ is **not reentrant**: locking one the thread already holds waits forever.
 
 ## 22.11 Starting a thread
 
-`[PROPOSED — D-0117]` **`spawn(entry, value)`** runs `entry(value)` on a new thread and returns a
-**`Thread`**, the handle that joins it. It is the function `spawn!` (§22.3) is to write; the macro
-is not built.
+`[PROPOSED — D-0117]` **`spawn(entry, args…)`** runs `entry(args…)` on a new thread and returns
+a **`Thread`**, the handle that joins it. Its arguments are a pack (§8.7, D-0121): any number,
+each of its own type, `fn spawn<..A: Send>(entry: fn(..A), args: ..A) -> Thread`.
 
 ```dz
-struct Job { pub first: u32, pub last: u32 }
+fn sum_range(first: u32, last: u32) { … }
 
-fn sum_range(job: Job) { … }
-
-let mut t = spawn(sum_range, Job{ first: 0, last: 100 })
+let mut t = spawn(sum_range, 0, 100)
 t.join()
 ```
 
-`value` moves to the thread, into an allocation on the heap that the thread frees as it starts
-(§22.6). A thread takes one value, so a struct or a tuple gives it more. `join()` waits for the
-thread to finish, and everything it wrote is then visible; joining again does nothing. A
-`Thread` dropped without being joined **detaches**: the thread runs on, and ends with the
-program. A thread returns nothing; it shares through an atomic (§22.9) or a `Mutex<T>` (§22.10).
+The arguments move to the thread, into an allocation on the heap that the thread frees as it
+starts (§22.6). `join()` waits for the thread to finish, and everything it wrote is then
+visible; joining again does nothing. A `Thread` dropped without being joined **detaches**: the
+thread runs on, and ends with the program. A thread returns nothing; it shares through an
+atomic (§22.9) or a `Mutex<T>` (§22.10).
 
 What crosses is checked, so a program with no `unsafe` that starts threads has no data
-race: `spawn<A: Send>` takes a value that holds no `Rc`, view or raw pointer (§22.2), and its
-`entry` is a plain `fn(A)`, which a `#[main_thread]` function is not (§22.5). What the value
-holds is placed on the heap, never in a region of the code that started the thread (§22.6).
+race: every argument is `Send`, so it holds no `Rc`, view or raw pointer (§22.2), and `entry`
+is a plain `fn(..A)`, which a `#[main_thread]` function is not (§22.5). What the arguments
+hold is placed on the heap, never in a region of the code that started the thread (§22.6).
 
 ## 22.12 Lending to a block: `lends`
 

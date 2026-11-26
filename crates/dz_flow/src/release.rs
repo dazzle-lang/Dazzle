@@ -444,7 +444,9 @@ impl Frees<'_, '_> {
             K::Tuple(parts) | K::ArrayLit(parts) => {
                 self.d.only_frees(self.body.ty(e)) && all(parts)
             }
-            K::Move(inner) => self.d.only_frees(self.body.ty(e)) && self.expr(*inner),
+            K::Move(inner) | K::Spread(inner) => {
+                self.d.only_frees(self.body.ty(e)) && self.expr(*inner)
+            }
             K::Block(b) => self.block(*b),
             K::If { cond, then, else_branch } => match self.fold(*cond) {
                 Some(true) => self.block(*then),
@@ -903,6 +905,7 @@ fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
+        | K::Spread(base)
         | K::Ref { place: base, .. }
         | K::Unary { operand: base, .. }
         | K::Cast { operand: base, .. } => vec![*base],

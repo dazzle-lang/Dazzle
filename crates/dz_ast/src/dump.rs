@@ -761,8 +761,12 @@ fn generics_str(g: &Generics) -> String {
         .params
         .iter()
         .map(|p| {
-            let mut s =
-                if p.is_view { format!("view {}", p.name.name) } else { p.name.name.clone() };
+            let dots = if p.is_pack { ".." } else { "" };
+            let mut s = if p.is_view {
+                format!("view {dots}{}", p.name.name)
+            } else {
+                format!("{dots}{}", p.name.name)
+            };
             if !p.bounds.is_empty() {
                 let bounds: Vec<String> = p.bounds.iter().map(path_str).collect();
                 s = format!("{s}: {}", bounds.join(" + "));
@@ -813,6 +817,7 @@ pub fn type_str(t: &Type) -> String {
         TypeKind::Tuple(elems) => {
             format!("({})", elems.iter().map(type_str).collect::<Vec<_>>().join(", "))
         }
+        TypeKind::Expand(inner) => format!("..{}", type_str(inner)),
         TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends, main_thread } => format!(
             "{}fn({}){}{}{}{}",
             if *main_thread { "#[main_thread] " } else { "" },

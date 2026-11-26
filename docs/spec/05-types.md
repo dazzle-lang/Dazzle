@@ -393,7 +393,9 @@ view fn(i32) -> bool    a closure, or a function, of that signature (§7.8)
 ```
 
 Tuples exist mainly for multiple return values; they have positional access `t.0`, `t.1`
-and destructuring `let (x, y) = point()`. `[PROPOSED]`
+and destructuring `let (x, y) = point()`. `[PROPOSED]` A tuple holds at most sixteen
+elements. It is also what a pack is kept in, `(..T)`, and `..t` spreads one into a call's
+arguments or another tuple, `(..t, 3)` (§8.7).
 
 ## 5.5 Compile-time type queries
 

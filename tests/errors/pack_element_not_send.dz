@@ -1,0 +1,13 @@
+// expect: DZ0531
+//
+// A pack's bound holds of every type in it (spec §8.7): `spawn`'s arguments are each `Send`,
+// and an `Rc` shares a count no other thread may change (§22.2).
+
+fn work(n: i32, _shared: Rc<i32>) {
+    println!("{}", n)
+}
+
+fn main() {
+    let mut t = spawn(work, 1, Rc<i32>(2))
+    t.join()
+}

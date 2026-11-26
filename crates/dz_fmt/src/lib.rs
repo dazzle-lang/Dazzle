@@ -939,6 +939,7 @@ impl<'a> Printer<'a> {
                 format!("&{}{}", if *mutable { "mut " } else { "" }, self.ty(inner))
             }
             TypeKind::Optional(i) => format!("{}?", self.ty(i)),
+            TypeKind::Expand(i) => format!("..{}", self.ty(i)),
             TypeKind::Tuple(elems) => {
                 format!("({})", elems.iter().map(|e| self.ty(e)).collect::<Vec<_>>().join(", "))
             }
@@ -1456,8 +1457,12 @@ fn generics_str(g: &Generics) -> String {
         .params
         .iter()
         .map(|p| {
-            let mut s =
-                if p.is_view { format!("view {}", p.name.name) } else { p.name.name.clone() };
+            let dots = if p.is_pack { ".." } else { "" };
+            let mut s = if p.is_view {
+                format!("view {dots}{}", p.name.name)
+            } else {
+                format!("{dots}{}", p.name.name)
+            };
             if !p.bounds.is_empty() {
                 let b: Vec<String> = p.bounds.iter().map(dump::path_str).collect();
                 s = format!("{s}: {}", b.join(" + "));

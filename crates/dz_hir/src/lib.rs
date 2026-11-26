@@ -477,6 +477,12 @@ pub enum ExprKind {
         fields: Vec<Option<ExprId>>,
     },
     Tuple(Vec<ExprId>),
+    /// `..t` where `t` is a pack's tuple, `(..T)`: its elements, spliced into the call's
+    /// arguments or the tuple literal it stands in, where it is the one entry that fills the
+    /// `..T` of the list it matches (spec §8.7). `t` is a place, read once per element, and
+    /// the node's type is `t`'s. A tuple of known types is never spread this way: the checker
+    /// passes its elements, `t.0`, `t.1`, …, as arguments of their own.
+    Spread(ExprId),
     ArrayLit(Vec<ExprId>),
     /// A bare enum constant.
     EnumVariant {

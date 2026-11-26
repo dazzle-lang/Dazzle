@@ -399,6 +399,32 @@ template <class A, class B> struct Tuple<A, B> { A v0; B v1; };
 template <class A, class B, class C> struct Tuple<A, B, C> { A v0; B v1; C v2; };
 template <class A, class B, class C, class D>
 struct Tuple<A, B, C, D> { A v0; B v1; C v2; D v3; };
+// Up to sixteen: a pack makes tuples of any length (spec §8.7), and the checker refuses
+// a longer one rather than let it reach C++ (invariant 7).
+template <class A0, class A1, class A2, class A3, class A4>
+struct Tuple<A0, A1, A2, A3, A4> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; };
+template <class A0, class A1, class A2, class A3, class A4, class A5>
+struct Tuple<A0, A1, A2, A3, A4, A5> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12, class A13>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12, class A13, class A14>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; A14 v14; };
+template <class A0, class A1, class A2, class A3, class A4, class A5, class A6, class A7, class A8, class A9, class A10, class A11, class A12, class A13, class A14, class A15>
+struct Tuple<A0, A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, A12, A13, A14, A15> { A0 v0; A1 v1; A2 v2; A3 v3; A4 v4; A5 v5; A6 v6; A7 v7; A8 v8; A9 v9; A10 v10; A11 v11; A12 v12; A13 v13; A14 v14; A15 v15; };
 
 // --- access helpers -------------------------------------------------------
 //

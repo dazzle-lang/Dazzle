@@ -2776,6 +2776,7 @@ const WARNING_CLEAN: &[&str] = &[
     "moves",
     "names",
     "value_shapes",
+    "packs",
 ];
 
 #[test]

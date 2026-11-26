@@ -18,7 +18,8 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    T-0247 (thread-local drops), T-0038 (synchronized memory tracking), T-0246
    (safe `TypeMap` storage) and T-0011's `Atomic<T>` and `Mutex<T>` are done, and so is `spawn` with `Thread` (D-0117), safe with `Send`, `Share` and `#[main_thread]`
    (T-0264), `parallel { … }` with `lends` (T-0265), `parallel for` (D-0120, r153), and the
-   pool of workers that runs both (r154); `spawn!` is next. There is no `Arc` (T-0001 dropped):
+   pool of workers that runs both (r154), and `spawn` of any number of arguments through
+   type parameter packs (D-0121, r155, T-0269), which made `spawn!` unneeded. There is no `Arc` (T-0001 dropped):
    `Rc` itself gets atomic counts (T-0266).
    T-0248 covers ThreadSanitizer in CI. The proof is
    `ecs` running its systems in parallel.
@@ -314,7 +315,7 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (8 open)
+## M19 — Threads (9 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
@@ -324,6 +325,7 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 - **[T-0266](tasks/T-0266-rc-or-weak-in-parallel-block.md)** An Rc or a Weak in a parallel block: atomic counts, checked by type · feature, concurrency
 - **[T-0267](tasks/T-0267-parallel-block-hands-back-its-calls.md)** A parallel block hands back its calls' results · feature, concurrency
 - **[T-0268](tasks/T-0268-two-parameters-that-may-be-one.md)** Two parameters that may be one place reach a parallel block or loop · design, concurrency
+- **[T-0269](tasks/T-0269-type-parameter-packs-t-as-c.md)** Type parameter packs, <..T>, as C++ has them · feature, generics
 
 ## M20 — Working with an agent (11 open)
 

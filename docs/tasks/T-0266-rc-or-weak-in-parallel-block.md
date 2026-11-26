@@ -13,7 +13,7 @@ that runs code at the same time. The block refuses them for now (DZ0599 with §2
 the user's choice on 2026-11-24 (D-0118), since the counts are plain integers.
 
 **What it needs.** Atomic counts in `std`'s `Rc` and `Weak` for a program with a `parallel`
-block, a parallel loop or `spawn!` (a whole-program fact, §8.4), and plain ones otherwise; the
+block, a parallel loop or `spawn` (a whole-program fact, §8.4), and plain ones otherwise; the
 conflict check (`record_parallel`) reading an argument that reaches an `Rc<T>` as reaching the
 one place every `Rc<T>` stands for, as the tie analysis already does for guards; then
 `holds_rc` no longer refuses it in `parallel_crossings`.

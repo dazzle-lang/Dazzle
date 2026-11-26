@@ -41,52 +41,56 @@ impl Drop for Thread {
     }
 }
 
-/// What a thread is started with: the function and the one value it is given.
-struct Start<A> {
-    pub(module) entry: fn(A)
-    pub(module) argument: A
+/// What a thread is started with: the function, `fn(..A)`, and the tuple of the arguments
+/// it is called with, `(..A)` (spec §8.7).
+struct Start<F, P> {
+    pub(module) entry: F
+    pub(module) arguments: P
 }
 
-/// Run `entry(argument)` on a new thread, and return the handle that joins it.
+/// Run `entry(args…)` on a new thread, and return the handle that joins it.
 ///
-/// `argument` moves to the thread, through an allocation on the heap that the thread frees
-/// as it starts: a thread outlives every region, so nothing it holds may live in one
-/// (§22.6). To give it more than one value, pass a struct or a tuple of them.
+/// The arguments move to the thread, through an allocation on the heap that the thread frees
+/// as it starts: a thread outlives every region, so nothing it holds may live in one (§22.6).
+/// There may be any number of them, each of its own type (§8.7).
 ///
 /// ```dz
 /// fn count(n: u32) { … }
+/// fn physics(inbox: Inbox, outbox: Outbox) { … }
 ///
 /// let mut t = spawn(count, 100)
+/// let mut p = spawn(physics, inbox, outbox)
 /// t.join()
+/// p.join()
 /// ```
 ///
-/// What crosses is checked, so no data race follows (§1.1): `argument` is `Send`, so it holds
-/// no `Rc`, no view and no raw pointer (§22.2), and `entry` is a plain `fn(A)`, which a
+/// What crosses is checked, so no data race follows (§1.1): each argument is `Send`, so it
+/// holds no `Rc`, no view and no raw pointer (§22.2), and `entry` is a plain `fn(..A)`, which a
 /// `#[main_thread]` function is not, so it touches no plain static and calls no C that needs
 /// the main thread (§22.5).
-pub fn spawn<A: Send>(entry: fn(A), argument: A) -> Thread {
-    let size = sizeof(Start<A>)
-    let align = alignof(Start<A>)
+pub fn spawn<..A: Send>(entry: fn(..A), args: ..A) -> Thread {
+    let size = sizeof(Start<fn(..A), (..A)>)
+    let align = alignof(Start<fn(..A), (..A)>)
     let allocator: ^mut Allocator = unsafe { Allocators::Global }
     let block = unsafe { allocator.alloc(size, align) }
-    let start = unsafe { block as ^mut Start<A> }
+    let start = unsafe { block as ^mut Start<fn(..A), (..A)> }
     unsafe {
-        construct(start[0], Start<A>{ entry: entry, argument: argument })
+        construct(start[0], Start<fn(..A), (..A)>{ entry: entry, arguments: args })
     }
-    let run: fn(^mut u8) = start_thread<A>
+    let run: fn(^mut u8) = start_thread<..A>
     let handle = unsafe { thread_start(run, block) }
     return Thread(handle)
 }
 
 /// The function a new thread runs: take the start block apart, give the memory back, then
 /// call. The block goes first so that a thread that never returns does not hold it.
-fn start_thread<A>(block: ^mut u8) {
-    let start = unsafe { block as ^mut Start<A> }
+fn start_thread<..A>(block: ^mut u8) {
+    let start = unsafe { block as ^mut Start<fn(..A), (..A)> }
     let entry = unsafe { start[0].entry }
-    let argument = unsafe { move_out(start[0].argument) }
+    let arguments = unsafe { move_out(start[0].arguments) }
     let allocator: ^mut Allocator = unsafe { Allocators::Global }
     unsafe {
-        allocator.free(block, sizeof(Start<A>), alignof(Start<A>))
+        allocator.free(block, sizeof(Start<fn(..A), (..A)>), alignof(Start<fn(..A), (..A)>))
     }
-    entry(argument)
+    entry(..arguments)
 }

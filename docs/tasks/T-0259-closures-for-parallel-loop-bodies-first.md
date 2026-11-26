@@ -15,4 +15,4 @@ Spec §7.8; the decision and its reasons are [D-0112](../decisions/D-0112-closur
 It was asked for so a parallel loop's body could be written inline; that became a `for` over
 a parallel iterator instead (spec §22.3), so threads no longer wait on it. **First uses:**
 `List::sort_by` taking a `view fn` (a plain function still converts), then iterator `map`
-and `filter`. Owning closures, which may be stored or given to `spawn!`, are not in it.
+and `filter`. Owning closures, which may be stored or given to `spawn`, are not in it.

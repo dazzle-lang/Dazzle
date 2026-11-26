@@ -207,7 +207,8 @@ pub(crate) fn ty<H: Hooks>(h: &mut H, t: &mut Type) {
         TypeKind::Ptr { inner, .. }
         | TypeKind::OwnPtr { inner, .. }
         | TypeKind::Ref { inner, .. }
-        | TypeKind::Optional(inner) => ty(h, inner),
+        | TypeKind::Optional(inner)
+        | TypeKind::Expand(inner) => ty(h, inner),
         TypeKind::Array { size, elem } => {
             expr(h, size);
             ty(h, elem);

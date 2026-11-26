@@ -2875,3 +2875,36 @@ fn defaults_that_exist() -> i32 {
     let held = HoldsSealed(3)
     return a.n + b[1].n + held.inner.n + (c == null) as i32
 }
+
+// §8.7: a pack is any number of types. A pack parameter takes the rest of the arguments and
+// is their tuple in the body; `..t` spreads a tuple into a call or a tuple literal; a pack
+// is inferred from a function type or the arguments, or written out; its bounds hold of
+// each type; and a function taking one or a pack's tuple passes it on whole.
+fn apply_pack<view ..A>(f: fn(..A), args: ..A) {
+    f(..args)
+}
+
+fn forward_pack<..A: Send>(f: fn(..A), args: ..A) {
+    let kept: (..A) = args
+    apply_pack(f, ..kept)
+}
+
+fn no_arguments() {}
+
+fn three_of(_a: i32, _b: f64, _c: bool) {}
+
+fn uses_packs() -> i32 {
+    apply_pack(no_arguments)
+    apply_pack(three_of, 1, 2.5, true)
+    apply_pack<i32, f64, bool>(three_of, 1, 2.5, true)
+    forward_pack(three_of, 1, 2.5, true)
+    let pair = (3, 4)
+    let triple = (..pair, 5)
+    let front = (1, 0.5)
+    three_of(..front, false)
+    return add_pair(..pair) + triple.2
+}
+
+fn add_pair(a: i32, b: i32) -> i32 {
+    return a + b
+}

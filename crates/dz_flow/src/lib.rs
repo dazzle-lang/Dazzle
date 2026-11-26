@@ -793,6 +793,8 @@ impl<'a> Flow<'a> {
                 }
                 false
             }
+            // A pack's tuple passed on as its elements, each taken (spec §8.7).
+            hir::ExprKind::Spread(inner) => self.value(inner),
 
             hir::ExprKind::Call { callee, args } => {
                 // A base-qualified call borrows its receiver exactly as `recv.m()` does

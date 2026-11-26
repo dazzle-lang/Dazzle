@@ -160,6 +160,11 @@ pub struct Param {
     /// `view T`, or a trait's `view type Item`: it may be given a view, so a value of it is
     /// placed as a reference is (spec §6.7, D-0093). Not part of the identity.
     pub view: bool,
+    /// `..T`: a pack, standing for any number of types (spec §8.7). It appears only as an
+    /// element of a list — a tuple's parts, a function type's parameters, a generic's
+    /// arguments — where it means "the pack's types, spliced in here", and it is solved to
+    /// a [`Ty::Tuple`] of them, which [`substitute`] splices. Not part of the identity.
+    pub pack: bool,
 }
 
 impl PartialEq for Param {
@@ -719,6 +724,7 @@ pub fn substitute_with(
     }
     let rc = |x: &Rc<Ty>| Rc::new(substitute_with(x, map, self_ty));
     let substitute = |x: &Ty| substitute_with(x, map, self_ty);
+    let list = |xs: &[Ty]| substitute_list(xs, map, self_ty);
     match t {
         Ty::SelfTy => self_ty.cloned().unwrap_or(Ty::SelfTy),
         Ty::Param(p) => map.get(&p.id).cloned().unwrap_or_else(|| t.clone()),
@@ -731,15 +737,21 @@ pub fn substitute_with(
         Ty::Array { len, elem } => Ty::Array { len: *len, elem: rc(elem) },
         Ty::Slice { mutable, elem } => Ty::Slice { mutable: *mutable, elem: rc(elem) },
         Ty::ConstSlice(elem) => Ty::ConstSlice(rc(elem)),
-        Ty::Tuple(parts) => Ty::Tuple(parts.iter().map(&substitute).collect()),
-        Ty::Named { sym, args } => {
-            Ty::Named { sym: *sym, args: args.iter().map(&substitute).collect() }
+        // A list whose pack could not be solved has no length: the whole type is unknown,
+        // so the mistake already reported is not reported again as a mismatch.
+        Ty::Tuple(xs)
+        | Ty::Named { args: xs, .. }
+        | Ty::Variant(_, _, xs)
+        | Ty::Fn { params: xs, .. }
+            if pack_failed(xs, map) =>
+        {
+            Ty::Error
         }
-        Ty::Variant(sym, index, args) => {
-            Ty::Variant(*sym, *index, args.iter().map(&substitute).collect())
-        }
+        Ty::Tuple(parts) => Ty::Tuple(list(parts)),
+        Ty::Named { sym, args } => Ty::Named { sym: *sym, args: list(args) },
+        Ty::Variant(sym, index, args) => Ty::Variant(*sym, *index, list(args)),
         Ty::Fn { params, ret, kills, main_thread } => Ty::Fn {
-            params: params.iter().map(&substitute).collect(),
+            params: list(params),
             ret: rc(ret),
             kills: kills.clone(),
             main_thread: *main_thread,
@@ -750,11 +762,45 @@ pub fn substitute_with(
         Ty::Assoc(p) => Ty::Assoc(Rc::new(Proj {
             on: substitute(&p.on),
             trait_sym: p.trait_sym,
-            trait_args: p.trait_args.iter().map(&substitute).collect(),
+            trait_args: list(&p.trait_args),
             name: p.name.clone(),
         })),
         other => other.clone(),
     }
+}
+
+/// A list of types substituted, with each pack in it replaced by the types it was solved to
+/// (spec §8.7): `(i32, ..T)` with `T` the pack `f32, bool` is `(i32, f32, bool)`.
+fn substitute_list(
+    xs: &[Ty],
+    map: &std::collections::HashMap<u32, Ty>,
+    self_ty: Option<&Ty>,
+) -> Vec<Ty> {
+    let mut out = Vec::with_capacity(xs.len());
+    for x in xs {
+        match x {
+            Ty::Param(p) if p.pack => match map.get(&p.id) {
+                Some(Ty::Tuple(parts)) => out.extend(parts.iter().cloned()),
+                Some(other) => out.push(other.clone()),
+                None => out.push(x.clone()),
+            },
+            _ => out.push(substitute_with(x, map, self_ty)),
+        }
+    }
+    out
+}
+
+/// Whether a pack in `xs` was solved to the error type.
+fn pack_failed(xs: &[Ty], map: &std::collections::HashMap<u32, Ty>) -> bool {
+    xs.iter().any(|x| matches!(x, Ty::Param(p) if p.pack && map.get(&p.id) == Some(&Ty::Error)))
+}
+
+/// The pack a list of types holds, `..T`, and where: at most one does (spec §8.7).
+pub fn pack_in(xs: &[Ty]) -> Option<(usize, &Param)> {
+    xs.iter().enumerate().find_map(|(i, x)| match x {
+        Ty::Param(p) if p.pack => Some((i, p)),
+        _ => None,
+    })
 }
 
 /// A result `written` as an optional of a projection, `T::Item?`, whose instance `ret`

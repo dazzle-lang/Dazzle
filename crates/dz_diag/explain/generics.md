@@ -1,4 +1,4 @@
-# Generics, traits and the rest of type checking, DZ053x-DZ056x
+# Generics, traits and the rest of type checking, DZ053x-DZ056x and DZ090x
 
 ## DZ0530
 
@@ -958,5 +958,115 @@ fn scaled<T: Mul<f32> + Clone>(v: T) -> T::Output {
 fn main() {
     let x: f32 = 1.5
     println!("{}", scaled(x))
+}
+```
+
+## DZ0901
+
+A pack, `<..T>`, stands for any number of types, so it takes every type argument written
+after the fixed ones: it comes last, there is one, and an empty pack needs no default
+(spec §8.7). Only a function or a method declares one so far; a struct can take a tuple
+parameter instead.
+
+```dz
+fn first<..A, B>(_b: B) {}
+
+fn main() {}
+```
+
+```dz
+fn first<B, ..A>(_b: B) {}
+
+fn main() {
+    first<i32>(1)
+}
+```
+
+## DZ0902
+
+A pack is several types, so it is written where several may go: `..T` in a tuple, `(..T)`,
+or in a function type's parameters, `fn(..T)`, and its values are taken as `args: ..T`,
+which the body sees as the tuple `(..T)`. `T` alone is not a type, `..` before a type that
+is not a pack means nothing, and a pack's elements have no positions, since how many there
+are is up to each call: they are passed on together, `f(..args)` (spec §8.7).
+
+```dz
+fn first<..A>(args: ..A) {
+    let _x = args.0
+}
+
+fn main() {}
+```
+
+```dz
+fn show(n: i32, f: f64) {
+    println!("{} {}", n, f)
+}
+
+fn call<..A>(f: fn(..A), args: ..A) {
+    f(..args)
+}
+
+fn main() {
+    call(show, 1, 2.5)
+}
+```
+
+## DZ0903
+
+`..t` spreads a tuple into the arguments it holds, so each element is read from `t` in turn:
+`t` is a local, a parameter or a field, not a call. A pack's tuple has as many elements as
+each call gives it, so it is spread only into a function that takes a pack, never into
+fixed parameters (spec §8.7).
+
+```dz
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn pair() -> (i32, i32) {
+    return (1, 2)
+}
+
+fn main() {
+    println!("{}", add(..pair()))
+}
+```
+
+```dz
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn pair() -> (i32, i32) {
+    return (1, 2)
+}
+
+fn main() {
+    let p = pair()
+    println!("{}", add(..p))
+}
+```
+
+## DZ0904
+
+The C++ a tuple becomes holds up to sixteen elements, and a pack's tuple is one, so a
+tuple, or a call that gives a pack, has at most sixteen (spec §8.7). Group what belongs
+together into a struct.
+
+```dz
+fn main() {
+    let _t = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+}
+```
+
+```dz
+struct Span {
+    pub first: i32
+    pub last: i32
+}
+
+fn main() {
+    let _t = (Span{ first: 1, last: 8 }, Span{ first: 9, last: 17 })
 }
 ```

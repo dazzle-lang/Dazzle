@@ -40,9 +40,13 @@ the user's question: it does not trace it, but checks the one place a thread sta
 function may reach only its arguments, statics and C, and the mark carries the last two up
 through every call as a `kills` clause does.
 
+**Amended by D-0121 (r155, 2026-11-26).** There is no `spawn!`: the user chose type parameter
+packs instead, so `spawn` itself takes any number of arguments, `spawn<..A: Send>(entry:
+fn(..A), args: ..A)`, and the one value and the struct around several above are gone. The
+rest of this proposal stands as it was.
+
 **Open.**
 
 - Whether this API is the one wanted, and whether a thread should return a value `join` gives
   back.
-- The spelling of `spawn!` (T-0011).
 - Naming a thread, its stack size, and `Thread::current`.

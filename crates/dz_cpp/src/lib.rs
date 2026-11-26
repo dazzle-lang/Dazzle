@@ -2575,7 +2575,9 @@ impl<'a> Emitter<'a> {
             hir::ExprKind::Binary { lhs, rhs, .. } => {
                 !number(body.ty(e)) || self.runs_code(body, *lhs) || self.runs_code(body, *rhs)
             }
-            hir::ExprKind::Cast { operand, .. } => self.runs_code(body, *operand),
+            hir::ExprKind::Cast { operand, .. } | hir::ExprKind::Spread(operand) => {
+                self.runs_code(body, *operand)
+            }
             hir::ExprKind::Tuple(parts) | hir::ExprKind::ArrayLit(parts) => {
                 parts.iter().any(|p| self.runs_code(body, *p))
             }
@@ -6640,6 +6642,39 @@ impl<'a> Emitter<'a> {
                 let vs = self.sequenced_elements(parts);
                 format!("{t}{{{}}}", vs.join(", "))
             }
+            // A pack's tuple passed on as its elements, by now of known types (spec §8.7):
+            // each read from the place in turn, and moved unless it is trivially copyable.
+            // The text is the elements separated by commas, empty for an empty pack, which
+            // `emit_args` leaves out.
+            hir::ExprKind::Spread(inner) => {
+                let place = match body.expr(*inner).kind {
+                    hir::ExprKind::Move(p) => p,
+                    _ => *inner,
+                };
+                let parts = match body.ty(place) {
+                    Ty::Tuple(parts) => parts.clone(),
+                    _ => Vec::new(),
+                };
+                let base = self.expr(place);
+                // An empty pack passes nothing, and C++ would warn of a parameter or a local
+                // that nothing reads: it is read here, ahead of the call, as Dazzle reads it.
+                if parts.is_empty() {
+                    self.line(&format!("(void)({base});"));
+                }
+                let elems: Vec<String> = parts
+                    .iter()
+                    .enumerate()
+                    .map(|(i, t)| {
+                        let x = format!("{base}.v{i}");
+                        if self.table.trivially_copyable(t) {
+                            x
+                        } else {
+                            format!("::dz::rt::mv({x})")
+                        }
+                    })
+                    .collect();
+                elems.join(", ")
+            }
             hir::ExprKind::TypeQuery { ty, query } => self.type_query(ty, *query),
             hir::ExprKind::Reflect { ty, info } => self.reflect_expr(ty, *info),
             hir::ExprKind::Len(base) => {
@@ -7563,8 +7598,10 @@ impl<'a> Emitter<'a> {
                 Some(t) => e.stored(t, a),
                 None => e.expr(a),
             });
-            // A move-only value is handed over; a copyable one is copied by C++ itself.
-            let v = if consume && !self.table.copyable(self.cur().ty(a)) {
+            // A move-only value is handed over; a copyable one is copied by C++ itself. A
+            // spread hands over each of its elements already.
+            let spread = matches!(self.cur().expr(a).kind, hir::ExprKind::Spread(_));
+            let v = if consume && !spread && !self.table.copyable(self.cur().ty(a)) {
                 format!("::dz::rt::mv({v})")
             } else {
                 v
@@ -7591,6 +7628,16 @@ impl<'a> Emitter<'a> {
         let args = &captured.args;
         let mut out = Vec::with_capacity(args.len());
         for (i, a) in args.iter().enumerate() {
+            // A spread is several reads of one place, which nothing later can change: it is
+            // never held in a temporary, which would hold only its first element, and an
+            // empty pack's leaves no argument at all (spec §8.7).
+            if matches!(self.cur().expr(a.id).kind, hir::ExprKind::Spread(_)) {
+                self.write_captured(&a.pre);
+                if !a.value.is_empty() {
+                    out.push(a.value.clone());
+                }
+                continue;
+            }
             let later = &args[i + 1..];
             let observable = if captured.hold {
                 true
@@ -7943,6 +7990,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Move(base)
+            | hir::ExprKind::Spread(base)
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. } => self.has_effects(*base),
@@ -7980,9 +8028,9 @@ impl<'a> Emitter<'a> {
             // A local reference cannot be re-seated, so it names the same thing throughout.
             hir::ExprKind::Local(_) => matches!(body.ty(e), Ty::Ref { .. }),
             hir::ExprKind::Ref { place, .. } => self.fixed_place(*place),
-            hir::ExprKind::Cast { operand, .. } | hir::ExprKind::Unary { operand, .. } => {
-                self.order_stable(*operand)
-            }
+            hir::ExprKind::Cast { operand, .. }
+            | hir::ExprKind::Unary { operand, .. }
+            | hir::ExprKind::Spread(operand) => self.order_stable(*operand),
             hir::ExprKind::ArrayLit(elems) | hir::ExprKind::Tuple(elems) => {
                 elems.iter().all(|e| self.order_stable(*e))
             }
@@ -8963,9 +9011,11 @@ fn always_reaches(body: &hir::Body, e: hir::ExprId, target: hir::ExprId) -> bool
     }
     let any = |xs: &[hir::ExprId]| xs.iter().any(|x| always_reaches(body, *x, target));
     match &body.expr(e).kind {
-        K::Move(x) | K::Cast { operand: x, .. } | K::Field { base: x, .. } | K::Deref(x) => {
-            always_reaches(body, *x, target)
-        }
+        K::Move(x)
+        | K::Spread(x)
+        | K::Cast { operand: x, .. }
+        | K::Field { base: x, .. }
+        | K::Deref(x) => always_reaches(body, *x, target),
         K::Call { callee, args } => {
             let first = match callee {
                 hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {
@@ -9112,6 +9162,7 @@ fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
+        | K::Spread(base)
         | K::Cast { operand: base, .. }
         | K::Unary { operand: base, .. }
         | K::Ref { place: base, .. } => one(*base),
@@ -9527,7 +9578,8 @@ impl Namer<'_> {
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. }
-            | hir::ExprKind::Move(base) => self.expr(*base),
+            | hir::ExprKind::Move(base)
+            | hir::ExprKind::Spread(base) => self.expr(*base),
             hir::ExprKind::Index { base, index } => {
                 self.expr(*base);
                 self.expr(*index);

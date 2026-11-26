@@ -1,0 +1,7 @@
+// expect: DZ0902
+//
+// A pack is several types, written `..A` in a list; `A` alone is not a type (spec §8.7).
+
+fn first<..A>(f: fn(A)) {}
+
+fn main() {}

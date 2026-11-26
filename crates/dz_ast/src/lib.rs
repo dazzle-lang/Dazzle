@@ -168,6 +168,8 @@ pub struct GenericParam {
     /// it as one (spec §6.7, D-0093). `view` is a keyword only here, before `struct` and
     /// before `type`.
     pub is_view: bool,
+    /// `..T`: a pack, standing for any number of types (spec §8.7, D-0121).
+    pub is_pack: bool,
     pub name: Ident,
     /// `T: Hash + Eq`
     pub bounds: Vec<Path>,
@@ -676,6 +678,10 @@ pub enum TypeKind {
         elem: Box<Type>,
     },
     Tuple(Vec<Type>),
+    /// `..T`: a pack's types, spliced into the list it is written in — a tuple's elements, a
+    /// function type's parameters, a generic's arguments (spec §8.7). Parsed anywhere a type
+    /// is; the checker refuses it outside a list.
+    Expand(Box<Type>),
     Fn {
         params: Vec<Type>,
         /// Each parameter's name, where one is written: `fn(world: &mut World)`. A function

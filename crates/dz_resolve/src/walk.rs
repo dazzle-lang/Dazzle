@@ -779,7 +779,7 @@ impl<'a, 'w> Walker<'a, 'w> {
     fn ty(&mut self, t: &Type) {
         match &t.kind {
             TypeKind::Path(p) => self.path(p, PathUse::Type),
-            TypeKind::Optional(i) => self.ty(i),
+            TypeKind::Optional(i) | TypeKind::Expand(i) => self.ty(i),
             TypeKind::Ptr { inner, .. }
             | TypeKind::OwnPtr { inner, .. }
             | TypeKind::Ref { inner, .. } => self.ty(inner),

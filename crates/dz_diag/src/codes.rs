@@ -12,6 +12,8 @@
 //! | DZ05xx | type checking |
 //! | DZ06xx | macros |
 //! | DZ07xx | C++ interop |
+//! | DZ08xx | code generation |
+//! | DZ09xx | type checking, continued: DZ05xx is full |
 
 // --- DZ01xx: lexer -------------------------------------------------------------
 
@@ -623,3 +625,19 @@ pub const CPP_COMPILER_FAILED: &str = "DZ0803";
 /// never produced — an error node with no diagnostic behind it, say. Always our fault, and
 /// said so, rather than surfacing as bad C++ (invariant 7).
 pub const INTERNAL_ERROR: &str = "DZ0804";
+
+// --- DZ09xx: type checking, continued (DZ05xx is full) -------------------------
+
+/// A type parameter pack declared where it cannot be: not the last parameter, with a
+/// default, or on a struct, union, trait or implementation, which take none yet (spec §8.7).
+pub const BAD_PACK_DECLARATION: &str = "DZ0901";
+/// A pack used as one type: `T` alone where `T` is a pack, `..` before a type that is not
+/// one, `..T` outside a list of types, a pack's element named by position, or a function
+/// with a pack parameter taken as a value (spec §8.7).
+pub const BAD_PACK_USE: &str = "DZ0902";
+/// A spread `..t` that cannot be one: of something that is not a tuple where no variadic
+/// parameter takes a slice, or of a tuple that is not a place (spec §7.2, §8.7).
+pub const BAD_SPREAD: &str = "DZ0903";
+/// A tuple of more than sixteen elements, a pack's included, which the C++ runtime does not
+/// hold yet (spec §8.7).
+pub const TUPLE_TOO_LONG: &str = "DZ0904";

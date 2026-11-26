@@ -35,7 +35,8 @@ own region from the worker's pool, where it is on the heap now; a query keyed by
 over in parallel, which waits on §22.8; per-pass output (D-0096's hole 4).
 **Left of the job system:** jobs a program hands the pool itself, with dependencies between
 them, beyond a block and a loop: not designed, and item 4 below (`std` or a library) is
-the user's call. **Next:** the macro `spawn!`.
+the user's call. **`spawn!` is not built:** the user chose type parameter packs instead
+(D-0121, r155, T-0269), so `spawn` itself takes any number of arguments.
 
 ## Where the code is
 

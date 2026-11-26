@@ -1,0 +1,63 @@
+// Type parameter packs (spec §8.7, D-0121): a generic of any number of types, a pack
+// parameter that takes the rest of a call's arguments, and a tuple spread back into a call.
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn show(label: &str, n: i32, f: f64) {
+    println!("{} {} {}", label, n, f)
+}
+
+fn nothing() {
+    println!("nothing")
+}
+
+fn greet(name: String, times: u32) {
+    for _ in 0..times {
+        println!("hello {}", name)
+    }
+}
+
+/// The pack is read off `f`'s type and the arguments, and passed on whole.
+fn call_with<view ..A>(f: fn(..A), args: ..A) {
+    f(..args)
+}
+
+fn measure(n: i32, f: f64) {
+    println!("measure {} {}", n, f)
+}
+
+/// A pack passed on to another function that takes one, its bound held by each type.
+fn twice<..A: Clone>(f: fn(..A), args: ..A) {
+    let again = args.clone()
+    call_with(f, ..args)
+    call_with(f, ..again)
+}
+
+/// A value of the pack's tuple kept, moved and spread later.
+fn later<..A>(f: fn(..A), args: ..A) {
+    let kept = args
+    println!("kept")
+    f(..kept)
+}
+
+fn main() {
+    call_with(nothing)
+    call_with(show, "one", 1, 1.5)
+    call_with<&str, i32, f64>(show, "two", 2, 2.5)
+    call_with(greet, String("ada"), 2)
+    twice(measure, 3, 3.5)
+    twice(greet, String("twin"), 1)
+    later(greet, String("grace"), 1)
+
+    // A tuple of known types spreads into its elements, anywhere among the arguments.
+    let pair = (4, 5)
+    println!("{}", add(..pair))
+    let front = ("mixed", 6)
+    show(..front, 6.5)
+    let all = (..pair, 8)
+    println!("{} {} {}", all.0, all.1, all.2)
+    let owned = (String("lin"), 3 as u32)
+    greet(..owned)
+}

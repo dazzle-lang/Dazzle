@@ -171,6 +171,11 @@ impl<'a> Parser<'a> {
                 self.bump();
                 TypeKind::SelfType
             }
+            // `..T`, a pack's types in a list (spec §8.7).
+            TokenKind::DotDot => {
+                self.bump();
+                TypeKind::Expand(Box::new(self.parse_type()))
+            }
             TokenKind::Ident => match self.parse_type_path() {
                 Some(p) => TypeKind::Path(p),
                 None => TypeKind::Error,

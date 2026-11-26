@@ -1349,6 +1349,7 @@ impl<'a> Cx<'a> {
             | hir::ExprKind::DataPtr(base)
             | hir::ExprKind::Deref(base)
             | hir::ExprKind::Move(base)
+            | hir::ExprKind::Spread(base)
             | hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Unary { operand: base, .. }
             | hir::ExprKind::Cast { operand: base, .. } => sub(self, base),

@@ -338,10 +338,12 @@ impl<'a> Parser<'a> {
             // is still one.
             let is_view = self.at(TokenKind::Ident)
                 && self.cur_text() == "view"
-                && self.peek_at(1) == TokenKind::Ident;
+                && matches!(self.peek_at(1), TokenKind::Ident | TokenKind::DotDot);
             if is_view {
                 self.bump();
             }
+            // `..T`: a pack (spec §8.7).
+            let is_pack = self.eat(TokenKind::DotDot);
             let name = self.parse_ident_or_error();
             let mut bounds = Vec::new();
             if self.eat(TokenKind::Colon) {
@@ -358,6 +360,7 @@ impl<'a> Parser<'a> {
             params.push(GenericParam {
                 span: self.span_from(p_start),
                 is_view,
+                is_pack,
                 name,
                 bounds,
                 default,

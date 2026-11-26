@@ -120,11 +120,20 @@ pub struct Counter {
         return v
     }
 }
+
+pub fn apply<..A>(f: fn(..A) -> i32, args: ..A) -> i32 {
+    return f(..args)
+}
+
+pub fn add3(a: i32, b: i32, c: i32) -> i32 {
+    return a + b + c
+}
 ";
 
 /// The names `DECLS` exports, for a selective import from the other module.
 pub const EXPORTS: &str = "Step, Ctx, Shape, Choice, Res, Pt, LIMIT, NAME, none_i32, some_i32, \
-                           fails, take, keep, sum, add_to, pair, first_of, count_of, Counter";
+                           fails, take, keep, sum, add_to, pair, first_of, count_of, Counter, \
+                           apply, add3";
 
 /// `(name, body, value left in r)`.
 pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
@@ -256,10 +265,13 @@ pub const CONSTRUCTS: &[(&str, &str, i32)] = &[
         "let mut xs = List<i32>()\nxs.push(3)\nxs.push(4)\nlet mut it = xs.iter()\nr = first_of(&mut it) + count_of(&xs)",
         5,
     ),
+    // A pack inferred from the arguments, one of them a spread tuple (spec §8.7).
+    ("pack_call_and_spread", "let t = (1, 2)\nr = apply(add3, ..t, 3) + apply(add3, 4, 5, 6)", 21),
 ];
 
 /// `(name, body, the one diagnostic it must produce)`.
 pub const MISTAKES: &[(&str, &str, &str)] = &[
+    ("spread_of_a_call", "r = add3(..pair(), 3)", "DZ0903"),
     ("write_to_copy_binding", "let xs = [1]\nfor x in xs {\n    x = 2\n}", "DZ0507"),
     ("mut_binding_on_read_only", "let xs = [1]\nfor &mut x in xs {\n    x = 2\n}", "DZ0507"),
     (

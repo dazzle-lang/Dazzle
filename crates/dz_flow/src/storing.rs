@@ -269,6 +269,7 @@ pub(crate) fn children(body: &Body, e: ExprId) -> Vec<ExprId> {
         | K::Len(base)
         | K::DataPtr(base)
         | K::Move(base)
+        | K::Spread(base)
         | K::Ref { place: base, .. }
         | K::Unary { operand: base, .. }
         | K::Cast { operand: base, .. } => vec![*base],

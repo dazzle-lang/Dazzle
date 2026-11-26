@@ -34,10 +34,12 @@ send          = tie_path "to" tie_path ;   (* "to" is a word, not a keyword *)
 in_list       = tie_path | "(" tie_path { "," tie_path } ")" ;
 params        = param { "," param } ;
 param         = [ "&" | "&mut" ] "self"
-              | [ "mut" ] ident ":" type [ "in" tie_path ] [ "=" expr ] ;   (* §7.2 *)
+              | [ "mut" ] ident ":" [ ".." ] type [ "in" tie_path ] [ "=" expr ] ;
+                (* §7.2; `..T` is variadic, a pack parameter when `T` is a pack, §8.7 *)
 tie_path      = ( ident | "self" ) { "." ident | "[" "*" "]" | "@" ident } ;
 generics      = "<" gparam { "," gparam } ">" ;
-gparam        = [ "view" | "ref" ] ident [ ":" bound { "+" bound } ] ;
+gparam        = [ "view" | "ref" ] [ ".." ] ident [ ":" bound { "+" bound } ] ;
+                (* `..T` is a pack, last in its list, §8.7 *)
                 (* `view` is a keyword only here, before `struct`, before `type` and before
                    `fn` in a type, §6.7; `ref` only here, §22.8 *)
 
@@ -74,6 +76,7 @@ access_type   = "^" type | "&" [ "mut" ] type
                    `in` after the result, `@home` included, is the type's, not an enclosing
                    parameter's; `kills` and `sends` come in either order, D-0097 *)
               | "(" type_list ")"
+              | ".." ident    (* a pack's types, only as an element of a list, §8.7 *)
               | path [ "<" type_list ">" ] ;
 path          = ident { "::" ident } ;
 fn_type_params = fn_type_param { "," fn_type_param } ;

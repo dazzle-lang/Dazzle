@@ -167,6 +167,12 @@ fn sum(xs: ..i32) -> i32 {
 
 fn tell(prefix: str, things: ..&Describe) {}
 
+// Type parameter packs, and a tuple spread (spec §8.7).
+fn spawn<view ..A: Send>(entry: fn(..A), args: ..A) -> Thread {
+    let kept: (i32, ..A) = (0, ..args)
+    return start<..A>(entry, ..args)
+}
+
 // A parameter the body may write (spec §7.2).
 fn drain<view T: Iterate>(mut it: T, mut left: i32) {}
 

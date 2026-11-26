@@ -3622,6 +3622,9 @@ impl Analysis<'_> {
                 self.expr(base);
                 Value::default()
             }
+            // A pack's tuple passed on as its elements: what it holds is what they hold
+            // (spec §8.7).
+            hir::ExprKind::Spread(inner) => self.expr(inner),
             hir::ExprKind::Move(inner) => {
                 let mut value = self.expr(inner);
                 // What a call of a `parallel` block is given by value: the place it was moved

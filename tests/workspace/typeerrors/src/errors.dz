@@ -1994,3 +1994,45 @@ struct LeavesAFieldEmpty {
     pub LeavesAFieldEmpty() {
     }
 }
+
+// §8.7: DZ0901 — a pack comes last, and only a function takes one yet.
+fn pack_first<..A, B>(_b: B) {}
+
+struct PackHolder<..A> {
+    pub n: i32 = 0
+}
+
+// §8.7: DZ0902 — a pack is several types: never one alone, never `..` of one that is not a
+// pack, never outside a list, and its elements have no positions.
+fn pack_alone<..A>(_x: A) {}
+
+fn dots_on_one<T>(_f: fn(..T)) {}
+
+fn pack_outside_a_list<..A>(_r: &..A) {}
+
+fn pack_by_position<..A>(args: ..A) {
+    let _x = args.0
+}
+
+// §8.7: DZ0903 — a pack's length is up to each call, so it does not fill fixed parameters;
+// a spread tuple is read once per element, so it is a place.
+fn add_two(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn pack_into_fixed<..A>(args: ..A) -> i32 {
+    return add_two(..args)
+}
+
+fn make_two() -> (i32, i32) {
+    return (1, 2)
+}
+
+fn spread_of_a_call() -> i32 {
+    return add_two(..make_two())
+}
+
+// §8.7: DZ0904 — the runtime holds tuples of up to sixteen elements.
+fn seventeen() {
+    let _t = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17)
+}

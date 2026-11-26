@@ -245,6 +245,14 @@ impl FnSig {
         }
     }
 
+    /// The index of the pack parameter, `args: ..T` with `T` a pack, if the variadic
+    /// parameter is one: its type is a tuple, where a variadic slice's is a slice — before
+    /// the pack is solved, `(..T)`, and after, the tuple of what it was solved to (spec §8.7).
+    pub fn pack_param(&self) -> Option<usize> {
+        let at = self.variadic?;
+        matches!(self.params.get(at)?.ty, Ty::Tuple(_)).then_some(at)
+    }
+
     /// Parameters that must be supplied, i.e. those without a default (spec §7.2).
     pub fn required(&self) -> usize {
         self.params.iter().filter(|p| !p.has_default).count()
@@ -2110,6 +2118,8 @@ fn type_name_at(res: &Resolution, file: Option<FileId>, t: &Ty) -> String {
             }
         }
         Ty::SelfTy => "Self".to_owned(),
+        // A pack stands only in a list, where it is written `..T` (spec §8.7).
+        Ty::Param(p) if p.pack => format!("..{}", p.name),
         Ty::Param(p) => p.name.to_string(),
         // As written: `T::Item`, and `C::Iter::Item` for a projection of one (spec §8.5).
         Ty::Assoc(p) => format!("{}::{}", name_of(&p.on), p.name),
@@ -2124,7 +2134,11 @@ impl<'a> Ctx<'a> {
     /// Bounds are resolved here rather than lazily because a bound that names something
     /// which is not a trait is a mistake worth reporting once, at the declaration, instead
     /// of at every use of the parameter.
-    fn declare_params(&mut self, g: &Generics) -> Vec<ParamDef> {
+    ///
+    /// `holder` names what declares them when it is not a function — `"struct"`, `"trait"` —
+    /// for a pack, which only a function may declare yet (spec §8.7).
+    fn declare_params(&mut self, g: &Generics, holder: Option<&str>) -> Vec<ParamDef> {
+        self.check_packs(g, holder);
         let mut defs = Vec::new();
         // A duplicate name is not checked here: name resolution binds generic parameters
         // through the same path as any other binding, so `<T, T>` is already DZ0306
@@ -2137,13 +2151,56 @@ impl<'a> Ctx<'a> {
             let id = self.next_param;
             self.next_param += 1;
             defs.push(ParamDef {
-                param: ty::Param { name: Rc::from(name.as_str()), id, view: p.is_view },
+                param: ty::Param {
+                    name: Rc::from(name.as_str()),
+                    id,
+                    view: p.is_view,
+                    // A type's pack, refused above, is checked as one type.
+                    pack: p.is_pack && holder.is_none(),
+                },
                 bounds: Vec::new(),
                 default: None,
                 span: p.name.span,
             });
         }
         defs
+    }
+
+    /// Where a pack may be declared (spec §8.7): last in a function's parameters, without a
+    /// default. Each mistake is reported, and the pack is then kept as one, so its uses check.
+    fn check_packs(&mut self, g: &Generics, holder: Option<&str>) {
+        let last = g.params.len().saturating_sub(1);
+        for (i, p) in g.params.iter().enumerate().filter(|(_, p)| p.is_pack) {
+            let name = &p.name.name;
+            if let Some(what) = holder {
+                self.error_help(
+                    codes::BAD_PACK_DECLARATION,
+                    p.span,
+                    format!("a {what} cannot take a pack `..{name}` yet"),
+                    "a pack on a type",
+                    "only a function or a method takes a type parameter pack so far; give the \
+                     type a tuple parameter, `T`, and pass it `(A, B)` (spec §8.7, T-0269)",
+                );
+            } else if i != last {
+                self.error_help(
+                    codes::BAD_PACK_DECLARATION,
+                    p.span,
+                    format!("the pack `..{name}` is not the last type parameter"),
+                    "a pack before another parameter",
+                    "a pack takes every type argument after the fixed ones, so it comes last, \
+                     and there is at most one (spec §8.7)",
+                );
+            }
+            if let Some(d) = &p.default {
+                self.error_help(
+                    codes::BAD_PACK_DECLARATION,
+                    d.span,
+                    format!("the pack `..{name}` cannot have a default"),
+                    "a default on a pack",
+                    "a call that writes no type for it already makes it empty (spec §8.7)",
+                );
+            }
+        }
     }
 
     /// Resolve one bound or implements-entry to the trait it names, with its arguments.
@@ -2851,8 +2908,21 @@ impl<'a> Ctx<'a> {
                     }
                 }
             }
-            TypeKind::Tuple(elems) => {
-                Ty::Tuple(elems.iter().map(|e| self.lower_type_inner(e)).collect())
+            TypeKind::Tuple(elems) => Ty::Tuple(self.lower_type_list(elems)),
+            TypeKind::Expand(inner) => {
+                let shown = dz_ast::dump::type_str(inner);
+                self.error_help(
+                    codes::BAD_PACK_USE,
+                    t.span,
+                    format!("`..{shown}` is not a type of its own"),
+                    "a pack's types outside a list",
+                    format!(
+                        "`..{shown}` stands for several types, so it is written where several \
+                         may go: a tuple, `(..{shown})`, or a function type's parameters, \
+                         `fn(..{shown})` (spec §8.7)"
+                    ),
+                );
+                Ty::Error
             }
             TypeKind::Fn { params, param_names, ret, ret_ties, kills, sends, main_thread } => {
                 let names: Vec<String> = param_names
@@ -2866,7 +2936,7 @@ impl<'a> Ctx<'a> {
                 let (homes, results): (Vec<_>, Vec<_>) =
                     ret_ties.iter().cloned().partition(ties::ends_at_home);
                 Ty::Fn {
-                    params: params.iter().map(|p| self.lower_type_inner(p)).collect(),
+                    params: self.lower_type_list(params),
                     ret: Rc::new(
                         ret.as_ref().map(|r| self.lower_type_inner(r)).unwrap_or(Ty::Void),
                     ),
@@ -2915,6 +2985,49 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// A list of types in which `..T` may stand, spliced: a tuple's, or a function type's
+    /// parameters (spec §8.7).
+    fn lower_type_list(&mut self, ts: &[Type]) -> Vec<Ty> {
+        ts.iter()
+            .map(|t| match &t.kind {
+                TypeKind::Expand(inner) => self.lower_expansion(inner, t.span),
+                _ => self.lower_type_inner(t),
+            })
+            .collect()
+    }
+
+    /// `..T` in a list: `T` names a pack in scope, as written, and nothing else.
+    pub(crate) fn lower_expansion(&mut self, inner: &Type, span: Span) -> Ty {
+        if let Some(pack) = self.pack_named(inner) {
+            return pack;
+        }
+        let shown = dz_ast::dump::type_str(inner);
+        self.error_help(
+            codes::BAD_PACK_USE,
+            span,
+            format!("`{shown}` is not a pack, so `..{shown}` is not a type"),
+            "`..` before a type that is not a pack",
+            format!(
+                "`..` spreads a pack, declared `<..{shown}>`; a list of known types is written \
+                 out, `(A, B)` (spec §8.7)"
+            ),
+        );
+        Ty::Error
+    }
+
+    /// The pack `t` names, when it is a pack's name alone.
+    pub(crate) fn pack_named(&self, t: &Type) -> Option<Ty> {
+        let TypeKind::Path(p) = &t.kind else { return None };
+        let [seg] = &p.segments[..] else { return None };
+        if !seg.generics.is_empty() {
+            return None;
+        }
+        match self.param_in_scope(&seg.name.name)? {
+            Ty::Param(q) if q.pack => Some(Ty::Param(q)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn lower_path_type(&mut self, p: &Path, span: Span) -> Ty {
         let Some(first) = p.segments.first() else {
             return Ty::Error;
@@ -2925,6 +3038,20 @@ impl<'a> Ctx<'a> {
             // A generic parameter shadows everything: inside `struct Buffer<T>`, `T` is
             // the parameter even if a `T` is declared at module scope (spec §8.1).
             if let Some(param) = self.param_in_scope(name) {
+                if matches!(&param, Ty::Param(q) if q.pack) {
+                    self.error_help(
+                        codes::BAD_PACK_USE,
+                        span,
+                        format!("`{name}` is a pack, not a type"),
+                        "a pack written as one type",
+                        format!(
+                            "a pack stands for several types: write `..{name}` where several \
+                             may go, `(..{name})` or `fn(..{name})`, or take its values as \
+                             `args: ..{name}` (spec §8.7)"
+                        ),
+                    );
+                    return Ty::Error;
+                }
                 return param;
             }
             if let Some(builtin) = builtin_type(name) {
@@ -3210,7 +3337,7 @@ impl<'a> Ctx<'a> {
     /// unchanged.
     fn collect_type_params(&mut self, item: &Item) {
         if let ItemKind::Impl(i) = &item.kind {
-            let defs = self.declare_params(&i.generics);
+            let defs = self.declare_params(&i.generics, Some("implementation"));
             self.impl_params.insert((self.file, item.span.start), defs);
             return;
         }
@@ -3268,7 +3395,13 @@ impl<'a> Ctx<'a> {
             }
         }
         if !generics.is_empty() {
-            let params = self.declare_params(generics);
+            let holder = match &item.kind {
+                ItemKind::Struct(_) => Some("struct"),
+                ItemKind::Trait(_) => Some("trait"),
+                ItemKind::Union(_) => Some("union"),
+                _ => None,
+            };
+            let params = self.declare_params(generics, holder);
             self.table.type_params.insert(sym, params);
         }
         if let ItemKind::Trait(t) = &item.kind {
@@ -3284,7 +3417,12 @@ impl<'a> Ctx<'a> {
                 self.next_param += 1;
                 assoc.push((
                     name.name.clone(),
-                    ty::Param { name: Rc::from(name.name.as_str()), id, view: *is_view },
+                    ty::Param {
+                        name: Rc::from(name.name.as_str()),
+                        id,
+                        view: *is_view,
+                        pack: false,
+                    },
                 ));
             }
             if !assoc.is_empty() {
@@ -4184,7 +4322,7 @@ impl<'a> Ctx<'a> {
                 // A method's parameters have no symbol of their own for pass 1 to fill in,
                 // so their bounds are resolved here — every trait exists by the time member
                 // signatures are read. Without this `fn twice<T: Copy>` lost its bound.
-                let mut defs = self.declare_params(&f.generics);
+                let mut defs = self.declare_params(&f.generics, None);
                 self.push_params(&defs);
                 for (def, p) in defs.iter_mut().zip(&f.generics.params) {
                     let self_ty = Ty::Param(def.param.clone());
@@ -4293,10 +4431,18 @@ impl<'a> Ctx<'a> {
         let mut variadic = None;
         let mut out = Vec::with_capacity(params.len());
         for (i, p) in params.iter().enumerate() {
-            let mut ty = self.lower_type(&p.ty);
+            // `args: ..T` where `T` is a pack takes the rest of the arguments, each of its
+            // own type, and the body sees the tuple of them (spec §8.7).
+            let pack = if p.variadic { self.pack_named(&p.ty) } else { None };
+            let mut ty = match &pack {
+                Some(pack) => Ty::Tuple(vec![pack.clone()]),
+                None => self.lower_type(&p.ty),
+            };
             let mut is_variadic = false;
             if p.variadic {
-                ty = Ty::Slice { mutable: false, elem: Rc::new(ty) };
+                if pack.is_none() {
+                    ty = Ty::Slice { mutable: false, elem: Rc::new(ty) };
+                }
                 if variadic.is_some() {
                     self.error_help(
                         codes::BAD_VARIADIC,

@@ -1,0 +1,16 @@
+// expect: DZ0903
+//
+// A pack's length is up to each call, so its tuple is spread only into a function that takes
+// a pack, never into fixed parameters (spec §8.7).
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn sum<..A>(args: ..A) -> i32 {
+    return add(..args)
+}
+
+fn main() {
+    println!("{}", sum(1, 2))
+}

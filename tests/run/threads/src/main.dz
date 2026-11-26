@@ -85,7 +85,7 @@ fn main() {
     }
     println!("mutex {}", SCORE.lock().get())
 
-    // A struct is how more than one value is given.
+    // A struct crosses as one value.
     TOTAL.store(0)
     let mut a = spawn(sum_range, Job{ first: 0, last: 100 })
     let mut b = spawn(sum_range, Job{ first: 100, last: 200 })
@@ -106,4 +106,22 @@ fn main() {
 
     let mut owned = spawn(take, Noisy{ name: String("noisy") })
     owned.join()
+
+    // Any number of arguments, each of its own type (spec §8.7), and none at all.
+    let mut several = spawn(label_range, String("range"), 10, 20)
+    several.join()
+    let mut bare = spawn(say_done)
+    bare.join()
+}
+
+fn label_range(label: String, first: u32, last: u32) {
+    let mut sum: u32 = 0
+    for i in first..last {
+        sum += i
+    }
+    println!("{} {}", label, sum)
+}
+
+fn say_done() {
+    println!("done")
 }

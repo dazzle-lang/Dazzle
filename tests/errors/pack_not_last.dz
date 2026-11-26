@@ -1,0 +1,9 @@
+// expect: DZ0901
+//
+// A pack takes every type argument after the fixed ones, so it is declared last (spec §8.7).
+
+fn call<..A, R>(f: fn(..A) -> R, args: ..A) -> R {
+    return f(..args)
+}
+
+fn main() {}

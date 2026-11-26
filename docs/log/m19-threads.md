@@ -2,6 +2,41 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Type parameter packs, and `spawn` of any number of arguments (T-0269, D-0121, r155; 2026-11-26)
+
+`spawn!` was next. The user asked why a macro was needed at all, and chose C++'s parameter
+packs instead: `spawn<..A: Send>(entry: fn(..A), args: ..A)` is a plain generic function, so
+the macro D-0117 could not write (an expression macro declares no struct) is never needed.
+Spec §8.7 is new.
+
+- **The representation.** A pack is a `ty::Param` with `pack` set, standing only as an
+  element of a list (a tuple's parts, a function type's parameters), and it is solved to the
+  `Ty::Tuple` of its types, which `substitute` splices into the list: `fn(..A)` with `A` the
+  pack `i32, f64` is `fn(i32, f64)`. So monomorphization needed nothing new, and each pack a
+  call gives is its own instance, mangled as its tuple.
+- **The call.** As a variadic slice parameter is given one array, a pack parameter is given
+  one tuple literal of the arguments (`check/packs.rs`), so nothing past checking sees a
+  variable count. A spread of a tuple of known types becomes its elements, `t.0`, `t.1`, …,
+  each an argument, moved as a field of a local is. Only a pack's own tuple stays a
+  `hir::ExprKind::Spread`: one entry, standing in an argument list exactly where the
+  parameter list has its `..A`, so flow and ties still see one argument per parameter. The
+  moves pass moves its operand, and flow, ties, placement and release see through it.
+- **C++.** A spread is its elements, `t.v0, ::dz::rt::mv(t.v1)`, written into the call;
+  `emit_args` never holds one in a temporary, which would hold only the first element, and
+  leaves an empty one out, with a `(void)t;` so an empty pack's instance does not warn. The
+  runtime's `Tuple` was spelled out up to four elements; it now goes to sixteen, and the
+  checker refuses a longer tuple (DZ0904) rather than let it reach C++.
+- **Diagnostics.** DZ05xx is full, so the type checker continues in DZ09xx: DZ0901 (where a
+  pack is declared), DZ0902 (a pack used as one type), DZ0903 (a spread that cannot be one),
+  DZ0904 (a tuple too long). A pack that fails its bound makes every list it stands in the
+  error type, so the refusal is not followed by a mismatch.
+- **Not done**, in T-0269: a pack on a struct (`Query<..C>`), a pack's length, an expression
+  repeated per element, a pack function as a value.
+- **Tests.** `tests/run/packs` (inference, written type arguments, an empty pack, forwarding,
+  keeping and moving a pack's tuple, spreads of tuples of known types), `tests/run/threads`
+  (`spawn` of three arguments and of none), the `typed`/`typeerrors` pair, four
+  `tests/errors/pack_*.dz`, the parse and fmt corpora, and `dz explain` for each new code.
+
 ## The pool of workers (T-0011, r154; 2026-11-25)
 
 The job system's first half: `parallel { … }` and `parallel for` stop starting a thread per

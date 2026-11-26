@@ -184,6 +184,8 @@ impl Walk<'_> {
                     self.value(p);
                 }
             }
+            // A pack's tuple passed on as its elements: every one is taken (spec §8.7).
+            hir::ExprKind::Spread(inner) => self.value(inner),
             hir::ExprKind::Call { callee, args } => {
                 match callee {
                     hir::Callee::Method { recv, .. } | hir::Callee::BaseMethod { recv, .. } => {
