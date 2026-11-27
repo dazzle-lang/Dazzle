@@ -2342,204 +2342,220 @@ error[DZ0531]: `Pointing` does not implement `Send`
      = help: its field `at` holds a raw pointer, which may point at anyone's memory: a type is `Send` exactly when everything it holds is, and a raw pointer that is not `own`, a view, an `Rc` or a value whose drop is the main thread's never is; share through a `Mutex` or an atomic instead (spec §22.2)
 
 error[DZ0597]: a statement in `parallel` is one call
-     ┌─ typeerrors/src/errors.dz:1913:9
+     ┌─ typeerrors/src/errors.dz:1917:9
      │
-1913 │         let _m = 1
+1917 │         let _m = 1
      │         ^^^^^^^^^^ this is not a call
      │
      = help: each line of `parallel { … }` is a call to a function or a method, and the calls run at the same time; work out what they need before the block (spec §22.3)
 
 error[DZ0597]: a call in `parallel` returns nothing
-     ┌─ typeerrors/src/errors.dz:1914:9
+     ┌─ typeerrors/src/errors.dz:1918:9
      │
-1914 │         doubled(2)
+1918 │         doubled(2)
      │         ^^^^^^^^^^ this returns `i32`
      │
      = help: `parallel` does not hand results back yet, so each call returns nothing; write the result through a `&mut` argument instead (spec §22.3)
 
 error[DZ0598]: a call in `parallel` runs on another thread, and this one needs the main thread
-     ┌─ typeerrors/src/errors.dz:1915:9
+     ┌─ typeerrors/src/errors.dz:1919:9
      │
-1915 │         on_the_main_thread()
+1919 │         on_the_main_thread()
      │         ^^^^^^^^^^^^^^^^^^^^ calls `on_the_main_thread`, which runs on the main thread only
      │
      = help: every call in `parallel` but the first runs on a thread of its own, so none may touch a plain static or call C that needs the main thread; call it before or after the block (spec §22.3, §22.5)
 
 error[DZ0599]: `Pointing` may not cross to another thread lent as `&`
-     ┌─ typeerrors/src/errors.dz:1916:24
+     ┌─ typeerrors/src/errors.dz:1920:24
      │
-1916 │         reads_pointing(&p)
+1920 │         reads_pointing(&p)
      │                        ^^ `Pointing` is not `Share`
      │
      = help: an argument lent as `&` is read by another thread while this one may read it too, so its type is `Share`; `Pointing` is not, since its field `at` holds a raw pointer, which may point at anyone's memory (spec §22.2, §22.3)
 
-error[DZ0430]: a pass of `parallel for` writes `total`, which every pass shares
-     ┌─ typeerrors/src/errors.dz:1927:9
+error[DZ0599]: `Rc<Pointing>` may not cross to another thread lent as `&`
+     ┌─ typeerrors/src/errors.dz:1921:27
      │
-1927 │         total += x
+1921 │         reads_rc_pointing(&rp)
+     │                           ^^^ `Rc<Pointing>` is not `Share`
+     │
+     = help: an argument lent as `&` is read by another thread while this one may read it too, so its type is `Share`; `Rc<Pointing>` is not, since its value's field `at` holds a raw pointer, which may point at anyone's memory (spec §22.2, §22.3)
+
+error[DZ0430]: a pass of `parallel for` writes `total`, which every pass shares
+     ┌─ typeerrors/src/errors.dz:1932:9
+     │
+1932 │         total += x
      │         ^^^^^ written by every pass at once
      │
      = help: the passes run at the same time, so each writes only the element it is given; change what the loop needs before or after it, or keep it in the element (spec §22.3)
 
 error[DZ0433]: a pass of `parallel for` reaches `xs`, whose elements the passes write
-     ┌─ typeerrors/src/errors.dz:1928:14
+     ┌─ typeerrors/src/errors.dz:1933:14
      │
-1928 │         x += xs[0]
-     │              ^^ another pass may be writing what this reads
+1933 │         x += xs[0]
+     │              ^^^^^ another pass may be writing what this reads
      │
      = help: each pass reaches the container it loops over only through the element it is given; read what the loop needs from it before the loop (spec §22.3)
 
 error[DZ0431]: `break` would leave a pass of `parallel for`
-     ┌─ typeerrors/src/errors.dz:1930:13
+     ┌─ typeerrors/src/errors.dz:1935:13
      │
-1930 │             break
+1935 │             break
      │             ^^^^^ the other passes are running at the same time
      │
      = help: no pass can stop the others, so a pass ends only by reaching the end of the body or by `continue`; work out what should stop the loop before it, or loop with `for` (spec §22.3)
 
 error[DZ0598]: a pass of `parallel for` runs on another thread, and this needs the main thread
-     ┌─ typeerrors/src/errors.dz:1932:9
+     ┌─ typeerrors/src/errors.dz:1937:9
      │
-1932 │         on_the_main_thread()
+1937 │         on_the_main_thread()
      │         ^^^^^^^^^^^^^^^^^^^^ calls `on_the_main_thread`, which runs on the main thread only
      │
      = help: the passes run on several threads at once, so none may touch a plain static or call C that needs the main thread; do it before or after the loop (spec §22.3, §22.5)
 
 error[DZ0432]: `parallel for` cannot split `HashMapIterMut<i32, i32>` between threads
-     ┌─ typeerrors/src/errors.dz:1934:5
+     ┌─ typeerrors/src/errors.dz:1939:5
      │
-1934 │     parallel for _, &mut age in ages {
+1939 │     parallel for _, &mut age in ages {
      │     ^^^^^^^^ `HashMapIterMut<i32, i32>` is not `ParallelIterate`
      │
      = help: a `parallel for` loops over a range, an array, a slice, or a container whose iterator implements `ParallelIterate`, as a `List`'s does (spec §22.3)
 
-error[DZ0427]: `lends_what_it_reads` cannot lend `xs`
-     ┌─ typeerrors/src/errors.dz:1942:46
+error[DZ0599]: each pass of `parallel for` may write through its `Rc<i32>`
+     ┌─ typeerrors/src/errors.dz:1944:5
      │
-1942 │ fn lends_what_it_reads(xs: &List<i32>) lends xs {}
+1944 │     parallel for &mut h in handles {
+     │     ^^^^^^^^ two elements may hold one `Rc<i32>`'s value
+     │
+     = help: any two `Rc<i32>`s may hold one value, so passes that each write through their own may write it together; bind the element as `&` to read it, or loop with `for` (spec §22.4)
+
+error[DZ0427]: `lends_what_it_reads` cannot lend `xs`
+     ┌─ typeerrors/src/errors.dz:1954:46
+     │
+1954 │ fn lends_what_it_reads(xs: &List<i32>) lends xs {}
      │                                              ^^ taken as `&List<i32>`
      │
      = help: `lends` names a parameter the function can change its caller's memory through, `&mut` or `&mut self`, that a call in a `parallel` block may change; what it owns or only reads needs nothing (spec §22.12)
 
 error[DZ0428]: `lends_both` lends `a`, so it cannot be a function value
-     ┌─ typeerrors/src/errors.dz:1956:81
+     ┌─ typeerrors/src/errors.dz:1968:81
      │
-1956 │     let _f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = lends_both
+1968 │     let _f: fn(a: &mut List<i32>, b: &mut List<i32>) kills (a@items, b@items) = lends_both
      │                                                                                 ^^^^^^^^^^ used as a value
      │
      = help: a function type has no `lends`, so a caller through the value could not know to place what it gives on the heap; call the function by name (spec §22.12)
 
 error[DZ0429]: this lends `a`, and `Grows::grow` does not
-     ┌─ typeerrors/src/errors.dz:1964:91
+     ┌─ typeerrors/src/errors.dz:1976:91
      │
-1964 │     fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a {
+1976 │     fn grow(&mut self, a: &mut List<i32>, b: &mut List<i32>) kills a@items, b@items lends a {
      │                                                                                           ^ more than the method it implements lends
      │
      = help: a call through `Grows::grow` places what it gives by that method's clause, so it would not be on the heap; write the same `lends` on `Grows::grow`, or keep this one's calls apart from a `parallel` block (spec §22.12)
 
 error[DZ0506]: constructor `PrivatelyBuilt::PrivatelyBuilt` is not visible here
-     ┌─ typeerrors/src/errors.dz:1982:14
+     ┌─ typeerrors/src/errors.dz:1994:14
      │
-1976 │     PrivatelyBuilt(start: i32) {
+1988 │     PrivatelyBuilt(start: i32) {
      │     -------------- declared here
      ·
-1982 │     let _s = PrivatelyBuilt(1)
+1994 │     let _s = PrivatelyBuilt(1)
      │              ^^^^^^^^^^^^^^ private constructor
      │
      = help: this constructor is private to `PrivatelyBuilt`; mark it `pub` or `pub(module)` (spec §4)
 
 error[DZ0590]: `PrivatelyBuilt` has no default to build here
-     ┌─ typeerrors/src/errors.dz:1988:9
+     ┌─ typeerrors/src/errors.dz:2000:9
      │
-1988 │     let _s: PrivatelyBuilt
+2000 │     let _s: PrivatelyBuilt
      │         ^^ declared with no value
      │
      = help: a type with constructors is default-built only through one that takes no arguments and is visible here; give the binding a value, `let x = …`, made by a constructor or function of `PrivatelyBuilt` (spec §6.2)
 
 error[DZ0590]: this constructor leaves `inner` with no value
-     ┌─ typeerrors/src/errors.dz:1994:9
+     ┌─ typeerrors/src/errors.dz:2006:9
      │
-1994 │     pub LeavesAFieldEmpty() {
+2006 │     pub LeavesAFieldEmpty() {
      │         ^^^^^^^^^^^^^^^^^ a field whose type has no default to build here
      │
      = help: assign it at the top of the constructor, before any `return`: `inner = …`, or give the field a default where it is declared (spec §6.2)
 
 error[DZ0901]: the pack `..A` is not the last type parameter
-     ┌─ typeerrors/src/errors.dz:1999:15
+     ┌─ typeerrors/src/errors.dz:2011:15
      │
-1999 │ fn pack_first<..A, B>(_b: B) {}
+2011 │ fn pack_first<..A, B>(_b: B) {}
      │               ^^^ a pack before another parameter
      │
      = help: a pack takes every type argument after the fixed ones, so it comes last, and there is at most one (spec §8.7)
 
 error[DZ0902]: `A` is a pack, not a type
-     ┌─ typeerrors/src/errors.dz:2003:24
+     ┌─ typeerrors/src/errors.dz:2015:24
      │
-2003 │ fn pack_alone<..A>(_x: A) {}
+2015 │ fn pack_alone<..A>(_x: A) {}
      │                        ^ a pack written as one type
      │
      = help: a pack stands for several types: write `..A` where several may go, `(..A)` or `fn(..A)`, or take its values as `args: ..A` (spec §8.7)
 
 error[DZ0902]: `T` names no pack, so `..T` is not a type
-     ┌─ typeerrors/src/errors.dz:2005:26
+     ┌─ typeerrors/src/errors.dz:2017:26
      │
-2005 │ fn dots_on_one<T>(_f: fn(..T)) {}
+2017 │ fn dots_on_one<T>(_f: fn(..T)) {}
      │                          ^^^ `..` before a type with no pack in it
      │
      = help: `..` repeats a type once for each type of a pack it names, `..Option<A>` for `<..A>`; a list of known types is written out, `(A, B)` (spec §8.7)
 
 error[DZ0902]: `..A` is not a type of its own
-     ┌─ typeerrors/src/errors.dz:2007:34
+     ┌─ typeerrors/src/errors.dz:2019:34
      │
-2007 │ fn pack_outside_a_list<..A>(_r: &..A) {}
+2019 │ fn pack_outside_a_list<..A>(_r: &..A) {}
      │                                  ^^^ a pack's types outside a list
      │
      = help: `..A` stands for several types, so it is written where several may go: a tuple, `(..A)`, or a function type's parameters, `fn(..A)` (spec §8.7)
 
 error[DZ0902]: element `0` is in the pack `..A`, which has no positions
-     ┌─ typeerrors/src/errors.dz:2010:19
+     ┌─ typeerrors/src/errors.dz:2022:19
      │
-2010 │     let _x = args.0
+2022 │     let _x = args.0
      │                   ^ a pack's element named by position
      │
      = help: how many types `A` holds is up to each call; pass the elements on together, spread: `f(..t)` (spec §8.7)
 
 error[DZ0903]: `add_two` takes a fixed number of arguments, and a pack's is up to each call
-     ┌─ typeerrors/src/errors.dz:2020:20
+     ┌─ typeerrors/src/errors.dz:2032:20
      │
-2020 │     return add_two(..args)
+2032 │     return add_two(..args)
      │                    ^^^^^^ a pack spread into fixed parameters
      │
      = help: a pack is passed on whole, to a function that takes one: a pack parameter, `args: ..T`, or a function value of type `fn(..T)` (spec §8.7)
 
 error[DZ0903]: `..` spreads a tuple that is not a place
-     ┌─ typeerrors/src/errors.dz:2028:22
+     ┌─ typeerrors/src/errors.dz:2040:22
      │
-2028 │     return add_two(..make_two())
+2040 │     return add_two(..make_two())
      │                      ^^^^^^^^^^ not a local, a parameter or a field
      │
      = help: each element is read from the tuple in turn, so the tuple must be kept somewhere: bind it first, `let t = …`, and spread `..t` (spec §8.7)
 
 error[DZ0903]: this pattern cannot be repeated over a pack
-     ┌─ typeerrors/src/errors.dz:2035:17
+     ┌─ typeerrors/src/errors.dz:2047:17
      │
-2035 │     show_each(..format!("{}", args))
+2047 │     show_each(..format!("{}", args))
      │                 ^^^^^^^^^^^^^^^^^^^ a block, a branch, `or` or a formatting macro in a pattern
      │
      = help: a pattern repeated per element is made of calls, operators, fields and literals; put the rest in a function the pattern calls (spec §8.7)
 
 error[DZ0902]: `i32?` names no pack, so `..i32?` is not a type
-     ┌─ typeerrors/src/errors.dz:2039:28
+     ┌─ typeerrors/src/errors.dz:2051:28
      │
-2039 │ fn pattern_of_no_pack(_x: (..i32?)) {}
+2051 │ fn pattern_of_no_pack(_x: (..i32?)) {}
      │                            ^^^^^^ `..` before a type with no pack in it
      │
      = help: `..` repeats a type once for each type of a pack it names, `..Option<A>` for `<..A>`; a list of known types is written out, `(A, B)` (spec §8.7)
 
 error[DZ0902]: `countof` takes a pack, and `i32` is not one
-     ┌─ typeerrors/src/errors.dz:2042:20
+     ┌─ typeerrors/src/errors.dz:2054:20
      │
-2042 │     return countof(i32)
+2054 │     return countof(i32)
      │                    ^^^ not a pack
      │
      = help: `countof(A)` is how many types the pack `A`, declared `<..A>`, holds; a tuple's length is known where its type is written out (spec §8.7)

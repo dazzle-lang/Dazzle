@@ -151,6 +151,10 @@ pub fn report(
     for c in &a.parallel_conflicts {
         let writer = call_name(body, res, c.writer);
         let other = call_name(body, res, c.other);
+        if let Some(rc) = &c.shared {
+            diags.push(parallel_handle_conflict(file, res, c, rc, &writer, &other));
+            continue;
+        }
         let place = c.place.as_ref().map(&show);
         // Every argument is evaluated before any call starts, so a value moved into one call
         // is gone before the other runs.
@@ -190,6 +194,58 @@ pub fn report(
                      one after the other (spec §22.3)",
                 ),
         );
+    }
+    for r in &a.pass_handle_reads {
+        let rc = dz_check::type_name_in_file(res, file, &r.rc);
+        let mut d = Diagnostic::error(
+            codes::PARALLEL_LOOP_READS_WRITTEN,
+            format!(
+                "a pass of `parallel for` reads an `{rc}`, whose value may hold what the passes \
+                 write"
+            ),
+        )
+        .at(file, r.read, format!("this `{rc}` may hold the elements another pass writes"))
+        .with_secondary(file, r.subject, format!("the passes write elements in an `{rc}`'s value"))
+        .with_help(
+            "the passes run at the same time, each writing its own element, so none may read \
+             another's; read what the passes need out of the `Rc` before the loop (spec §22.3, \
+             §22.4)",
+        );
+        d.notes.push(format!(
+            "note: any two `{rc}`s may hold one value, so the check takes every `{rc}` as one \
+             (spec §14.5, §22.4)"
+        ));
+        diags.push(d);
+    }
+    for c in &a.lent_aliases {
+        let (callee, lent, other) = (&c.callee, &c.lent, &c.other);
+        let at = c.other_at.or(c.lent_at).unwrap_or(c.span);
+        let mut d = Diagnostic::error(
+            codes::LENT_ARGUMENT_REACHED,
+            format!("`{callee}` lends `{lent}` to another thread, and `{other}` reaches it too"),
+        )
+        .at(file, at, format!("`{other}` reaches what `{lent}` is given"));
+        if let Some(lent_at) = c.lent_at.filter(|l| *l != at) {
+            d = d.with_secondary(
+                file,
+                lent_at,
+                format!("another thread writes what `{lent}` reaches"),
+            );
+        }
+        d = d.with_help(
+            "a function that `lends` a parameter has another thread write what it reaches while \
+             the function runs, and it is checked once, for every caller, with its parameters \
+             taken as separate: give it something no other argument reaches, or a copy \
+             (spec §22.3, §22.12)",
+        );
+        if let Some(rc) = &c.shared {
+            let rc = dz_check::type_name_in_file(res, file, rc);
+            d.notes.push(format!(
+                "note: any two `{rc}`s may hold one value, so the check takes every `{rc}` as \
+                 one (spec §14.5, §22.4)"
+            ));
+        }
+        diags.push(d);
     }
     report_lends(body, table, res, a, diags);
     // Wrapping the code in `unsafe` vouches for it, which only its author can: offered,
@@ -432,7 +488,7 @@ fn report_lends(
         changes.then(|| body.local(l).name.clone())
     };
     let mut needed: Vec<(usize, String, Span)> = Vec::new();
-    for (l, at) in &a.lent {
+    for (l, at) in a.lent.iter().chain(&a.written_on_threads) {
         let Some(name) = named(*l) else { continue };
         let i = body.params.iter().position(|p| p == l).unwrap_or(0);
         if !needed.iter().any(|(_, n, _)| *n == name) {
@@ -489,8 +545,9 @@ fn report_lends(
         )
         .at(file, *at, format!("`{lent}` is lent to another thread here"))
         .with_help(format!(
-            "a caller places what it lends by this clause: it must know to put it on the heap, \
-             where two threads may grow it at once; {needs} (spec §22.12)"
+            "a caller reads this clause to keep what it lends apart from its other arguments, \
+             since another thread writes it, and to put it on the heap where that thread may \
+             grow it; {needs} (spec §22.12)"
         ));
         diags.push(with_fix(d));
     }
@@ -513,6 +570,43 @@ fn report_lends(
 }
 
 /// The function a call calls, as the program names it: `physics`, `world.step`.
+/// Two calls of a `parallel` block that reach an `Rc` of one type, one of them writing
+/// through it: any two may hold one value, so the check takes them as one (spec §22.4).
+fn parallel_handle_conflict(
+    file: dz_span::FileId,
+    res: &Resolution,
+    c: &super::body::ParallelConflict,
+    rc: &Ty,
+    writer: &str,
+    other: &str,
+) -> Diagnostic {
+    let rc = dz_check::type_name_in_file(res, file, rc);
+    let (message, label) = if c.other_writes {
+        (
+            format!("`{writer}` and `{other}` both write through an `{rc}`, and they run at the same time"),
+            format!("`{other}` writes through an `{rc}`"),
+        )
+    } else {
+        (
+            format!("`{writer}` writes through an `{rc}`, which `{other}` reads at the same time"),
+            format!("`{other}` reads through an `{rc}`"),
+        )
+    };
+    let mut d = Diagnostic::error(codes::PARALLEL_CONFLICT, message)
+        .at(file, c.other_at, label)
+        .with_secondary(file, c.writer_at, format!("`{writer}` writes through an `{rc}`"))
+        .with_help(
+            "the calls in `parallel` run at the same time, so a value one of them writes is \
+             touched by no other: lend the one that writes its `Rc` as `&`, or call these two \
+             one after the other (spec §22.3, §22.4)",
+        );
+    d.notes.push(format!(
+        "note: any two `{rc}`s may hold one value, so the check takes every `{rc}` as one \
+         (spec §14.5, §22.4)"
+    ));
+    d
+}
+
 fn call_name(body: &Body, res: &Resolution, call: dz_hir::ExprId) -> String {
     let dz_hir::ExprKind::Call { callee, .. } = &body.expr(call).kind else {
         return "the call".to_owned();

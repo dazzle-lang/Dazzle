@@ -2,15 +2,41 @@
 //! type's fields as copyability is, with `std`'s hand-written exceptions.
 
 use dz_hir::ty::Ty;
-use dz_resolve::SymbolId;
+use dz_hir::Hir;
+use dz_resolve::{Resolution, SymbolId};
 
 use crate::{ItemSig, TypeTable};
+
+/// Whether the program runs anything at the same time: a `parallel` block, a `parallel for`,
+/// or a call of `spawn`, anywhere in it (spec §22.4). Such a program's `Rc` and `Weak` count
+/// with atomics; any other's with plain integers. A whole-program fact, as instantiation is
+/// (§8.4): one body that appears is enough, whether or not it is ever called.
+pub fn runs_in_parallel(res: &Resolution, hir: &Hir) -> bool {
+    let spawn = res.lookup(res.prelude, "spawn");
+    hir.bodies().any(|(_, body)| {
+        body.stmts.iter().any(|s| {
+            matches!(
+                s.kind,
+                dz_hir::StmtKind::Parallel { .. } | dz_hir::StmtKind::For { parallel: true, .. }
+            )
+        }) || body.exprs.iter().any(|e| match &e.kind {
+            dz_hir::ExprKind::Call { callee: dz_hir::Callee::Fn { sym, .. }, .. }
+            | dz_hir::ExprKind::FnItem { sym, .. } => Some(*sym) == spawn,
+            _ => false,
+        })
+    })
+}
 
 thread_local! {
     /// The types a `Send` (index 0) or `Share` (index 1) question is already working out,
     /// while it asks an implementation's bounds (see `crosses_from_here`).
     static CROSS_STACK: std::cell::RefCell<[Vec<SymbolId>; 2]> =
         const { std::cell::RefCell::new([Vec::new(), Vec::new()]) };
+    /// Set while asking what crosses into a `parallel` block or a `parallel for`, where an
+    /// `Rc` or a `Weak` crosses as its value does (see `parallel_crossing_blocker`). It is a
+    /// flag rather than a parameter so that it reaches the bounds of `std`'s own `impl Send`,
+    /// which are asked through `implements`: a `List<Rc<Texture>>` crosses as `Texture` does.
+    static HANDLES_CROSS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// The two questions §22.2 asks of a type.
@@ -23,16 +49,6 @@ pub enum Crossing {
 }
 
 impl crate::Ctx<'_> {
-    /// Whether `ty` reaches an `Rc` or a `Weak` through what it holds, behind references
-    /// too, since reading one through `&` writes its count (spec §22.4).
-    pub(crate) fn holds_rc(&self, ty: &Ty) -> bool {
-        let rc = |sym: SymbolId| {
-            let s = self.res.symbol(sym);
-            s.module == self.res.prelude && matches!(s.name.as_str(), "Rc" | "Weak")
-        };
-        self.table.holds_named(ty, &rc, &mut Vec::new())
-    }
-
     /// A [`Blocker`] as a help says it: "its field `m_header` is a raw pointer".
     pub(crate) fn describe_blocker(&self, b: &Blocker) -> String {
         let what = match &b.ty {
@@ -52,10 +68,11 @@ impl crate::Ctx<'_> {
             }
             t => format!("a `{}`", self.name_of(t)),
         };
-        if b.path.is_empty() {
-            what
-        } else {
-            format!("its field `{}` holds {what}", b.path.join("."))
+        let its = if b.in_value { "its value's" } else { "its" };
+        match (b.path.is_empty(), b.in_value) {
+            (true, false) => what,
+            (true, true) => format!("its value is {what}"),
+            (false, _) => format!("{its} field `{}` holds {what}", b.path.join(".")),
         }
     }
 }
@@ -65,6 +82,9 @@ impl crate::Ctx<'_> {
 pub struct Blocker {
     pub path: Vec<String>,
     pub ty: Ty,
+    /// The path starts in the value of an `Rc` or a `Weak`, which crosses into parallel
+    /// code as its value does (spec §22.4).
+    pub in_value: bool,
 }
 
 impl TypeTable {
@@ -76,6 +96,103 @@ impl TypeTable {
     /// The prelude's `Share` trait, if the prelude declares it.
     pub fn share_trait(&self) -> Option<SymbolId> {
         self.share_trait
+    }
+
+    /// Whether `sym` is `std`'s `Rc` or `Weak`.
+    pub fn is_handle(&self, sym: SymbolId) -> bool {
+        self.handles.contains(&sym)
+    }
+
+    /// [`Self::crossing_blocker`], for what crosses into a `parallel` block or a `parallel
+    /// for`, where an `Rc<T>` or a `Weak<T>` crosses as its `T` does (spec §22.4): its counts
+    /// are atomic in such a program, and the check between calls takes every `Rc<T>` as one
+    /// place. `spawn`, whose thread nothing waits for, asks `Send` itself, which neither is.
+    pub fn parallel_crossing_blocker(&self, ty: &Ty, which: Crossing) -> Option<Blocker> {
+        let saved = HANDLES_CROSS.with(|f| f.replace(true));
+        let blocker = self.crossing_blocker(ty, which);
+        HANDLES_CROSS.with(|f| f.set(saved));
+        blocker
+    }
+
+    /// The `Rc` types whose values a value of `ty` reaches, through its fields, references,
+    /// and type arguments, each once and written `Rc<T>` for a `Weak<T>` too, since both reach
+    /// the one value (spec §14.5, §22.4). Through a type argument because a container's
+    /// elements are behind a raw pointer: a `List<Rc<Texture>>` reaches `Rc<Texture>`.
+    pub fn handles_reached(&self, ty: &Ty) -> Vec<Ty> {
+        let mut found = Vec::new();
+        self.collect_handles(ty, &mut found, &mut Vec::new());
+        found
+    }
+
+    fn collect_handles(&self, ty: &Ty, found: &mut Vec<Ty>, stack: &mut Vec<SymbolId>) {
+        match ty {
+            Ty::OwnPtr { inner, .. }
+            | Ty::Ptr { inner, .. }
+            | Ty::Ref { inner, .. }
+            | Ty::Optional(inner)
+            | Ty::Fallible(inner)
+            | Ty::Slice { elem: inner, .. }
+            | Ty::ConstSlice(inner)
+            | Ty::Array { elem: inner, .. } => self.collect_handles(inner, found, stack),
+            Ty::Tuple(parts) => parts.iter().for_each(|t| self.collect_handles(t, found, stack)),
+            Ty::Named { sym, args } if self.is_handle(*sym) => {
+                let rc = Ty::Named { sym: self.handles[0], args: args.clone() };
+                if !found.contains(&rc) {
+                    found.push(rc);
+                }
+            }
+            Ty::Named { sym, args } => {
+                if stack.contains(sym) {
+                    return;
+                }
+                stack.push(*sym);
+                for a in args {
+                    self.collect_handles(a, found, stack);
+                }
+                match self.get(*sym) {
+                    Some(ItemSig::Struct(_)) => {
+                        for owner in self.with_bases(*sym) {
+                            let Some(s) = self.struct_sig(owner) else { continue };
+                            let own_args = self.args_as(*sym, args, owner);
+                            for t in self.field_types(owner, &own_args, &s.fields) {
+                                self.collect_handles(&t, found, stack);
+                            }
+                        }
+                    }
+                    Some(ItemSig::Union { variants, .. }) => {
+                        for v in variants {
+                            for t in self.payload_types(*sym, args, v) {
+                                self.collect_handles(&t, found, stack);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether the values of two `Rc` types from [`Self::handles_reached`] may be one: the
+    /// same type; a struct and one it inherits, since an `Rc<Button>` converts to an
+    /// `Rc<UiElement>` sharing its value (spec §14.5, 18.64); or, in a generic body, a type
+    /// with a parameter in it, which may be either. An `Rc<List<String>>` and an
+    /// `Rc<List<i32>>` are apart.
+    pub fn handles_meet(&self, a: &Ty, b: &Ty) -> bool {
+        if a == b || a.has_params() || b.has_params() {
+            return true;
+        }
+        let value = |t: &Ty| match t {
+            Ty::Named { args, .. } => args.first().and_then(|v| v.named()),
+            _ => None,
+        };
+        match (value(a), value(b)) {
+            (Some(x), Some(y)) if x != y => {
+                self.with_bases(x).contains(&y) || self.with_bases(y).contains(&x)
+            }
+            _ => false,
+        }
     }
 
     /// Whether each thread has its own `sym`, a `#[thread_local]` static (spec §7.7).
@@ -118,52 +235,6 @@ impl TypeTable {
                         self.payload_types(*sym, args, v)
                             .iter()
                             .any(|t| self.dies_on_main_thread_guarded(t, stack))
-                    }),
-                    _ => false,
-                };
-                stack.pop();
-                answer
-            }
-            _ => false,
-        }
-    }
-
-    /// Whether `ty` is, or holds through its fields and references, a type `is` picks out.
-    fn holds_named(
-        &self,
-        ty: &Ty,
-        is: &dyn Fn(SymbolId) -> bool,
-        stack: &mut Vec<SymbolId>,
-    ) -> bool {
-        match ty {
-            Ty::OwnPtr { inner, .. }
-            | Ty::Ref { inner, .. }
-            | Ty::Optional(inner)
-            | Ty::Fallible(inner)
-            | Ty::Slice { elem: inner, .. }
-            | Ty::ConstSlice(inner)
-            | Ty::Array { elem: inner, .. } => self.holds_named(inner, is, stack),
-            Ty::Tuple(parts) => parts.iter().any(|t| self.holds_named(t, is, stack)),
-            Ty::Named { sym, args } => {
-                if is(*sym) {
-                    return true;
-                }
-                if stack.contains(sym) {
-                    return false;
-                }
-                stack.push(*sym);
-                let answer = match self.get(*sym) {
-                    Some(ItemSig::Struct(_)) => self.with_bases(*sym).into_iter().any(|owner| {
-                        let Some(s) = self.struct_sig(owner) else { return false };
-                        let own_args = self.args_as(*sym, args, owner);
-                        self.field_types(owner, &own_args, &s.fields)
-                            .iter()
-                            .any(|t| self.holds_named(t, is, stack))
-                    }),
-                    Some(ItemSig::Union { variants, .. }) => variants.iter().any(|v| {
-                        self.payload_types(*sym, args, v)
-                            .iter()
-                            .any(|t| self.holds_named(t, is, stack))
                     }),
                     _ => false,
                 };
@@ -279,9 +350,17 @@ impl TypeTable {
         }
         let mut path = Vec::new();
         let mut at = ty.clone();
+        let mut in_value = false;
         // Down through the first field that does not cross, while one is to blame.
         'down: for _ in 0..16 {
             let Ty::Named { sym, args } = &at else { break };
+            // A handle crossing into parallel code is held back by its value.
+            if self.is_handle(*sym) && HANDLES_CROSS.with(std::cell::Cell::get) {
+                let Some(value) = args.first() else { break };
+                in_value |= path.is_empty();
+                at = value.clone();
+                continue 'down;
+            }
             if self.own_drop_on_main_thread(*sym) || self.hand_impl_for(*sym, which).is_some() {
                 break;
             }
@@ -303,7 +382,7 @@ impl TypeTable {
             }
             break;
         }
-        Some(Blocker { path, ty: at })
+        Some(Blocker { path, ty: at, in_value })
     }
 
     fn hand_impl_for(&self, sym: SymbolId, which: Crossing) -> Option<usize> {
@@ -340,6 +419,10 @@ impl TypeTable {
         // and the answer for the cycle is the one being worked out.
         if stack.contains(&sym) {
             return true;
+        }
+        // Into parallel code, a handle crosses as its value (see `parallel_crossing_blocker`).
+        if self.is_handle(sym) && HANDLES_CROSS.with(std::cell::Cell::get) {
+            return args.first().map_or(true, |value| self.crosses(value, which, stack));
         }
         let trait_sym = match which {
             Crossing::Send => self.send_trait,

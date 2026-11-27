@@ -79,6 +79,9 @@ pub struct ParallelConflict {
     /// What both reach, `None` where the writer's argument points somewhere the analysis
     /// cannot follow, which may be anything the other call reaches.
     pub place: Option<Place>,
+    /// Where what both reach is the value of an `Rc` of this type, which is every such
+    /// value at once: any two may be one (spec §14.5, §22.4). `place` is then `None`.
+    pub shared: Option<Ty>,
     /// The call that writes it, the argument it writes through, and whether that argument
     /// moves the place rather than lending it.
     pub writer: ExprId,
@@ -90,16 +93,66 @@ pub struct ParallelConflict {
     pub other_writes: bool,
 }
 
+/// A call to a function that `lends` a parameter, given an argument there that another of
+/// its arguments reaches: the function has another thread write the first while it may read
+/// the second (spec §22.12, T-0268).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LentAlias {
+    pub span: Span,
+    /// The function called.
+    pub callee: String,
+    /// The parameter lent, and its argument; the receiver has no span of its own.
+    pub lent: String,
+    pub lent_at: Option<Span>,
+    /// The other parameter, and its argument.
+    pub other: String,
+    pub other_at: Option<Span>,
+    /// Where both reach the value of an `Rc` of this type, which may be any such value.
+    pub shared: Option<Ty>,
+}
+
 /// What one argument of a call in a `parallel` block reaches, and whether it writes it.
 #[derive(Clone, Debug)]
 struct Access {
     place: Option<Place>,
+    /// The value of every `Rc` of this type, which the argument reaches through one: `place`
+    /// is then `None`, and the access meets every other that reaches an `Rc` of a type whose
+    /// value may be the same (spec §22.4).
+    shared: Option<Ty>,
     write: bool,
     /// The write is a move: the call is given the value, not lent it.
     moves: bool,
     /// What is reached may own memory from an allocator, which the call could grow.
     grows: bool,
     at: Span,
+}
+
+/// One input of a call, for [`Analysis::lent_apart`]: the parameter's position (`None` for
+/// the receiver) and name, its argument, the places it reaches, and the `Rc`s it holds.
+struct Input<'h> {
+    index: Option<usize>,
+    name: String,
+    at: Option<Span>,
+    places: Vec<Place>,
+    held: &'h [Ty],
+}
+
+/// The `Rc` types a call's receiver and each of its arguments reach, through fields and type
+/// arguments: what each may reach of a value an `Rc` holds (spec §14.5).
+#[derive(Default)]
+struct Handles {
+    receiver: Vec<Ty>,
+    params: Vec<Vec<Ty>>,
+}
+
+/// What an argument of `ty` reaches through the `Rc`s and `Weak`s in it, one access for each
+/// type of value: the place every `Rc` of that type stands for (spec §14.5, §22.4).
+fn handles(table: &TypeTable, ty: &Ty, write: bool, at: Span) -> Vec<Access> {
+    table
+        .handles_reached(ty)
+        .into_iter()
+        .map(|rc| Access { place: None, shared: Some(rc), write, moves: false, grows: false, at })
+        .collect()
 }
 
 /// Whether what a value of `ty` reaches may own memory from an allocator, so a call given it
@@ -153,6 +206,17 @@ pub struct BodyAnalysis {
     /// argument (spec §22.12). A parameter among them is what the body's `lends` says; any
     /// other local, placement puts on the heap.
     pub lent: Vec<(LocalId, Span)>,
+    /// The parameters another thread writes through while this body runs, though it may not
+    /// grow what they reach: in the body's `lends` too, so its callers keep them apart from
+    /// their other arguments (spec §22.12, T-0268). Placement does not read these: nothing
+    /// is grown, so nothing needs the heap.
+    pub written_on_threads: Vec<(LocalId, Span)>,
+    /// Calls that lend an argument to another thread while another argument reaches what it
+    /// reaches (spec §22.12, T-0268).
+    pub lent_aliases: Vec<LentAlias>,
+    /// `parallel for` loops that write a container in an `Rc`'s value and read an `Rc`
+    /// that may hold it (spec §22.4).
+    pub pass_handle_reads: Vec<PassReadsHandle>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -491,6 +555,29 @@ struct Analysis<'a> {
     parallel: Option<(ExprId, Vec<Access>)>,
     /// Where each `move` walked inside such a call took its value from, by the `Move` node.
     moved_from: HashMap<ExprId, Vec<Origin>>,
+    /// The `parallel for` loops being walked, innermost last: what each one's body reads of
+    /// the `Rc`s from outside it (see [`PassFrame`]).
+    passes: Vec<PassFrame>,
+}
+
+/// One `parallel for` being walked: its first binding, before which every local is from
+/// outside it, and each `Rc` type a local from outside reaches, with where it is read. A
+/// pass reading an `Rc` whose value may hold the container the passes write would read
+/// another pass's element (spec §22.3, §22.4).
+struct PassFrame {
+    first_local: usize,
+    handles: Vec<(Ty, Span)>,
+}
+
+/// A `parallel for` whose passes write the elements of a container in an `Rc`'s value,
+/// while its body reads an `Rc` of a type whose value may be that one (spec §22.4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PassReadsHandle {
+    /// The `Rc` type read, and where.
+    pub rc: Ty,
+    pub read: Span,
+    /// The loop's subject.
+    pub subject: Span,
 }
 
 /// Analyse one checked function, using only other functions' signatures. Findings are
@@ -714,6 +801,7 @@ fn analyse(
         rewrites: super::Rewrites::default(),
         parallel: None,
         moved_from: HashMap::new(),
+        passes: Vec::new(),
     };
     let signature = body_signature(body, table, res);
     if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
@@ -1046,7 +1134,8 @@ impl Analysis<'_> {
                     self.unchecked(span, "the indexed element's storage is unknown");
                     return Vec::new();
                 };
-                let result = self.invoke(&signature, Some(value), &[], &[], span);
+                let result =
+                    self.invoke(&signature, Some(value), &[], &[], &Handles::default(), span);
                 let mut elements = Vec::new();
                 // Each possible receiver has its own result provenance. Keep its
                 // logical element path even when the returned address is @items.
@@ -1291,7 +1380,18 @@ impl Analysis<'_> {
             // A default left out is the callee's own expression, which cannot name the
             // caller's places: it kills nothing here, and its provenance is unknown, which
             // `invoke` reports only where a clause or tie depends on that parameter.
-            let mut result = self.invoke(&signature, recv.as_ref(), &values, &arg_spans, span);
+            let handles = self.handles_of(callee, args);
+            let mut result =
+                self.invoke(&signature, recv.as_ref(), &values, &arg_spans, &handles, span);
+            if !signature.sig.lends.is_empty() {
+                let recv_at = match callee {
+                    Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => {
+                        Some(self.body.expr(*recv).span)
+                    }
+                    _ => None,
+                };
+                self.lent_apart(&signature, recv.as_ref(), recv_at, args, &values, &handles, span);
+            }
             if let Callee::Method { owner, .. } = callee {
                 let index = self.table.prelude_trait_named("Index") == Some(*owner)
                     || self.table.prelude_trait_named("IndexMut") == Some(*owner);
@@ -1333,7 +1433,8 @@ impl Analysis<'_> {
                     self_ty: None,
                     owner: None,
                 };
-                return self.invoke(&signature, None, &values, &arg_spans, span);
+                let handles = self.handles_of(callee, args);
+                return self.invoke(&signature, None, &values, &arg_spans, &handles, span);
             }
         }
         self.incomplete(span, "the callee's signature is unknown");
@@ -1362,11 +1463,11 @@ impl Analysis<'_> {
                 let moves = false;
                 let mut out = Vec::new();
                 if origins.is_empty() && unknown && write {
-                    out.push(Access { place: None, write, moves, grows, at });
+                    out.push(Access { place: None, shared: None, write, moves, grows, at });
                 }
                 for o in origins {
                     let place = this.canonical(o.clone()).target;
-                    out.push(Access { place: Some(place), write, moves, grows, at });
+                    out.push(Access { place: Some(place), shared: None, write, moves, grows, at });
                 }
                 out
             };
@@ -1379,12 +1480,22 @@ impl Analysis<'_> {
             let grows = may_grow(self.table, self.body.ty(*r));
             let at = self.body.expr(*r).span;
             found.extend(reach(self, origins, value.unknown, write, grows, at));
+            found.extend(handles(self.table, self.body.ty(*r), write, at));
         }
         for (arg, value) in args.iter().zip(values) {
             if matches!(self.body.expr(*arg).kind, hir::ExprKind::DefaultArg(_)) {
                 continue;
             }
             let ty = self.body.ty(*arg);
+            // A handle it reaches is written unless only read through `&`: `&mut` writes the
+            // value it holds, and so may one the call is given (spec §14.5, §22.4).
+            let reads = matches!(
+                ty,
+                Ty::Ref { mutable: false, .. }
+                    | Ty::Slice { mutable: false, .. }
+                    | Ty::ConstSlice(_)
+            );
+            found.extend(handles(self.table, ty, !reads, self.body.expr(*arg).span));
             let (origins, write) = match ty {
                 Ty::Ref { mutable, .. } | Ty::Slice { mutable, .. } | Ty::Ptr { mutable, .. } => {
                     (&value.views, *mutable)
@@ -1398,7 +1509,14 @@ impl Analysis<'_> {
                         let at = self.body.expr(*arg).span;
                         for o in from {
                             let place = Some(self.canonical(o.clone()).target);
-                            let a = Access { place, write: true, moves: true, grows: false, at };
+                            let a = Access {
+                                place,
+                                shared: None,
+                                write: true,
+                                moves: true,
+                                grows: false,
+                                at,
+                            };
                             found.push(a);
                         }
                         continue;
@@ -1417,6 +1535,11 @@ impl Analysis<'_> {
         for a in &found {
             if let (true, false, true, Some(place)) = (a.write, a.moves, a.grows, &a.place) {
                 self.lend_to_thread(place.local, a.at);
+            }
+            // Written there at all, a parameter is in `lends`, so callers keep it apart from
+            // what else they give this function (T-0268).
+            if let (true, false, Some(place)) = (a.write, a.moves, &a.place) {
+                self.written_on_thread(place.local, a.at);
             }
         }
         if let Some((_, accesses)) = &mut self.parallel {
@@ -1456,9 +1579,109 @@ impl Analysis<'_> {
                 dz_check::ties::Root::Static(_) => continue,
             };
             let at = at.unwrap_or(signature.sig.span);
+            // The callee may grow what it lends only where its clause kills it: growing
+            // kills `@items` (§6.7). Only then does its memory need the heap.
+            let grows =
+                signature.sig.kills_unknown
+                    || signature.sig.kills.iter().any(|k| {
+                        dz_check::ties::resolve(&scope, k).is_ok_and(|t| t.root == tie.root)
+                    });
             for o in value {
                 let local = self.canonical(o).target.local;
-                self.lend_to_thread(local, at);
+                if grows {
+                    self.lend_to_thread(local, at);
+                }
+                self.written_on_thread(local, at);
+            }
+        }
+    }
+
+    /// Record that another thread writes what the parameter `local` reaches, when it is one.
+    fn written_on_thread(&mut self, local: LocalId, at: Span) {
+        let parameter = self.body.params.contains(&local);
+        if parameter && !self.result.written_on_threads.iter().any(|(l, _)| *l == local) {
+            self.result.written_on_threads.push((local, at));
+        }
+    }
+
+    /// A call to a function that `lends`: nothing else it is given may reach what it lends,
+    /// which another thread writes while the function may read the rest (spec §22.12,
+    /// T-0268). As a `kills` clause keeps its argument apart (DZ0420), with every `Rc` of a
+    /// type taken as one place (§14.5).
+    #[allow(clippy::too_many_arguments)]
+    fn lent_apart(
+        &mut self,
+        signature: &Signature,
+        recv: Option<&Value>,
+        recv_at: Option<Span>,
+        args: &[ExprId],
+        values: &[Value],
+        handles: &Handles,
+        span: Span,
+    ) {
+        let scope = signature.scope(self.table, self.res);
+        let mut inputs: Vec<Input<'_>> = Vec::new();
+        if let Some(r) = recv {
+            let origins = if r.places.is_empty() { &r.views } else { &r.places };
+            let places = origins.iter().map(|o| self.canonical(o.clone()).target).collect();
+            inputs.push(Input {
+                index: None,
+                name: "self".into(),
+                at: recv_at,
+                places,
+                held: &handles.receiver,
+            });
+        }
+        for (i, p) in signature.sig.params.iter().enumerate() {
+            // A value taken by value is copied or moved in before the call starts, so it
+            // reaches nothing of the caller's, but the `Rc`s in it still do.
+            let view = super::points(&p.ty) || self.table.placed_as_view(&p.ty);
+            let places = match values.get(i) {
+                Some(v) if view => {
+                    v.views.iter().map(|o| self.canonical(o.clone()).target).collect()
+                }
+                _ => Vec::new(),
+            };
+            let held = handles.params.get(i).map_or(&[][..], Vec::as_slice);
+            let at = args.get(i).map(|a| self.body.expr(*a).span);
+            inputs.push(Input { index: Some(i), name: p.name.clone(), at, places, held });
+        }
+        for path in &signature.sig.lends {
+            let Ok(tie) = dz_check::ties::resolve(&scope, path) else { continue };
+            let lent = match tie.root {
+                dz_check::ties::Root::SelfValue => None,
+                dz_check::ties::Root::Param(i) => Some(i),
+                dz_check::ties::Root::Static(_) => continue,
+            };
+            let Some(l) = inputs.iter().position(|x| x.index == lent) else { continue };
+            for o in 0..inputs.len() {
+                if o == l {
+                    continue;
+                }
+                let (lent_places, lent_held) = (&inputs[l].places, inputs[l].held);
+                let (other_places, other_held) = (&inputs[o].places, inputs[o].held);
+                let through = |places: &[Place], held: &[Ty]| {
+                    places.iter().find_map(|p| {
+                        let t = self.shared_type_of(p)?;
+                        held.iter().any(|h| self.table.handles_meet(&t, h)).then_some(t)
+                    })
+                };
+                let direct = lent_places
+                    .iter()
+                    .any(|p| other_places.iter().any(|q| p.covers(q) || q.covers(p)));
+                let shared =
+                    through(lent_places, other_held).or_else(|| through(other_places, lent_held));
+                if (direct || shared.is_some()) && self.reported.insert(span) {
+                    self.result.lent_aliases.push(LentAlias {
+                        span,
+                        callee: signature.name.clone(),
+                        lent: inputs[l].name.clone(),
+                        lent_at: inputs[l].at,
+                        other: inputs[o].name.clone(),
+                        other_at: inputs[o].at,
+                        shared: if direct { None } else { shared },
+                    });
+                }
             }
         }
     }
@@ -1473,9 +1696,14 @@ impl Analysis<'_> {
                         if !x.write && !y.write {
                             return None;
                         }
-                        let meet = match (&x.place, &y.place) {
-                            (Some(p), Some(q)) => p.covers(q) || q.covers(p),
-                            _ => true,
+                        let meet = match (&x.shared, &y.shared) {
+                            (Some(a), Some(b)) => self.table.handles_meet(a, b),
+                            (Some(rc), None) => self.meets_shared(rc, &y.place),
+                            (None, Some(rc)) => self.meets_shared(rc, &x.place),
+                            (None, None) => match (&x.place, &y.place) {
+                                (Some(p), Some(q)) => p.covers(q) || q.covers(p),
+                                _ => true,
+                            },
                         };
                         meet.then(|| (x.clone(), y.clone()))
                     })
@@ -1486,8 +1714,10 @@ impl Analysis<'_> {
                     (Some(p), Some(q)) => Some(if p.covers(q) { q.clone() } else { p.clone() }),
                     _ => None,
                 };
+                let shared = w.shared.clone().or_else(|| o.shared.clone());
                 self.result.parallel_conflicts.push(ParallelConflict {
-                    place,
+                    place: if shared.is_some() { None } else { place },
+                    shared,
                     writer: *writer,
                     writer_at: w.at,
                     writer_moves: w.moves,
@@ -1497,6 +1727,67 @@ impl Analysis<'_> {
                 });
             }
         }
+    }
+
+    /// A `parallel for` whose passes write their elements, in a container in an `Rc`'s value
+    /// (`element` rooted where this body's views through one are), while the body reads an
+    /// `Rc` that may hold that value: a pass would read what another writes (spec §22.4).
+    fn pass_handle_reads(
+        &mut self,
+        bindings: &[Option<LocalId>],
+        element: &[Origin],
+        frame: PassFrame,
+        subject: Span,
+    ) {
+        let writes = bindings
+            .iter()
+            .flatten()
+            .any(|l| matches!(self.body.local(*l).ty, Ty::Ref { mutable: true, .. }));
+        if !writes {
+            return;
+        }
+        let roots: Vec<Ty> = element
+            .iter()
+            .filter_map(|o| {
+                let local = self.canonical(o.clone()).target.local;
+                self.shared.iter().find(|(_, root)| *root == local).map(|(t, _)| t.clone())
+            })
+            .collect();
+        let found = frame
+            .handles
+            .into_iter()
+            .find(|(rc, _)| roots.iter().any(|container| self.table.handles_meet(container, rc)));
+        if let Some((rc, read)) = found {
+            let r = PassReadsHandle { rc, read, subject };
+            if !self.result.pass_handle_reads.contains(&r) {
+                self.result.pass_handle_reads.push(r);
+            }
+        }
+    }
+
+    /// The `Rc` types a call's receiver and each argument reach, for [`Self::invoke`].
+    fn handles_of(&self, callee: &Callee, args: &[ExprId]) -> Handles {
+        let receiver = match callee {
+            Callee::Method { recv, .. } | Callee::BaseMethod { recv, .. } => {
+                self.table.handles_reached(self.body.ty(*recv))
+            }
+            _ => Vec::new(),
+        };
+        let params = args.iter().map(|a| self.table.handles_reached(self.body.ty(*a))).collect();
+        Handles { receiver, params }
+    }
+
+    /// The `Rc` type whose value `place` is in, when it is rooted where this body's views
+    /// through one are (see [`Self::shared_root`]).
+    fn shared_type_of(&self, place: &Place) -> Option<Ty> {
+        self.shared.iter().find(|(_, root)| *root == place.local).map(|(t, _)| t.clone())
+    }
+
+    /// Whether `place` may be in the value of an `Rc` of type `rc`: it is rooted where this
+    /// body's views through such an `Rc` are (see `shared_root`), or it cannot be followed.
+    fn meets_shared(&self, rc: &Ty, place: &Option<Place>) -> bool {
+        let Some(p) = place else { return true };
+        self.shared.iter().any(|(t, root)| *root == p.local && self.table.handles_meet(t, rc))
     }
 
     /// The signature a call's clauses are read from: its callee's, or, through a function
@@ -1636,6 +1927,7 @@ impl Analysis<'_> {
         recv: Option<&Value>,
         args: &[Value],
         arg_spans: &[Span],
+        handles: &Handles,
         span: Span,
     ) -> Value {
         let scope = signature.scope(self.table, self.res);
@@ -1861,9 +2153,17 @@ impl Analysis<'_> {
             let mut naming: Vec<(String, Option<Span>)> = Vec::new();
             let mut reaching: Vec<(String, Option<Span>)> = Vec::new();
             let reaches = |origins: &[Origin]| origins.iter().any(|o| o.target.covers(&kill));
+            // What dies may be in the value of an `Rc`, which any `Rc` of a type whose value
+            // may be the same one reaches, wherever it is held: an argument holding one
+            // reaches what dies, by value too, since the callee can take a view through it
+            // (spec §14.5, T-0272).
+            let shared = self.shared_type_of(&kill).or_else(|| self.shared_type_of(&canonical));
+            let through_handle = |held: &[Ty]| {
+                shared.as_ref().is_some_and(|t| held.iter().any(|h| self.table.handles_meet(t, h)))
+            };
             if receiver_owns_kill {
                 naming.push(("self".into(), None));
-            } else if reaches(&receiver) {
+            } else if reaches(&receiver) || through_handle(&handles.receiver) {
                 reaching.push(("self".into(), None));
             }
             if !receiver_owns_kill {
@@ -1894,9 +2194,10 @@ impl Analysis<'_> {
                 // read from cannot dangle inside the call: `counts.insert(*n, 0)`.
                 let holds = super::points(&signature.sig.params[i].ty);
                 let name = signature.sig.params[i].name.clone();
+                let held = handles.params.get(i).map_or(&[][..], Vec::as_slice);
                 if owns_kill {
                     naming.push((name, arg_spans.get(i).copied()));
-                } else if holds && reaches(origins) {
+                } else if (holds && reaches(origins)) || through_handle(held) {
                     reaching.push((name, arg_spans.get(i).copied()));
                 }
                 if !owns_kill && holds {
@@ -3467,11 +3768,26 @@ impl Analysis<'_> {
                             self.lend_to_thread(local, at);
                         }
                     }
+                    let writes = bindings
+                        .iter()
+                        .flatten()
+                        .any(|l| matches!(&self.body.local(*l).ty, Ty::Ref { mutable: true, .. }));
+                    if writes {
+                        let at = self.body.expr(subject).span;
+                        for o in element.clone() {
+                            let local = self.canonical(o).target.local;
+                            self.written_on_thread(local, at);
+                        }
+                    }
                 }
                 // The parts of a container's element all point into it; an iterator's
                 // tuple of views could point anywhere.
                 if matches!(shape, hir::ForShape::Tuple) && !followed {
                     self.unchecked(node.span, "tuple iterator bindings are not modeled yet");
+                }
+                let first_local = bindings.iter().flatten().map(|l| l.index()).min();
+                if let (true, Some(first_local)) = (parallel, first_local) {
+                    self.passes.push(PassFrame { first_local, handles: Vec::new() });
                 }
                 self.loop_body(
                     None,
@@ -3480,6 +3796,15 @@ impl Analysis<'_> {
                     &fresh,
                     Some((self.body.expr(subject).span, iterator)),
                 );
+                if let (true, Some(_)) = (parallel, first_local) {
+                    let frame = self.passes.pop().expect("pushed above");
+                    self.pass_handle_reads(
+                        &bindings,
+                        &element,
+                        frame,
+                        self.body.expr(subject).span,
+                    );
+                }
             }
             hir::StmtKind::Defer(stmt) => self.scopes.last_mut().unwrap().push(Exit::Defer(stmt)),
             // Walked one call after another, each call's kills before the next call's
@@ -3553,6 +3878,14 @@ impl Analysis<'_> {
         let mut value = match node.kind {
             hir::ExprKind::Local(local) => {
                 let mut value = self.state.get(&local).cloned().unwrap_or_default();
+                for frame in &mut self.passes {
+                    if local.index() < frame.first_local {
+                        let ty = &self.body.local(local).ty;
+                        for rc in self.table.handles_reached(ty) {
+                            frame.handles.push((rc, node.span));
+                        }
+                    }
+                }
                 if matches!(node.ty, Ty::Ref { .. }) || self.body.local(local).name == "self" {
                     value.places = value.views.clone();
                 } else {

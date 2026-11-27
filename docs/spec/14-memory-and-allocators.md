@@ -641,8 +641,9 @@ value was made as, which its vtable names. So **a `Box<Button>` converts to a
 its value was made as in its allocation, and converts to any base. `[DECIDED — D-0104,
 amending §18.64]`
 
-Not yet: `Arc<T>`, which needs atomics (§18.11); and a handle to a trait object.
-`[DECIDED — §18.62]`
+Not yet: a handle to a trait object. `[DECIDED — §18.62]`
+
+There is no `Arc<T>`: an `Rc` crosses into parallel code itself, with atomic counts (§22.4).
 
 ## 14.6 Placement by the compiler
 

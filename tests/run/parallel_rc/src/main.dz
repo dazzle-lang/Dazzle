@@ -1,0 +1,140 @@
+// `Rc` and `Weak` in parallel code (spec §22.4): they cross into a `parallel` block and a
+// `parallel for` as their values do, and a program with either counts with atomics. Every
+// `if let` and `or` on a handle takes a strong count and gives it back, so threads doing that
+// to one value at once leave the counts right only if they are atomic.
+
+static DROPPED: Atomic<u32> = Atomic<u32>(0)
+
+struct Texture {
+    pub width: i32
+}
+
+impl Drop for Texture {
+    /// Counts the textures that were made; a moved-from one is reset, and dropped too (§6.4).
+    fn drop(&mut self) {
+        if width != 0 {
+            DROPPED.add(1)
+        }
+    }
+}
+
+struct Atlas {
+    pub pages: i32
+}
+
+struct Sprite {
+    pub texture: Rc<Texture>
+    pub x:       i32
+}
+
+/// Reads through every sprite's `Rc` many times over, each `if let` a count up and down.
+fn measure(sprites: &List<Sprite>, out: &mut i64) {
+    let mut sum: i64 = 0
+    for _ in 0..500 {
+        for &s in sprites {
+            if let &t = s.texture {
+                sum += (t.width + s.x) as i64
+            }
+        }
+    }
+    out = sum
+}
+
+/// Writes through an `Rc` of another type than the readers', so it runs beside them.
+fn grow(atlas: &mut Rc<Atlas>) {
+    for _ in 0..1000 {
+        if let &mut a = atlas {
+            a.pages += 1
+        }
+    }
+}
+
+/// Upgrades a `Weak` many times over, each a strong count taken unless the value is gone.
+fn follow(target: &Weak<Atlas>, out: &mut i64) {
+    let mut seen: i64 = 0
+    for _ in 0..1000 {
+        if let &a = target {
+            if a.pages >= 0 {
+                seen += 1
+            }
+        }
+    }
+    out = seen
+}
+
+/// Is given an `Rc` and drops it on whichever thread runs it: the last one, here.
+fn release(t: Rc<Texture>, out: &mut i32) {
+    if let &v = t {
+        out = v.width
+    }
+}
+
+fn spin(n: &mut i32) {
+    for _ in 0..100 {
+        n += 1
+    }
+}
+
+fn main() {
+    let tex = Rc<Texture>(Texture{ width: 4 })
+    let mut sprites = List<Sprite>()
+    for i in 0..64 {
+        sprites.push(Sprite{ texture: tex.clone(), x: i })
+    }
+    let mut atlas = Rc<Atlas>(Atlas{ pages: 0 })
+    let watch = Weak<Atlas>(&atlas)
+
+    // Two readers of every `Rc<Texture>` beside a writer of an `Rc<Atlas>`, which is apart.
+    // The `Weak` reaches the `Atlas` the writer writes, so it follows in a block of its own.
+    let mut a: i64 = 0
+    let mut b: i64 = 0
+    for _ in 0..20 {
+        parallel {
+            measure(&sprites, &mut a)
+            measure(&sprites, &mut b)
+            grow(&mut atlas)
+        }
+    }
+    println!("block {} {} {}", a, b, tex.count())
+    let mut followed: i64 = 0
+    let mut c: i64 = 0
+    parallel {
+        follow(&watch, &mut followed)
+        measure(&sprites, &mut c)
+    }
+    let counts = format!("{} {}", atlas.count(), atlas.weak_count())
+    let pages = atlas or return
+    println!("atlas {} {} {}", pages.pages, followed, counts)
+
+    // Every pass reads one `Rc` from outside the loop, and another through its own element.
+    let mut widths = List<i32>()
+    for _ in 0..1000 {
+        widths.push(0)
+    }
+    for _ in 0..50 {
+        parallel for i, &mut w in widths.indexed() {
+            if let &t = tex {
+                w = t.width
+            }
+            if let &s = sprites[i % 64].texture {
+                w += s.width
+            }
+        }
+    }
+    let mut total: i64 = 0
+    for &w in widths {
+        total += w as i64
+    }
+    println!("loop {} {}", total, tex.count())
+
+    // The last `Rc` given to a call, which drops the value on its thread.
+    sprites.clear()
+    let gone = Weak<Texture>(&tex)
+    let mut width = 0
+    let mut n = 0
+    parallel {
+        spin(&mut n)
+        release(tex, &mut width)
+    }
+    println!("released {} {} {} {}", width, n, DROPPED.load(), gone == null)
+}

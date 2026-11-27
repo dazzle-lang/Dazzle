@@ -2,6 +2,119 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## `lends` keeps a caller's arguments apart (T-0268, r158; 2026-11-27)
+
+The user's reading of `lends a` was that `a` then could not be given to another parameter as
+well; it did not mean that, and `both(&mut xs, &xs)` with a block writing through one and
+reading through the other was accepted. Now it does: `lent_apart`, after `invoke`, compares each
+lent argument's places with every other argument's, and their `Rc`s with the value it is in, as
+the caller's `kills` check does (DZ0420), and refuses the call (DZ0434). It runs after `invoke`
+and shares its one-report-per-call guard, so a call a `kills` clause refuses is reported once.
+
+For the check to be worth anything, every parameter parallel code writes has to be in `lends`:
+it was only what may grow, so `a: &mut i64` written in a block needed no clause and slipped by.
+A second list, `written_on_threads`, records them (from a block's writes, a loop's `&mut`
+passes, and a parameter passed on to a function that `lends` it), and the clause check reads
+it beside `lent`. Placement reads only `lent`, and `record_lends` now adds to it only where the
+callee's `kills` clause covers the lent parameter, since growing kills `@items`: so a function
+newly needing `lends` for a plain write moves nothing of its callers' to the heap.
+`lends_never_happens.dz` and DZ0426's explanation used `twice(a, b) lends a` with both written,
+which now needs `lends a, b`; both use a third parameter written after the block instead.
+
+## A `parallel for` over an element (T-0273; 2026-11-27)
+
+`parallel for &mut x in ls[0] { x += ls[0].len() as i32 }` was accepted: the loop names the
+container its passes write as a local and a path of fields (`field_path`), and compares each
+place its body reads from outside by that path. `ls[0]` on a `List` is a call of `Index`, which
+had no path, so nothing was compared; on an array the built-in index stood for the whole array,
+so `grids[0]` beside `grids[1]` was refused instead. The path now has element steps
+(`PathStep::Element`, by constant index or any element) through both, and a read is the
+largest place it is part of (an index's receiver, like a field's base, is compared through it).
+Two cases came off the matrix's `KNOWN`, which now holds only T-0268's.
+
+## A kill beside an `Rc` to the same value (T-0272; 2026-11-27)
+
+A read of freed memory on one thread, found by the aliasing matrix: `keep(&mut v, &rc2)`, where
+`v` is the list inside `rc` and `keep` kills its items through the first parameter while
+holding a view through the second. A caller keeps an argument a `kills` clause names apart
+from the others (DZ0420) by the places each reaches, and an `Rc` argument's place is the
+handle's own variable, never the value, which is every `Rc` of its type's (§14.5). Now
+`call_inner` hands `invoke` the `Rc` types the receiver and each argument reach
+(`handles_of`, from T-0266's `handles_reached`), and a kill in an `Rc`'s value counts any of
+them that may hold it, by value too, since the callee can take a view through a handle it is
+given. The mirror, a kill through an `Rc` argument beside a view into its value, was already
+refused inside the function (DZ0413). Six of the matrix's cases came off `KNOWN`.
+
+## The aliasing matrix (T-0274; 2026-11-27)
+
+Three holes in M19 were each found by a question, "what if I pass the same list twice?", not
+by a test: each rule had its tests, and none tried every pair of places against every rule.
+`crates/dz_driver/tests/aliasing.rs` does: ten pairs of arguments (one local twice, two
+locals, a field twice, two fields, one element twice, two constant elements, `ls[i]` beside
+`ls[j]`, the value inside an `Rc` beside its `Rc` or another one, a local beside an `Rc`)
+against eight uses (a kill, a kill with a view kept across it, a write that kills nothing, a
+block and a loop in place, the same inside a function, and a block that grows), 80 programs
+analysed on every core in two seconds.
+
+The first run found two holes besides T-0268, both now tasks: **T-0272**, a read of freed
+memory on one thread, since a caller does not count an `Rc` argument as reaching the value
+another argument is in (`dz run --track-memory` prints the tracker's poison); and **T-0273**, a
+`parallel for` over `ls[0]` that does not see its body reading `ls[0]`. The 20 cases they and
+T-0268 cover are in `KNOWN`, held to what they do now, so a fix fails the test until it is
+taken off the list.
+
+## `Rc` and `Weak` in parallel code (T-0266, r157; 2026-11-27)
+
+§22.4 had decided that `Rc<T>` and `Weak<T>` cross into a `parallel` block and a `parallel
+for`, checked by type, with counts that are atomic only in a program that runs anything at the
+same time; the block refused them until the counts were. Now they are, and both cross.
+
+- **One switch, set from the whole program.** `runs_in_parallel` (`dz_check::threads`) is
+  true when any body has a `parallel` block, a `parallel for`, or a call of (or names) `spawn`.
+  The emitter writes `#define DZ_PARALLEL 1` into `dz_native.h` for such a program, and the
+  four `rc_count_*` functions there are atomics under it and plain integers otherwise. The
+  header is one of the shared files, so a parallel program's `std` is a second shared copy, keyed
+  by its contents like any other (T-0182). A runtime flag set when the first thread starts was
+  the alternative, and would have been correct, but every count would have paid a load and a
+  branch in a single-threaded program, which §22.4 says pays nothing.
+- **The incremental build follows it.** The fact goes into the fingerprint every module's
+  record compares (`Facts::templates`), so the first `parallel` in a program, or the last gone,
+  emits every module again: `std`'s files and every module holding an `Rc` instance include
+  the header. Without it, the new `first_parallel_block` scenario in the edit corpus fails;
+  with it, an incremental build equals a clean one.
+- **Every `extern fn` shell is now `inline` in `std`'s header**, where it was declared there
+  and defined in `std.cpp`. Link-time optimisation inlined it, but a release build falls back
+  to none when the linker refuses (clang++ here, on this machine), and then each count would
+  have been two calls. `std`'s header already included `dz_native.h`.
+- **Freeing is race-free.** The `Rc`s together hold one share of `weak`, given back after the
+  value is dropped, as Rust's `Arc` does: whichever of the last `Rc` and the last `Weak` goes
+  second frees the block. The old test, `weak == 0 && strong == 0` in both drops, could free
+  twice or never on two threads. A `Weak`'s guard takes a count only if it is not zero (a
+  compare-and-swap loop). The release is `acq_rel` rather than release plus a fence, which
+  ThreadSanitizer (T-0248) does not follow; it is the same instruction on x86.
+- **What crosses.** A handle crosses as its value does: `&` asks `Share` of `T`, `&mut` and by
+  value ask `Send`. The rule is only for a block's and a loop's crossings
+  (`parallel_crossing_blocker`); `spawn`'s bound asks `Send` itself, which a handle is not, so
+  `spawn` still refuses one. It is a thread-local flag rather than a parameter so that it
+  reaches the bounds of `std`'s `impl<T: Send> Send for List<T>`, asked through `implements`.
+- **Between calls.** `record_parallel` adds an access to "every `Rc<T>`" for each handle an
+  argument's type reaches, through fields and type arguments (a container's elements are behind
+  a raw pointer), written unless the argument is a `&`. Two such accesses meet when their types
+  are equal, or one value type inherits the other, or either has a type parameter in it; one
+  meets a place rooted where this body's views through such an `Rc` are (`shared_root`).
+- **In a loop**, every pass is a call, so a pass given its element as `&mut` or by value is
+  given no handle (DZ0599). And a loop whose container is in an `Rc`'s value (`if let &mut bag
+  = bags { parallel for &mut x in bag.items { … } }`) must not read another `Rc` of that type
+  in its body: the checker's DZ0433 works by local and cannot see it, so the ties walk records
+  the handles a loop body reads from outside (`PassFrame`) and reports it as DZ0433.
+- **Tests.** `tests/run/parallel_rc` runs thousands of guards on one `Rc` from every core, a
+  `Weak` upgraded on a worker, a loop reading handles, and the last `Rc` dropped on a worker; with
+  `DZ_PARALLEL` forced to 0 the same program's counts came out between 26 and 324 where 65 is
+  right, and the texture was never dropped. It runs the same on g++, clang++ and `cl`. The
+  refusals are `tests/errors/parallel_rc_*.dz`, `parallel_for_writes_rc_element.dz` and
+  `parallel_for_in_rc_reads_rc.dz`; the valid forms are `typed_parallel_rc` in
+  `tests/workspace/typed`.
+
 ## Packs completed: patterns, `countof`, packs on types (T-0269, D-0121, r156; 2026-11-26)
 
 The rest of T-0269, with the user's spellings: `..pattern` (the user's "why not simply

@@ -1,20 +1,23 @@
 // expect: DZ0426
-// `lends` makes callers put what they give on the heap, so it names only what a block may
-// grow: a number lent to one, which owns no memory, needs none (spec §22.12).
+// `lends` makes callers keep what they give apart from their other arguments, so it names
+// only what another thread writes: `c` is written after the block, on this thread, and needs
+// none (spec §22.12).
 
 fn bump(n: &mut i32) {
     n += 1
 }
 
-fn twice(a: &mut i32, b: &mut i32) lends a {
+fn twice(a: &mut i32, b: &mut i32, c: &mut i32) lends a, b, c {
     parallel {
         bump(a)
         bump(b)
     }
+    c += 1
 }
 
 fn main() {
     let mut a = 0
     let mut b = 0
-    twice(&mut a, &mut b)
+    let mut c = 0
+    twice(&mut a, &mut b, &mut c)
 }

@@ -1,0 +1,13 @@
+// expect: DZ0433
+// The passes write the elements of `grids[0]`, and each reads `grids[i]`, which may be the same
+// list: a pass would read what another writes (spec §22.3, T-0273). `grids[1]` would be apart.
+
+fn main() {
+    let mut grids = List<List<i32>>()
+    grids.push(List<i32>())
+    grids.push(List<i32>())
+    let i: usize = 0
+    parallel for &mut x in grids[0] {
+        x += grids[i].len() as i32
+    }
+}

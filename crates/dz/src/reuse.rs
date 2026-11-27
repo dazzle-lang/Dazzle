@@ -428,6 +428,10 @@ impl Facts {
         // generic body's placement, a change redoes every module: the first call anywhere to
         // a method nothing called before, or the last call gone.
         templates.extend(dz_mono::called_methods(res, table, hir).fingerprint(res));
+        // Whether the program runs anything at the same time, which makes every `Rc`'s counts
+        // atomic, in `std` and in every module holding an instance of one (spec §22.4): the
+        // first `parallel` anywhere, or the last gone, redoes every module.
+        templates.push(u8::from(dz_check::runs_in_parallel(res, hir)));
         Facts {
             placement: by_module.into_iter().map(|(m, bytes)| (m, fnv1a(&bytes))).collect(),
             templates: fnv1a(&templates),

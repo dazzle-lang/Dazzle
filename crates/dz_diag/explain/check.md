@@ -2190,18 +2190,18 @@ An argument of a call in `parallel { … }` is reached from another thread while
 (spec §22.2, §22.3). Lent as `&T`, it may be read on two threads at once, so `T` is `Share`;
 lent as `&mut T` or given by value, it is the other thread's for a while, so `T` is `Send`. A
 raw pointer may point at anyone's memory, and a `&mut` inside a view is a second way to write
-it. An `Rc` shares a count with every `Rc` of its value, which threads do not update together
-yet, so an `Rc` or a `Weak` does not reach `parallel`: pass what the call reads out of it.
+it. An `Rc` or a `Weak` crosses as its value does (§22.4), and a `parallel for` whose passes
+write their elements gives none of them one, since two elements may hold one value.
 
 ```dz
 struct Sprite {
-    pub texture: Rc<u32>
+    pub pixels: ^mut u8
 }
 
 fn draw(_s: &Sprite) {}
 
 fn main() {
-    let s = Sprite{ texture: Rc<u32>(1) }
+    let s = Sprite{ pixels: null }
     parallel {
         draw(&s)
     }
@@ -2210,13 +2210,13 @@ fn main() {
 
 ```dz
 struct Sprite {
-    pub texture: u32
+    pub pixels: List<u8>
 }
 
 fn draw(_s: &Sprite) {}
 
 fn main() {
-    let s = Sprite{ texture: 1 }
+    let s = Sprite{ pixels: List<u8>() }
     parallel {
         draw(&s)
     }

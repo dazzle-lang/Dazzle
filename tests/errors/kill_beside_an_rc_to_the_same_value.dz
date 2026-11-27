@@ -1,0 +1,25 @@
+// expect: DZ0420
+// `keep` kills the list's items through `a`, and is right for every `a` apart from what `b`
+// holds. Here `a` is the list inside `rc`, and `rc2` holds that same list: any two
+// `Rc<List<i32>>`s may hold one value (spec §14.5, §6.7, T-0272). Accepted, `first` would read
+// freed memory.
+
+fn keep(a: &mut List<i32>, b: &Rc<List<i32>>) kills a@items {
+    if let &l = b {
+        let first = &l[0]
+        for _ in 0..1000 {
+            a.push(7)
+        }
+        println!("first is {}", first)
+    }
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(42)
+    let mut rc = Rc<List<i32>>(xs)
+    let rc2 = rc.clone()
+    if let &mut v = rc {
+        keep(&mut v, &rc2)
+    }
+}

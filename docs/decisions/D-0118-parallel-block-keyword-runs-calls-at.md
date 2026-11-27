@@ -35,7 +35,7 @@ programs; `parallel` appeared only in two comments, and says what the block does
 - No call may need the main thread (DZ0598), `unsafe` or not; what crosses is held to §22.2
   (DZ0599); and two calls to §22.3's rule (DZ0424).
 - `Rc` and `Weak` are refused for now, the user's choice, until their counts are atomic
-  (T-0266, §22.4).
+  (T-0266, §22.4). Since r157 they are, and both cross as §22.4 says.
 
 **What it changes.** `join!` is gone from §22; `parallel` is a keyword (§2.7), a statement
 (§20), and needs no `#[parallel]` (§12.8). D-0096's "parallelism is library, not syntax"

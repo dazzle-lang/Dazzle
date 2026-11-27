@@ -252,6 +252,10 @@ pub const PARALLEL_LOOP_SUBJECT: &str = "DZ0432";
 /// other than through the element it is given: another pass may be writing what it reads
 /// (spec §22.3).
 pub const PARALLEL_LOOP_READS_WRITTEN: &str = "DZ0433";
+/// A call to a function that `lends` a parameter, where another of its arguments reaches what
+/// that argument does: another thread writes it while the function may read it through the
+/// other (spec §22.12, T-0268).
+pub const LENT_ARGUMENT_REACHED: &str = "DZ0434";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

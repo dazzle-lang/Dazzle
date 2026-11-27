@@ -1,0 +1,13 @@
+// expect: DZ0599
+// Two elements may hold `Rc`s to one value, so passes that each write through their own
+// element's would write that value together (spec §22.4).
+
+fn main() {
+    let shared = Rc<i32>(0)
+    let mut handles = [shared.clone(), shared.clone(), Rc<i32>(5)]
+    parallel for &mut h in handles {
+        if let &mut v = h {
+            v += 1
+        }
+    }
+}

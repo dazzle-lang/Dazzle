@@ -1,0 +1,4 @@
+block 1136000 1136000 65
+atlas 20000 1000 1 1
+loop 8000 65
+released 4 100 1 true

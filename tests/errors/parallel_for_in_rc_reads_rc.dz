@@ -1,0 +1,22 @@
+// expect: DZ0433
+// The passes write the elements of a list in an `Rc<Bag>`'s value, and each reads another
+// `Rc<Bag>`, which may hold the same list: a pass would read what another writes (spec §22.4).
+
+struct Bag {
+    pub items: List<i32>
+}
+
+fn main() {
+    let mut items = List<i32>()
+    items.push(1)
+    items.push(2)
+    let mut bags = Rc<Bag>(Bag{ items: items })
+    let other = bags.clone()
+    if let &mut bag = bags {
+        parallel for &mut x in bag.items {
+            if let &o = other {
+                x += o.items.len() as i32
+            }
+        }
+    }
+}

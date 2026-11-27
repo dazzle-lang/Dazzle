@@ -311,6 +311,97 @@ fn headless_examples_are_clean_under_sanitizers() {
     }
 }
 
+/// Every program here that starts a thread, built under ThreadSanitizer with clang++ or g++
+/// (`DZ_CXX`), prints its `expected.txt` and draws no report: regions on, off, and with the
+/// memory tracker, whose lock is what T-0038 added (T-0248). The other half of the evidence
+/// [`every_program_is_clean_under_sanitizers`] gives: that safe code has no data race either
+/// (spec §1.1, §22). Ignored by default, since it needs the ThreadSanitizer runtime; CI's
+/// `tsan` job runs it with `--ignored`, once with each compiler.
+#[test]
+#[ignore]
+fn threaded_programs_are_clean_under_thread_sanitizer() {
+    let threaded: Vec<String> =
+        projects().into_iter().filter(|(_, dir)| starts_threads(dir)).map(|(n, _)| n).collect();
+    // A guard on the selection itself: a renamed keyword would otherwise run nothing.
+    assert!(threaded.len() >= 6, "too few programs start threads: {threaded:?}");
+    let runs: Vec<(String, &str, bool)> = threaded
+        .iter()
+        .flat_map(|n| [(n.clone(), "1", false), (n.clone(), "0", false), (n.clone(), "1", true)])
+        .collect();
+    parallel::for_each(&runs, |(name, regions, tracked)| {
+        let dir = run_dir(name);
+        let expected = normalise(&std::fs::read_to_string(dir.join("expected.txt")).unwrap());
+        let tag = if *tracked { "tracked" } else { regions };
+        let copy = copy_fixture(name, &format!("dz_tsan_{name}_{tag}"));
+        let what = format!("{name} (regions {regions}{})", if *tracked { ", tracked" } else { "" });
+        let out = thread_sanitized_run(&what, &copy, regions, *tracked);
+        let stdout = normalise(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{what}: dz run failed\n{stderr}");
+        assert_eq!(stdout, expected, "{what}: stdout differs");
+        let _ = std::fs::remove_dir_all(&copy);
+    });
+    // `ecs` runs its systems in parallel, M19's proof, and opens no window.
+    let ecs = repo_root().join("examples").join("ecs");
+    for regions in ["1", "0"] {
+        let what = format!("examples/ecs (regions {regions})");
+        let out = thread_sanitized_run(&what, &ecs, regions, false);
+        assert!(
+            out.status.success(),
+            "{what}: dz run failed\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// Whether a project's sources start a thread or synchronise between threads: a `parallel`
+/// block or loop, a `spawn`, a `Mutex` or an atomic.
+fn starts_threads(dir: &Path) -> bool {
+    fn walk(dir: &Path, found: &mut bool) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.extension().is_some_and(|x| x == "dz") {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                *found |=
+                    ["parallel", "spawn(", "Mutex<", "Atomic<"].iter().any(|w| text.contains(w));
+            }
+        }
+    }
+    let mut found = false;
+    walk(&dir.join("src"), &mut found);
+    found
+}
+
+/// `dz run` on `dir` under ThreadSanitizer with `DZ_CXX` (clang++ by default), failing on any
+/// report; `regions` is `DZ_REGIONS`, and `tracked` adds `--track-memory`.
+fn thread_sanitized_run(
+    what: &str,
+    dir: &Path,
+    regions: &str,
+    tracked: bool,
+) -> std::process::Output {
+    let cxx = std::env::var("DZ_CXX").ok().filter(|c| !c.is_empty()).unwrap_or("clang++".into());
+    let mut args = vec!["run"];
+    if tracked {
+        args.push("--track-memory");
+    }
+    let out = Command::new(dz())
+        .args(&args)
+        .arg(dir)
+        .current_dir(dir)
+        .env("DZ_CXX", &cxx)
+        .env("DZ_CXXFLAGS", "-fsanitize=thread -fno-omit-frame-pointer -g -O1")
+        .env("DZ_REGIONS", regions)
+        .env("TSAN_OPTIONS", "halt_on_error=1 second_deadlock_stack=1")
+        .output()
+        .expect("failed to run dz");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!stderr.contains("ThreadSanitizer"), "{what}: ThreadSanitizer reported\n{stderr}");
+    out
+}
+
 /// The ties check against the sanitizers on programs no one wrote by hand (T-0134): a fixed
 /// seed of `tools/fuzz_ties.py`, so a change to the checker that accepts a program reaching
 /// freed memory, of a shape the generator writes, fails here. A fixed seed rather than a new

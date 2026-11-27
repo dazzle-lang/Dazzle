@@ -20,7 +20,10 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    (T-0264), `parallel { … }` with `lends` (T-0265), `parallel for` (D-0120, r153), and the
    pool of workers that runs both (r154), and `spawn` of any number of arguments through
    type parameter packs (D-0121, r155, T-0269), which made `spawn!` unneeded. There is no `Arc` (T-0001 dropped):
-   `Rc` itself gets atomic counts (T-0266).
+   `Rc` itself has atomic counts in a program that runs anything in parallel, and crosses into a
+   block or a loop checked by type (T-0266, r157). A caller keeps what a function `lends` apart from
+   its other arguments (T-0268, r158), and the aliasing matrix (T-0274) tries every pair of
+   places against every rule that keeps two apart.
    T-0248 covers ThreadSanitizer in CI. The proof is
    `ecs` running its systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a
@@ -315,16 +318,18 @@ section: M19, M20, M21 and M22, then the rest of the plan. Other milestones' ope
 
 - **[T-0244](tasks/T-0244-dz-lists-newer-releases-git-source.md)** dz lists newer releases of a git source pinned by version · feature, packaging
 
-## M19 — Threads (8 open)
+## M19 — Threads (10 open)
 
 - **[T-0002](tasks/T-0002-skip-guard-count-when-nothing-can.md)** Skip the guard's count when nothing can drop the owner · feature, ownership
 - **[T-0011](tasks/T-0011-threads-mutex-atomics-job-system.md)** Threads, a mutex, atomics and a job system · feature, concurrency
 - **[T-0248](tasks/T-0248-threadsanitizer-job-in-ci.md)** A ThreadSanitizer job in CI · feature, tooling
 - **[T-0259](tasks/T-0259-closures-for-parallel-loop-bodies-first.md)** Closures (D-0112, spec §7.8) · feature, language
 - **[T-0261](tasks/T-0261-method-named-as-value-passes-checker.md)** A method named as a value passes the checker and fails in C++ generation · bug, checker
-- **[T-0266](tasks/T-0266-rc-or-weak-in-parallel-block.md)** An Rc or a Weak in a parallel block: atomic counts, checked by type · feature, concurrency
 - **[T-0267](tasks/T-0267-parallel-block-hands-back-its-calls.md)** A parallel block hands back its calls' results · feature, concurrency
-- **[T-0268](tasks/T-0268-two-parameters-that-may-be-one.md)** Two parameters that may be one place reach a parallel block or loop · design, concurrency
+- **[T-0275](tasks/T-0275-refuse-what-ownership-analysis-cannot-follow.md)** Refuse what the ownership analysis cannot follow, instead of accepting it · design, ownership
+- **[T-0276](tasks/T-0276-extend-aliasing-matrix-slices-view-structs.md)** "Extend the aliasing matrix: slices, view structs, tuples, receivers, generic callees, nested blocks" · feature, testing
+- **[T-0277](tasks/T-0277-fuzz-parallel-programs-under-threadsanitizer.md)** Fuzz parallel programs under ThreadSanitizer · feature, testing
+- **[T-0278](tasks/T-0278-rc-counts-atomic-per-type-or.md)** Rc counts atomic per type or per field, not for the whole program · design, concurrency
 
 ## M20 — Working with an agent (11 open)
 

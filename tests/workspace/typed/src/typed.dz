@@ -2797,7 +2797,7 @@ fn parallel_calls() {
 // §22.3: a `parallel for` gives each pass an element of its own, with a pass count if asked,
 // reads what it shares with the other passes, and a pass may end early by `continue`; a loop
 // inside a pass may `break` out of itself.
-fn typed_parallel_for(t: &mut Teams, scale: i32) {
+fn typed_parallel_for(t: &mut Teams, scale: i32) lends t {
     parallel for i, &mut s in t.scores.indexed() {
         if i == 0 {
             continue
@@ -2813,6 +2813,48 @@ fn typed_parallel_for(t: &mut Teams, scale: i32) {
     }
     parallel for i in 0..4 {
         let _z = i * scale + t.blue.len() as i32
+    }
+}
+
+// §22.4: an `Rc` crosses into parallel code as its value does, every `Rc` of one type taken
+// as one place: calls that only read through `Rc<i32>`s run side by side, beside a call that
+// writes through an `Rc` of another type; every pass of a loop reads one from outside, and
+// its own element's through `&`.
+fn typed_read_rc(r: &Rc<i32>, out: &mut i32) {
+    if let &v = r {
+        out += v
+    }
+}
+
+fn typed_write_rc(r: &mut Rc<Teams>) {
+    if let &mut t = r {
+        t.scores[0] += 1
+    }
+}
+
+fn typed_parallel_rc() {
+    let a = Rc<i32>(1)
+    let b = a.clone()
+    let mut teams = Rc<Teams>(Teams{})
+    let mut x = 0
+    let mut y = 0
+    parallel {
+        typed_read_rc(&a, &mut x)
+        typed_read_rc(&b, &mut y)
+        typed_write_rc(&mut teams)
+    }
+    let mut sums: [4]i32 = [0, 0, 0, 0]
+    parallel for &mut s in sums {
+        if let &v = a {
+            s += v
+        }
+    }
+    let mut handles = List<Rc<i32>>()
+    handles.push(a.clone())
+    parallel for &h in handles {
+        if let &v = h {
+            let _z = v + x
+        }
     }
 }
 

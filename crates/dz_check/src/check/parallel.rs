@@ -124,7 +124,7 @@ impl Body<'_, '_> {
         if ty.is_wildcard() {
             return;
         }
-        let Some(blocker) = self.cx.table.crossing_blocker(ty, which) else { return };
+        let Some(blocker) = self.cx.table.parallel_crossing_blocker(ty, which) else { return };
         let name = self.cx.name_of(ty);
         let (trait_name, rule) = match which {
             Crossing::Share => (
@@ -141,14 +141,7 @@ impl Body<'_, '_> {
         let held = self.cx.describe_blocker(&blocker);
         let lent =
             if how == "value" { "given by value".to_owned() } else { format!("lent as {how}") };
-        let help = if self.cx.holds_rc(ty) {
-            "every `Rc` of one value shares a count, which threads do not update together yet, \
-             so an `Rc` or a `Weak` does not reach `parallel`; pass what the call reads out of \
-             it instead (spec §22.4)"
-                .to_owned()
-        } else {
-            format!("{rule}; `{name}` is not, since {held} (spec §22.2, §22.3)")
-        };
+        let help = format!("{rule}; `{name}` is not, since {held} (spec §22.2, §22.3)");
         let d = Diagnostic::error(
             codes::PARALLEL_NOT_SEND,
             format!("`{name}` may not cross to another thread {lent}"),

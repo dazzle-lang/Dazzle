@@ -1,0 +1,79 @@
+// Spec §22.12, T-0268: a function that `lends` a parameter has another thread write what it
+// reaches, and is checked with its parameters taken as separate, so a call gives it nothing
+// else that reaches the same memory. Refused: one value twice, a value beside the struct it is
+// a field of, and the value inside an `Rc` beside an `Rc` that may hold it. Still legal: two
+// values, two fields, two elements whose indices differ, and a copy.
+// expect: DZ0434, DZ0434, DZ0434
+
+struct Pair {
+    pub left:  List<i32>
+    pub right: List<i32>
+}
+
+fn bump(xs: &mut List<i32>) {
+    if xs.len() > 0 {
+        xs[0] += 1
+    }
+}
+
+fn count(xs: &List<i32>, out: &mut i32) {
+    out = xs.len() as i32
+}
+
+fn count_pair(p: &Pair, out: &mut i32) {
+    out = p.left.len() as i32
+}
+
+fn count_rc(r: &Rc<List<i32>>, out: &mut i32) {
+    if let &xs = r {
+        out = xs.len() as i32
+    }
+}
+
+fn beside(a: &mut List<i32>, b: &List<i32>) lends a {
+    let mut n = 0
+    parallel {
+        bump(a)
+        count(b, &mut n)
+    }
+}
+
+fn beside_pair(a: &mut List<i32>, p: &Pair) lends a {
+    let mut n = 0
+    parallel {
+        bump(a)
+        count_pair(p, &mut n)
+    }
+}
+
+fn beside_rc(a: &mut List<i32>, r: &Rc<List<i32>>) lends a {
+    let mut n = 0
+    parallel {
+        bump(a)
+        count_rc(r, &mut n)
+    }
+}
+
+fn main() {
+    let mut xs = List<i32>()
+    xs.push(1)
+    let ys = List<i32>()
+    let mut p = Pair{ left: List<i32>(), right: List<i32>() }
+    let mut ls = List<List<i32>>()
+    ls.push(List<i32>())
+    ls.push(List<i32>())
+    let mut rc = Rc<List<i32>>(List<i32>())
+    let other = rc.clone()
+
+    beside(&mut xs, &xs)
+    beside_pair(&mut p.left, &p)
+    if let &mut v = rc {
+        beside_rc(&mut v, &other)
+    }
+
+    beside(&mut xs, &ys)
+    beside(&mut p.left, &p.right)
+    beside(&mut ls[0], &ls[1])
+    let copy = xs.clone()
+    beside(&mut xs, &copy)
+}

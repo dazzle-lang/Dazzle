@@ -34,6 +34,7 @@ pub mod ties;
 /// The type model lives in `dz_hir`, since the HIR stores a `Ty` on every node and
 /// `dz_hir` sits below this crate. Re-exported so `dz_check::ty::Ty` keeps working.
 pub use dz_hir::ty;
+pub use threads::runs_in_parallel;
 
 use check::plural;
 use ty::{FloatTy, FnKills, IntTy, Ty};
@@ -475,6 +476,9 @@ pub struct TypeTable {
     /// `std`'s private `Synchronises`: `Mutex` and `Atomic`, whose statics need no
     /// `#[main_thread]` (spec §22.5).
     synchronises_trait: Option<SymbolId>,
+    /// `std`'s `Rc` and `Weak`, in that order: what crosses into parallel code as its value
+    /// does, and reaches the one place every `Rc` of a type stands for (spec §14.5, §22.4).
+    handles: Vec<SymbolId>,
     /// The standard library's module, whose implementations of `Send` and `Share` are the
     /// only ones that count (spec §22.2).
     std_module: Option<dz_project::ModuleId>,
@@ -1535,6 +1539,7 @@ impl<'a> Ctx<'a> {
                 send_trait: None,
                 share_trait: None,
                 synchronises_trait: None,
+                handles: Vec::new(),
                 std_module: None,
                 thread_locals: HashSet::new(),
                 impls: Vec::new(),
@@ -1559,6 +1564,8 @@ impl<'a> Ctx<'a> {
         cx.table.share_trait = cx.prelude_trait("Share");
         cx.table.synchronises_trait = cx.prelude_trait("Synchronises");
         cx.table.std_module = Some(cx.res.prelude);
+        cx.table.handles =
+            ["Rc", "Weak"].iter().filter_map(|n| cx.res.lookup(cx.res.prelude, n)).collect();
         // The standard library's traits, `Float` and `Integer` among them, by name (spec §14.4).
         for (i, s) in res.symbols.iter().enumerate() {
             if s.module == res.prelude && s.kind == SymbolKind::Trait {

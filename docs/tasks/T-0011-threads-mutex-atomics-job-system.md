@@ -19,7 +19,7 @@ record the earlier plan.
 (`Mutex<T>`, §22.10, r147; its API is proposed in D-0114), and so is `spawn` with `Thread`
 (§22.11, r150; D-0117, proposed), safe with `Send`, `Share` and `#[main_thread]` (T-0264),
 and so is `parallel { … }`, which replaced `join!` (§22.3, r151; D-0118): calls checked
-against each other, a thread per call, `Rc` refused (T-0266), no results yet (T-0267), and
+against each other, a thread per call, `Rc` crossing with atomic counts since r157 (T-0266), no results yet (T-0267), and
 `lends p` for a container lent to a block from further out, so its caller puts it on the
 heap (§22.12, r152; D-0119, T-0265), and so is **the parallel loop, `parallel for`** (§22.3,
 r153; D-0120), over a range, an array, a slice or a `List`, through `std`'s

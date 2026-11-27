@@ -5,9 +5,15 @@
 ///
 /// The value is dropped when the last `Rc` is, and the allocation freed when the last `Rc`
 /// and the last `Weak` both are — so a `Weak` can still read `strong` after the value is
-/// gone.
+/// gone. The `Rc`s together hold one share of `weak`, given back after the value is dropped,
+/// so whichever of the last `Rc` and the last `Weak` goes second frees the allocation, on
+/// whichever thread that is, with no moment where both or neither do (spec §22.4).
+///
+/// Every count goes through the functions below, which are atomic in a program that runs
+/// anything at the same time and plain integers in one that does not (spec §22.4).
 pub struct RcHeader {
     pub(module) strong: usize = 0
+    /// The `Weak`s, plus one while any `Rc` is left.
     pub(module) weak: usize = 0
     pub(module) allocator: ^mut Allocator = null
     pub(module) size: usize = 0
@@ -15,6 +21,20 @@ pub struct RcHeader {
     /// Drops the value as the type it was made as, given the block's address.
     pub(module) drop_value: fn(^mut u8)
 }
+
+/// One more owner in `count`.
+extern fn rc_count_add(count: ^mut usize)
+
+/// One fewer owner in `count`, and whether that was the last. What this thread did with the
+/// value happens before the count reaches zero, and what follows after it, so the last owner
+/// drops a value no other thread is still using.
+extern fn rc_count_release(count: ^mut usize) -> bool
+
+/// What `count` holds.
+extern fn rc_count_load(count: ^usize) -> usize
+
+/// One more owner in `count` unless it is zero, the value already gone; whether it was.
+extern fn rc_count_add_unless_zero(count: ^mut usize) -> bool
 
 /// The one allocation behind an `Rc`: the header, then the value.
 pub struct RcBlock<T> {

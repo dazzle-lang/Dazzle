@@ -1,6 +1,6 @@
 # 22. Threads
 
-`[DECIDED — D-0096, D-0112, D-0118, D-0119, D-0120; partly built: §22.2, §22.5, §22.6, §22.9 to §22.11 and §22.12 are, and so are `parallel { … }` and `parallel for`, but for `Rc`, results and queries keyed by type (T-0011)]` Threads keep the promise Dazzle makes on
+`[DECIDED — D-0096, D-0112, D-0118, D-0119, D-0120; partly built: §22.2, §22.5, §22.6, §22.9 to §22.11 and §22.12 are, and so are `parallel { … }` and `parallel for`, `Rc` in them included, but for results and queries keyed by type (T-0011)]` Threads keep the promise Dazzle makes on
 one thread (§1.1): **a program with no `unsafe` has no undefined behaviour**, data races
 included. They do it without changing single-threaded code: everything §5 to §14 allow on one
 thread stays allowed, a `&mut` beside a `&` included (D-0094). The stricter rule of this
@@ -92,8 +92,8 @@ and what follows sees every pass's writes. Since the passes run at once:
 - where the passes write their elements, the container they loop over is not frozen, so a
   pass reaches it only through its own element: reading another element, or the container
   whole, is an error (DZ0433). A field of the same value beside it, `self.scale` beside
-  `self.speeds`, is apart and may be read. Through a parameter that may be the same place as
-  the container, it is not caught yet (T-0268);
+  `self.speeds`, is apart and may be read. Through a parameter, the function `lends` the
+  container, and its callers give it nothing else that reaches it (§22.12);
 - `break`, `return`, a jump out by `or return`, and a `continue` to a loop around this one are
   errors: no pass can stop the others (DZ0431). `continue` ends its own pass, and a loop inside
   the body may `break` out of itself;
@@ -133,8 +133,8 @@ parallel {
   after another: one call never waits for another to do something.
 - **No call may need the main thread** (DZ0598, §22.5), inside `unsafe` too, which vouches for
   a static, not for where a function runs.
-- **What crosses is held to §22.2** (DZ0599), and two calls to the rule below (DZ0424). An
-  `Rc` or a `Weak` reaches none of its calls yet (§22.4).
+- **What crosses is held to §22.2** (DZ0599), and two calls to the rule below (DZ0424); an
+  `Rc` or a `Weak` crosses as §22.4 says.
 
 A block may be in any function, `main` and a call of another block included; it opens no
 scope of its own, since it declares nothing.
@@ -174,13 +174,30 @@ worker's message and location.
 
 ## 22.4 `Rc` across threads
 
-`[Not built yet: a `parallel` block refuses an `Rc` or a `Weak` in any argument, DZ0599, until
-the counts below are atomic (T-0266).]`
-
 There is no `Arc`. **`Rc<T>` and `Weak<T>` cross into a parallel loop and a `parallel` block**, and
 are checked by type, as one thread already checks them (§14.5): every `Rc<T>` of one `T` is one
 place. Calls that only read through `Rc<Texture>` run side by side; a call that writes through
-any `Rc<Texture>` conflicts with every other call that reaches one.
+any `Rc<Texture>` conflicts with every other call that reaches one (DZ0424).
+
+```dz
+parallel {
+    draw(&sprites)                     // reads through every sprite's `Rc<Texture>`
+    draw_ui(&panels)                   // and so does this, beside it
+    resize(&mut atlas)                 // writes through an `Rc<Atlas>`: apart from both
+}
+```
+
+- **A handle crosses as its value does** (§22.2). Lent as `&`, an `Rc<T>`'s `T` is `Share`,
+  since every thread that reaches one may read it; lent as `&mut` or given by value, `T` is
+  `Send`, since the call may write the value, or drop it as its last owner (DZ0599). What holds
+  one crosses the same way: a `List<Rc<Texture>>` as `Texture` does.
+- **A call writes through every handle it is not lent as `&`**: `&mut` puts a handle in the
+  writable place `&mut` of its value needs (§14.5), and a handle given may be the last. An
+  `Rc<Button>` and an `Rc<UiElement>` may hold one value, so they meet too.
+- **The passes of a `parallel for` that writes its elements are given no handle** (DZ0599):
+  two elements may hold one value. Bound as `&`, each pass only reads through its own.
+- **A pass reads no `Rc` whose value may hold what the passes write** (DZ0433): a loop over
+  `bag.items`, where `bag` is an `Rc<Bag>`'s value, reads no other `Rc<Bag>` in its body.
 
 Their counts are **atomic in a program that runs anything at the same time**, one where a
 parallel loop, a `parallel` block or `spawn` appears, and plain integers in any other, so a
@@ -371,7 +388,7 @@ hold is placed on the heap, never in a region of the code that started the threa
 
 ## 22.12 Lending to a block: `lends`
 
-`[DECIDED — D-0119]` Where memory lives is decided by the function that makes it, which puts
+`[DECIDED — D-0119, widened in r158]` Where memory lives is decided by the function that makes it, which puts
 it in its region, used by one thread at a time, unless it knows two threads may grow it at once
 (§14.6). A container made in a function with a `parallel` block, and given to its calls, is
 placed seeing the block. One made further up and handed down as a parameter is not, so the
@@ -395,21 +412,29 @@ fn main() {
 }
 ```
 
-- **`lends p`** says that some call in a `parallel` block, or a pass of a `parallel for`, may
-  change, and grow, what `p` reaches: written through `&mut`, a `&mut self` receiver or a
+- **`lends p`** says that some call in a `parallel` block, or a pass of a `parallel for`,
+  writes what `p` reaches, and may grow it: written through `&mut`, a `&mut self` receiver or a
   view, or an element of it given to each pass as `&mut`, directly or through a function that
-  `lends` it in turn. A caller puts what it gives there on the heap.
+  `lends` it in turn. A caller puts what it gives there on the heap where the function may grow
+  it, which its `kills` clause says.
+- **A caller gives nothing else that reaches it** (DZ0434). The function is checked once, with
+  its parameters taken as separate, so `both(&mut xs, &xs)` would have another thread write
+  `xs` while the function reads it. The same value twice, a value beside a struct it is a field
+  of, two elements that may be one, and the value inside an `Rc` beside an `Rc` that may hold it
+  (§14.5) are refused; two values, two fields and two elements whose indices differ are not. A
+  `kills` clause keeps its argument apart the same way (§6.7). `[DECIDED — r158, T-0268]`
 - **It names whole parameters** the function can change its caller's memory through: a
   `&mut`, `[]mut` or `^mut` one, `self` for `&mut self`, or a view taken by value
   (DZ0427). What is lent as `&` is only read, and what is given by value is the function's
   own.
 - **It is held to the body**, as `kills` is: a body that lends a parameter its clause leaves
   out is an error (DZ0425), and so is a clause naming one the body never lends (DZ0426); `dz
-  fix` writes it. Only what may own memory counts: an `i32` lent to a block needs no `lends`.
+  fix` writes it. Whatever is written counts, an `i32` too, since the clause is also what keeps
+  callers from giving it twice.
 - **A function that lends is called by name.** A function type has no `lends`, so such a
   function is never a function value (DZ0428). An implementation of a trait method, or an
   override, lends only what the method it implements says (DZ0429).
 
-The clause is about placement alone: it changes where memory lives, never what a program does
-(§14.6). It is what lets a region be grown by one thread only, so nothing is locked or checked
-at run time (§22.6).
+The clause changes where memory lives and which calls a program may write, never what a
+running program does (§14.6). It is what lets a region be grown by one thread only, and two
+threads never write what a third reads, so nothing is locked or checked at run time (§22.6).

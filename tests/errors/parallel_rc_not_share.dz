@@ -1,0 +1,22 @@
+// expect: DZ0599
+// An `Rc` crosses into `parallel` as its value does: read through `&` by another thread, the
+// value is `Share`, and one holding a raw pointer is not (spec §22.2, §22.4).
+
+struct Node {
+    pub next: ^mut Node
+}
+
+fn walk(_n: &Rc<Node>) {}
+
+fn work(n: &mut i32) {
+    n += 1
+}
+
+fn main() {
+    let node = Rc<Node>(Node{ next: null })
+    let mut n = 0
+    parallel {
+        walk(&node)
+        work(&mut n)
+    }
+}

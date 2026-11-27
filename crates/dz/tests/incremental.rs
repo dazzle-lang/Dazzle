@@ -246,6 +246,19 @@ const SCENARIOS: &[Scenario] = &[
             "    pub agility:  f32 = 0 `json:\"agi\"`\n    pub luck:     i32 = 2\n",
         )],
     },
+    // The first `parallel` in a program that holds `Rc`s makes their counts atomic, in `std`
+    // and in every module with an instance of one (spec §22.4), though no module's own code
+    // changed but the one the block is in.
+    Scenario {
+        name: "first_parallel_block",
+        project: Run("handles"),
+        setup: &[Replace("src/main.dz", "fn main() {", "fn bump(n: &mut i32) {\n    n += 1\n}\n\nfn main() {")],
+        edit: &[Replace(
+            "src/main.dz",
+            "    println!(\"end\")\n}",
+            "    let mut ticks = 0\n    let mut tocks = 0\n    parallel {\n        bump(&mut ticks)\n        bump(&mut tocks)\n    }\n    println!(\"end {} {}\", ticks, tocks)\n}",
+        )],
+    },
 ];
 
 /// The C++ compiler every build here uses: `DZ_CXX` when set (CI picks one per job), or the

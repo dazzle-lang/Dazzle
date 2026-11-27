@@ -1906,14 +1906,19 @@ fn doubled(n: i32) -> i32 {
 
 fn reads_pointing(_p: &Pointing) {}
 
+// §22.4: an `Rc` crosses as its value does, so read through `&` its value is `Share`.
+fn reads_rc_pointing(_p: &Rc<Pointing>) {}
+
 fn parallel_mistakes() {
     let mut n = 0
     let p = Pointing{}
+    let rp = Rc<Pointing>(Pointing{})
     parallel {
         let _m = 1
         doubled(2)
         on_the_main_thread()
         reads_pointing(&p)
+        reads_rc_pointing(&rp)
         adds_one(&mut n)
     }
 }
@@ -1933,6 +1938,13 @@ fn parallel_for_mistakes(xs: &mut [4]i32) {
     }
     parallel for _, &mut age in ages {
         age += 1
+    }
+    // §22.4: two elements may hold one `Rc`'s value, so no pass writes through its own.
+    let mut handles = [Rc<i32>(1), Rc<i32>(2)]
+    parallel for &mut h in handles {
+        if let &mut v = h {
+            v += 1
+        }
     }
 }
 

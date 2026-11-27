@@ -1,0 +1,24 @@
+// expect: DZ0424
+// Any two `Rc<u32>`s may hold one value, so a call that writes through one conflicts with
+// every other call that reaches an `Rc<u32>`, even a different one (spec §14.5, §22.4).
+
+struct Sprite {
+    pub texture: Rc<u32>
+}
+
+fn draw(_s: &Sprite) {}
+
+fn resize(s: &mut Sprite) {
+    if let &mut t = s.texture {
+        t += 1
+    }
+}
+
+fn main() {
+    let a = Sprite{ texture: Rc<u32>(1) }
+    let mut b = Sprite{ texture: Rc<u32>(2) }
+    parallel {
+        draw(&a)
+        resize(&mut b)
+    }
+}

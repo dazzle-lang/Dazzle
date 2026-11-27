@@ -225,7 +225,7 @@ pub fn emit_selected(
             GeneratedFile::shared("dz_runtime.h", RUNTIME_H),
             GeneratedFile::shared("dz_runtime.cpp", RUNTIME_CPP),
             GeneratedFile::shared("dz_prelude.h", PRELUDE_H),
-            GeneratedFile::shared("dz_native.h", NATIVE_H),
+            GeneratedFile::shared("dz_native.h", native_h(dz_check::runs_in_parallel(res, hir))),
             GeneratedFile::shared("dz_native.cpp", NATIVE_CPP),
         ],
         diagnostics: Diagnostics::new(),
@@ -531,6 +531,17 @@ pub fn emit_selected(
 
     out.diagnostics.sort_by_position();
     out
+}
+
+/// `dz_native.h` for a program that runs anything at the same time, or for one that does not
+/// (spec §22.4): its `Rc` and `Weak` counts are atomic in the first, plain in the second. The
+/// header is one of the shared files, so the two compile into two shared copies of `std`.
+fn native_h(parallel: bool) -> String {
+    if parallel {
+        NATIVE_H.replacen("#define DZ_PARALLEL 0\n", "#define DZ_PARALLEL 1\n", 1)
+    } else {
+        NATIVE_H.to_owned()
+    }
 }
 
 /// The entry point of a test or benchmark binary (spec §19 M14, M15).
@@ -3093,7 +3104,7 @@ impl<'a> Emitter<'a> {
                     h,
                     "    template <class O, class = decltype(::dz::rt::implicit_ptr<{base}>(static_cast<O*>(nullptr)->m_value))>\n    \
                      {name}(const O& o) : m_header(o.m_header), m_value(o.m_value) {{\n        \
-                     if (m_header != nullptr) {{ m_header->{count} += 1; }}\n    }}"
+                     if (m_header != nullptr) {{ ::dz::rt::native::rc_count_add(&m_header->{count}); }}\n    }}"
                 );
             }
             // The checker allows it only to a base with a vtable (DZ0588), which in single
@@ -4174,14 +4185,15 @@ impl<'a> Emitter<'a> {
 
     /// An `extern fn` of `std`: a forwarding shell to `::dz::rt::native::<name>` in the
     /// runtime, which the C++ compiler inlines away (spec §7.2, §16.4). The shell keeps a
-    /// call to it an ordinary call as far as the rest of codegen is concerned.
+    /// call to it an ordinary call as far as the rest of codegen is concerned. It is defined
+    /// `inline` in `std`'s header, which includes the runtime's, so it inlines without
+    /// link-time optimisation too: `Rc`'s counts are inline native functions, a plain `+= 1`
+    /// in a program that runs nothing at the same time (spec §22.4).
     fn extern_fn(&mut self, sym: SymbolId, name: &str) {
         let owner = BodyOwner::Fn(sym);
         let Some(body) = self.find_body(&owner) else { return };
         let ret = self.body_ret_ty(&owner);
-        let decl = self.decl_params(&owner);
         let cpp = sanitize(name);
-        let _ = writeln!(self.header, "{ret} {cpp}({decl});");
         let names = param_names(body);
         let mut params = Vec::new();
         let mut args = Vec::new();
@@ -4193,8 +4205,8 @@ impl<'a> Emitter<'a> {
         }
         let ret_kw = if matches!(body.ret, Ty::Void) { "" } else { "return " };
         let _ = writeln!(
-            self.out,
-            "{ret} {cpp}({}) {{\n    {ret_kw}::dz::rt::native::{name}({});\n}}\n",
+            self.header,
+            "inline {ret} {cpp}({}) {{\n    {ret_kw}::dz::rt::native::{name}({});\n}}\n",
             params.join(", "),
             args.join(", ")
         );

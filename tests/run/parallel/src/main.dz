@@ -143,7 +143,7 @@ fn own_frames(drawn: &mut i64) {
 /// Two renderers lent from further out, grown at once beside a call with a renderer of its
 /// own: `lends` puts them on the heap, where the caller would otherwise have used its region
 /// (spec §22.12).
-fn both(a: &mut Renderer, b: &mut Renderer, c: &mut i64) kills a@commands, b@commands lends a, b {
+fn both(a: &mut Renderer, b: &mut Renderer, c: &mut i64) kills a@commands, b@commands lends a, b, c {
     parallel {
         frames(a, 1)
         frames(b, 2)

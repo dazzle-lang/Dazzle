@@ -19,6 +19,30 @@ use crate::threads::Crossing;
 use crate::ty::Ty;
 use crate::TraitRef;
 
+/// One step of a place below its local, for the loop's check that no pass reads the
+/// container the passes write (see `Body::field_path`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum PathStep {
+    /// A field, by its index in the declaration.
+    Field(usize),
+    /// An element of an array, a slice or a container indexed through `Index`: by a constant
+    /// index when the program wrote one, `None` for any other, which may be any element.
+    Element(Option<i128>),
+}
+
+impl PathStep {
+    /// Whether two steps at one depth may reach the same memory.
+    fn meets(self, other: PathStep) -> bool {
+        match (self, other) {
+            (PathStep::Field(a), PathStep::Field(b)) => a == b,
+            (PathStep::Element(Some(a)), PathStep::Element(Some(b))) => a == b,
+            (PathStep::Element(_), PathStep::Element(_)) => true,
+            // A field and an element of one value do not both exist.
+            _ => false,
+        }
+    }
+}
+
 /// One `parallel for` being checked: the first local and node its body made, so that
 /// anything before them is the loop's outside.
 #[derive(Clone, Copy, Debug)]
@@ -67,7 +91,41 @@ impl Body<'_, '_> {
                 t => (Crossing::Send, t.clone()),
             };
             self.pass_crossing(span, &inner, which, "each pass is given", "");
+            if which == Crossing::Send {
+                self.elements_share_handles(span, &inner);
+            }
         }
+    }
+
+    /// An element each pass may write that reaches an `Rc` or a `Weak`: two elements may hold
+    /// the same value, and every pass runs at once, so the passes would write it together
+    /// (spec §22.4). Read through `&`, each pass only reads it.
+    fn elements_share_handles(&mut self, span: Span, ty: &Ty) {
+        if ty.is_wildcard() {
+            return;
+        }
+        let Some(rc) = self.cx.table.handles_reached(ty).into_iter().next() else { return };
+        let message = if matches!(ty, Ty::Named { sym, .. } if self.cx.table.is_handle(*sym)) {
+            format!("each pass of `parallel for` may write through its `{}`", self.cx.name_of(ty))
+        } else {
+            format!(
+                "each pass of `parallel for` may write `{}`, which holds an `{}`",
+                self.cx.name_of(ty),
+                self.cx.name_of(&rc)
+            )
+        };
+        let rc = self.cx.name_of(&rc);
+        self.cx.error_help(
+            codes::PARALLEL_NOT_SEND,
+            span,
+            message,
+            format!("two elements may hold one `{rc}`'s value"),
+            format!(
+                "any two `{rc}`s may hold one value, so passes that each write through their own \
+                 may write it together; bind the element as `&` to read it, or loop with `for` \
+                 (spec §22.4)"
+            ),
+        );
     }
 
     /// `e` is about to be written: an error if it is a place outside the `parallel for`
@@ -125,7 +183,7 @@ impl Body<'_, '_> {
     pub(super) fn parallel_body(
         &mut self,
         pl: ParallelLoop,
-        written: Option<(LocalId, Vec<usize>)>,
+        written: Option<(LocalId, Vec<PathStep>)>,
     ) {
         let end = self.hir.expr_count();
         let ids = || (pl.first_expr..end).map(|i| ExprId(i as u32));
@@ -187,32 +245,39 @@ impl Body<'_, '_> {
 
     /// Each place the body reaches from outside the loop that overlaps `container`, the one
     /// whose elements the passes write: another pass may be writing what it reads. A place is
-    /// a local and the fields under it, so `self.scale` is apart from `self.speeds`; an array's
+    /// a local and the fields and elements under it, so `self.scale` is apart from
+    /// `self.speeds`, and `ls[1]` from `ls[0]`, but `ls[j]` is not from `ls[i]`; an array's
     /// length is never written and may be read.
-    fn reads_written(&mut self, pl: ParallelLoop, container: &(LocalId, Vec<usize>)) {
+    fn reads_written(&mut self, pl: ParallelLoop, container: &(LocalId, Vec<PathStep>)) {
         let end = self.hir.expr_count();
+        // The nodes read only as part of a larger place, which is compared instead.
         let mut inside = HashSet::new();
         for i in pl.first_expr..end {
-            match self.hir.kind(ExprId(i as u32)) {
-                hir::ExprKind::Field { base, .. } | hir::ExprKind::Len(base) => {
+            let e = ExprId(i as u32);
+            match self.hir.kind(e) {
+                hir::ExprKind::Field { base, .. }
+                | hir::ExprKind::Len(base)
+                | hir::ExprKind::Index { base, .. } => {
                     inside.insert(*base);
                 }
                 _ => {}
             }
+            if let Some(recv) = self.indexed_receiver(e) {
+                inside.insert(recv);
+            }
         }
         for i in pl.first_expr..end {
             let e = ExprId(i as u32);
-            if inside.contains(&e)
-                || !matches!(
-                    self.hir.kind(e),
-                    hir::ExprKind::Local(_) | hir::ExprKind::Field { .. }
-                )
-            {
+            let place = matches!(
+                self.hir.kind(e),
+                hir::ExprKind::Local(_) | hir::ExprKind::Field { .. } | hir::ExprKind::Index { .. }
+            ) || self.indexed_receiver(e).is_some();
+            if inside.contains(&e) || !place {
                 continue;
             }
             let Some((root, path)) = self.field_path(e) else { continue };
             let overlaps =
-                root == container.0 && path.iter().zip(&container.1).all(|(a, b)| a == b);
+                root == container.0 && path.iter().zip(&container.1).all(|(a, b)| a.meets(*b));
             if root.index() >= pl.first_local || !overlaps {
                 continue;
             }
@@ -231,21 +296,54 @@ impl Body<'_, '_> {
         }
     }
 
-    /// A place as a local and the fields under it, `w.positions` as `w` and the field's index;
-    /// an element or a slice stands for the whole it is in.
-    pub(super) fn field_path(&self, e: ExprId) -> Option<(LocalId, Vec<usize>)> {
+    /// A place as a local and the fields and elements under it: `w.positions` as `w` and the
+    /// field's index, `ls[0]` as `ls` and element 0, whether `ls` is an array or a `List`
+    /// indexed through `Index` (T-0273). A slice stands for the whole it is in.
+    pub(super) fn field_path(&self, e: ExprId) -> Option<(LocalId, Vec<PathStep>)> {
+        if let Some(recv) = self.indexed_receiver(e) {
+            let hir::ExprKind::Call { args, .. } = self.hir.kind(e) else { return None };
+            let at = args.first().and_then(|a| self.constant_index(*a));
+            let (root, mut path) = self.field_path(recv)?;
+            path.push(PathStep::Element(at));
+            return Some((root, path));
+        }
         match self.hir.kind(e) {
             hir::ExprKind::Local(l) => Some((*l, Vec::new())),
             hir::ExprKind::Field { base, index } => {
                 let index = *index;
                 let (root, mut path) = self.field_path(*base)?;
-                path.push(index);
+                path.push(PathStep::Field(index));
+                Some((root, path))
+            }
+            hir::ExprKind::Index { base, index } => {
+                let at = self.constant_index(*index);
+                let (root, mut path) = self.field_path(*base)?;
+                path.push(PathStep::Element(at));
                 Some((root, path))
             }
             hir::ExprKind::Ref { place: base, .. }
             | hir::ExprKind::Deref(base)
-            | hir::ExprKind::Index { base, .. }
             | hir::ExprKind::SliceRange { base, .. } => self.field_path(*base),
+            _ => None,
+        }
+    }
+
+    /// The container `e` indexes, when `e` is a call of `std`'s `Index` or `IndexMut`, which
+    /// `ls[0]` on a `List` is (spec §11.2).
+    fn indexed_receiver(&self, e: ExprId) -> Option<ExprId> {
+        let hir::ExprKind::Call { callee: hir::Callee::Method { recv, owner, .. }, .. } =
+            self.hir.kind(e)
+        else {
+            return None;
+        };
+        let index = |name| self.cx.table.prelude_trait_named(name) == Some(*owner);
+        (index("Index") || index("IndexMut")).then_some(*recv)
+    }
+
+    /// The index `e` is, when it is an integer the program wrote.
+    fn constant_index(&self, e: ExprId) -> Option<i128> {
+        match self.hir.kind(e) {
+            hir::ExprKind::Int(n) => Some(*n),
             _ => None,
         }
     }
@@ -269,19 +367,14 @@ impl Body<'_, '_> {
         if ty.is_wildcard() {
             return;
         }
-        let Some(blocker) = self.cx.table.crossing_blocker(ty, which) else { return };
+        let Some(blocker) = self.cx.table.parallel_crossing_blocker(ty, which) else { return };
         let name = self.cx.name_of(ty);
         let trait_name = match which {
             Crossing::Share => "Share",
             Crossing::Send => "Send",
         };
         let held = self.cx.describe_blocker(&blocker);
-        let help = if self.cx.holds_rc(ty) {
-            "every `Rc` of one value shares a count, which threads do not update together yet, \
-             so an `Rc` or a `Weak` does not reach `parallel for`; read what the loop needs out \
-             of it first (spec §22.4)"
-                .to_owned()
-        } else if which == Crossing::Share {
+        let help = if which == Crossing::Share {
             format!(
                 "the passes run at the same time on several threads, and each reads what the \
                  loop uses from outside it, so its type is `Share`; `{name}` is not, since \

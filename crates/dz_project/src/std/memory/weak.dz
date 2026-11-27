@@ -20,15 +20,18 @@ pub struct Weak<T> {
         m_header = rc.m_header
         m_value = rc.m_value
         let h = unsafe { m_header or return }
-        h.weak += 1
+        unsafe {
+            rc_count_add(&mut h.weak)
+        }
     }
 }
 
 impl<T> Drop for Weak<T> {
     fn drop(&mut self) {
         let h = unsafe { m_header or return }
-        h.weak -= 1
-        if h.weak == 0 && h.strong == 0 {
+        // The last `Weak` after the last `Rc`, which gave back its share once the value was
+        // dropped (see `RcHeader`).
+        if unsafe { rc_count_release(&mut h.weak) } {
             let a = unsafe { h.allocator or return }
             a.free(unsafe { m_header as ^mut u8 }, h.size, h.align)
         }
@@ -40,7 +43,9 @@ impl<T> Clone for Weak<T> {
         m_header = other.m_header
         m_value = other.m_value
         let h = unsafe { m_header or return }
-        h.weak += 1
+        unsafe {
+            rc_count_add(&mut h.weak)
+        }
     }
 }
 
@@ -50,17 +55,17 @@ impl<T> Nullable for Weak<T> {
 
     fn is_null(&self) -> bool {
         let h = unsafe { m_header or return true }
-        return h.strong == 0
+        return unsafe { rc_count_load(&h.strong) } == 0
     }
 
-    /// A strong `Rc` to the value, or a null one when it is gone.
+    /// A strong `Rc` to the value, or a null one when it is gone. On another thread the last
+    /// `Rc` may be going at the same moment, so the count goes up only if it is not zero.
     fn guard(&self) -> Rc<T> {
         let mut r: Rc<T> = null
         let h = unsafe { m_header or return r }
-        if h.strong == 0 {
+        if !unsafe { rc_count_add_unless_zero(&mut h.strong) } {
             return r
         }
-        h.strong += 1
         r.m_header = m_header
         r.m_value = m_value
         return r
@@ -68,7 +73,7 @@ impl<T> Nullable for Weak<T> {
 
     fn ptr(&self) -> ^mut T {
         let h = unsafe { m_header or return null }
-        if h.strong == 0 {
+        if unsafe { rc_count_load(&h.strong) } == 0 {
             return null
         }
         return unsafe { m_value }

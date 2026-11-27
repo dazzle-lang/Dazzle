@@ -34,5 +34,12 @@ no `lends`; an implementation or an override lends only what the method it imple
 Callers put what they give there on the heap, so no region is grown by two threads and the
 runtime check, the locks and each arena's lock word are gone.
 
+**Widened in r158 (T-0268), the user's call on 2026-11-27.** A caller keeps what it gives to a
+lent parameter apart from its other arguments (DZ0434), as for `kills`: the function is checked
+with its parameters taken as separate, so `both(&mut xs, &xs)` was a data race. And `lends`
+names every parameter parallel code writes, an `i32` too, since it is now what keeps callers
+from giving one twice; placement still puts on the heap only what the function's `kills` says
+it may grow.
+
 **Open.** `lends` on a function type, which would let a lending function be a value; until
 then it is called by name.

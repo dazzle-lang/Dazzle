@@ -773,11 +773,13 @@ fn main() {
 
 ## DZ0425
 
-Where memory lives is decided by the function that makes it, which puts it in its region,
-used by one thread at a time, unless it knows two threads may grow it at once (spec §14.6,
-§22.12). A function that gives what a parameter reaches to a call in a `parallel` block, or
-to a function that `lends` it, says so with `lends`, so its callers put that memory on the
-heap. `dz fix` writes it, and a caller that passes the parameter on says it too.
+A function that lets another thread write what a parameter reaches, by giving it to a call
+in a `parallel` block, to the passes of a `parallel for`, or to a function that `lends` it,
+says so with `lends` (spec §22.12). Its callers read the clause twice: they keep that argument
+apart from the others (DZ0434), since the function is checked with its parameters taken as
+separate; and where that thread may grow the memory, they put it on the heap rather than in a
+region used by one thread at a time (§14.6). `dz fix` writes it, and a caller that passes the
+parameter on says it too.
 
 ```dz
 struct World {
@@ -827,27 +829,29 @@ fn main() {
 
 ## DZ0426
 
-`lends` makes every caller put what it gives on the heap, so it names exactly what a
-`parallel` block may grow (spec §22.12). A parameter the body never lends to one, or one that
-reaches nothing that owns memory, such as an `i32`, needs no `lends`. `dz fix` narrows the
-clause.
+`lends` makes every caller keep what it gives apart from its other arguments, and put on the
+heap what may grow, so it names exactly the parameters another thread writes while the function
+runs (spec §22.12). One the body never gives to a `parallel` block or loop, or to a function
+that `lends` it, needs none. `dz fix` narrows the clause.
 
 ```dz
 fn bump(n: &mut i32) {
     n += 1
 }
 
-fn twice(a: &mut i32, b: &mut i32) lends a {
+fn twice(a: &mut i32, b: &mut i32, c: &mut i32) lends a, b, c {
     parallel {
         bump(a)
         bump(b)
     }
+    c += 1
 }
 
 fn main() {
     let mut a = 0
     let mut b = 0
-    twice(&mut a, &mut b)
+    let mut c = 0
+    twice(&mut a, &mut b, &mut c)
 }
 ```
 
@@ -856,17 +860,19 @@ fn bump(n: &mut i32) {
     n += 1
 }
 
-fn twice(a: &mut i32, b: &mut i32) {
+fn twice(a: &mut i32, b: &mut i32, c: &mut i32) lends a, b {
     parallel {
         bump(a)
         bump(b)
     }
+    c += 1
 }
 
 fn main() {
     let mut a = 0
     let mut b = 0
-    twice(&mut a, &mut b)
+    let mut c = 0
+    twice(&mut a, &mut b, &mut c)
 }
 ```
 
@@ -1120,5 +1126,61 @@ fn main() {
     parallel for &mut x in xs {
         x += first
     }
+}
+```
+
+## DZ0434
+
+A function that `lends` a parameter lets another thread write what it reaches while the
+function runs, and is checked once, for every caller, with its parameters taken as separate
+(spec §22.3, §22.12). So a call may give it nothing else that reaches the same memory: the
+same value twice, a value and a field of it, two elements that may be one, or a value inside an
+`Rc` beside an `Rc` that may hold it (§14.5). One thread would write what the other reads. Give
+it something apart, or a copy.
+
+```dz
+fn bump(n: &mut i64) {
+    n += 1
+}
+
+fn read(n: &i64, out: &mut i64) {
+    out = n
+}
+
+fn both(a: &mut i64, b: &i64, out: &mut i64) lends a, out {
+    parallel {
+        bump(a)
+        read(b, out)
+    }
+}
+
+fn main() {
+    let mut x: i64 = 0
+    let mut out: i64 = 0
+    both(&mut x, &x, &mut out)
+}
+```
+
+```dz
+fn bump(n: &mut i64) {
+    n += 1
+}
+
+fn read(n: &i64, out: &mut i64) {
+    out = n
+}
+
+fn both(a: &mut i64, b: &i64, out: &mut i64) lends a, out {
+    parallel {
+        bump(a)
+        read(b, out)
+    }
+}
+
+fn main() {
+    let mut x: i64 = 0
+    let y = x
+    let mut out: i64 = 0
+    both(&mut x, &y, &mut out)
 }
 ```

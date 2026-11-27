@@ -31,7 +31,7 @@ struct Swarm {
     pub scale: f32
 
     /// A method's loop over its own field, reading another.
-    pub fn speed_up(&mut self) {
+    pub fn speed_up(&mut self) lends self {
         parallel for &mut s in speeds {
             s *= scale
         }

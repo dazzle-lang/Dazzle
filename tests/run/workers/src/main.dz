@@ -27,7 +27,7 @@ fn set(p: &mut u64, v: u64) {
 
 /// A block inside a pass: every worker may be busy with the loop, so the pass's own thread
 /// runs what no worker takes.
-fn split(a: &mut u64, b: &mut u64, v: u64) {
+fn split(a: &mut u64, b: &mut u64, v: u64) lends a, b {
     parallel {
         set(a, v)
         set(b, v * 2)
@@ -40,7 +40,7 @@ struct Pair {
 }
 
 /// A loop inside a block's call.
-fn scale(xs: &mut List<u64>, by: u64) {
+fn scale(xs: &mut List<u64>, by: u64) lends xs {
     parallel for &mut x in xs {
         x *= by
         note(x)

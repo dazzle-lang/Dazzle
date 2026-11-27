@@ -1,0 +1,25 @@
+// expect: DZ0434
+// `both` lends `a` to another thread, which writes it while `read` reads `b` on this one.
+// `both` is checked once with `a` and `b` taken as separate, so a call may not give it one
+// value as both: `x` would be written and read at once (spec §22.3, §22.12, T-0268).
+
+fn bump(n: &mut i64) {
+    n += 1
+}
+
+fn read(n: &i64, out: &mut i64) {
+    out = n
+}
+
+fn both(a: &mut i64, b: &i64, out: &mut i64) lends a, out {
+    parallel {
+        bump(a)
+        read(b, out)
+    }
+}
+
+fn main() {
+    let mut x: i64 = 0
+    let mut out: i64 = 0
+    both(&mut x, &x, &mut out)
+}

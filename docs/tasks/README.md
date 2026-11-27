@@ -31,7 +31,10 @@ hot reload (M13), the web (M18) and a voxel game as the release's proof.
    (T-0264), `parallel { … }` with `lends` (T-0265), `parallel for` (D-0120, r153), and the
    pool of workers that runs both (r154), and `spawn` of any number of arguments through
    type parameter packs (D-0121, r155, T-0269), which made `spawn!` unneeded. There is no `Arc` (T-0001 dropped):
-   `Rc` itself gets atomic counts (T-0266).
+   `Rc` itself has atomic counts in a program that runs anything in parallel, and crosses into a
+   block or a loop checked by type (T-0266, r157). A caller keeps what a function `lends` apart from
+   its other arguments (T-0268, r158), and the aliasing matrix (T-0274) tries every pair of
+   places against every rule that keeps two apart.
    T-0248 covers ThreadSanitizer in CI. The proof is
    `ecs` running its systems in parallel.
 2. **Working with an agent (M20).** An agent given the repository's URL installs `dz`, makes a

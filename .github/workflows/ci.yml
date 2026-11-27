@@ -334,3 +334,41 @@ jobs:
 
       - name: Run every program under the sanitizers
         run: cargo test -p dz --test run sanitizers -- --ignored
+
+  # Spec §22 promises that safe code has no data race either. The evidence is every program
+  # that starts a thread, and `examples/ecs`, built under ThreadSanitizer with regions on and
+  # off and with the memory tracker (T-0248). A job of its own, since ThreadSanitizer cannot be
+  # combined with AddressSanitizer, and once per compiler: the runtime's atomics and the pool
+  # are written separately for each.
+  tsan:
+    name: tsan (${{ matrix.cxx }})
+    if: github.event_name != 'push' || github.event.head_commit.committer.email != 'noreply@github.com'
+    runs-on: ubuntu-latest
+    # Until it has run green once (T-0248): written without a Linux machine to run it on, so
+    # a first failure is as likely the job as a race, and must not turn `master` red.
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        cxx: [clang++, g++]
+    env:
+      DZ_CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # ThreadSanitizer maps its shadow memory at fixed addresses, and the runner's kernel
+      # randomises mappings across more bits than the runtime allows for, so a program can die
+      # at start with "unexpected memory mapping" before running a line.
+      - name: Let ThreadSanitizer map its shadow memory
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Show the compiler
+        run: ${{ matrix.cxx }} --version
+
+      - name: Run every program that starts a thread under ThreadSanitizer
+        run: cargo test -p dz --test run threaded_programs_are_clean_under_thread_sanitizer -- --ignored
