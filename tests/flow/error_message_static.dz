@@ -1,0 +1,41 @@
+// Spec §9.2, T-0275: an `Error` outlives the call that made it, carried up by `or return` and
+// kept by callers, so its message is static text. Refused: a view of a local `String`, which is
+// freed as the function returns while the error goes on, and text set through a reference,
+// whose caller may free it. Still legal: a literal, a `const`, a `const &str`, another error's
+// message, and `error(...)`, which copies the text it formats.
+// expect: DZ0435, DZ0435
+
+const NAME: &str = "a const"
+
+fn dangle(e: Error) -> Error {
+    let s = String::from("a local string")
+    let mut k = e
+    k.message = s.as_str()
+    return k
+}
+
+fn through(e: &mut Error, text: &str) {
+    e.message = text
+}
+
+fn fine(e: Error, label: const &str) -> Error {
+    let mut k = e
+    k.message = "a literal"
+    k.message = NAME
+    k.message = label
+    let copied = k.message
+    k.message = copied
+    return k
+}
+
+fn formatted(text: &str) !-> i32 {
+    return error(1, "{}", text)
+}
+
+fn main() {
+    let _n = formatted("x") or { e ->
+        let d = fine(dangle(e), "label")
+        println!("{} {}", d.message, d.location.line)
+        return
+    }
+}

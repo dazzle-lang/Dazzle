@@ -256,6 +256,9 @@ pub const PARALLEL_LOOP_READS_WRITTEN: &str = "DZ0433";
 /// that argument does: another thread writes it while the function may read it through the
 /// other (spec §22.12, T-0268).
 pub const LENT_ARGUMENT_REACHED: &str = "DZ0434";
+/// An `Error`'s `message` set to text that is not static: an error outlives the call that
+/// made it, carried up by `or return`, so its message must outlive everything (spec §9.2).
+pub const ERROR_MESSAGE_NOT_STATIC: &str = "DZ0435";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 

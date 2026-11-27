@@ -51,7 +51,7 @@ view struct Query2<A, B> {
 fn query2<A, B>(
     first: &mut SparseSet<A>,
     second: &mut SparseSet<B>
-) -> Query2<A, B> in (first@items, second@items) {
+) -> Query2<A, B> in (first, second) {
     let mut result = Query2<A, B>{ first: first, second: second, scan_first: first.len() <= second.len() }
     result.seek()
     return result

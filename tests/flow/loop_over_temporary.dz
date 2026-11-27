@@ -1,0 +1,36 @@
+// Spec §6.5, §6.7, T-0275: a `for` over a container no place holds, `for &s in make()`, walks
+// a temporary that is dropped when the loop ends. Refused: returning a view of an element,
+// which then points into the freed list. Still legal: reading the element, and returning a
+// copy of it or an owned value made from it.
+// expect: DZ0413
+
+fn make() -> List<String> {
+    let mut xs = List<String>()
+    xs.push(String::from("a string long enough to own a heap block"))
+    return xs
+}
+
+fn escapes(keep: &String) -> &str {
+    for &s in make() {
+        return s.as_str()
+    }
+    return keep.as_str()
+}
+
+fn fine() -> String {
+    let mut total: usize = 0
+    for &s in make() {
+        total += s.len()
+    }
+    for &s in make() {
+        if total > 0 {
+            return s.clone()
+        }
+    }
+    return String::from("none")
+}
+
+fn main() {
+    let k = String::from("k")
+    println!("{} {}", escapes(&k), fine())
+}

@@ -42,6 +42,21 @@ pub fn report(
         })
     };
     let start = diags.iter().count();
+    for at in &a.dynamic_messages {
+        diags.push(
+            Diagnostic::error(
+                codes::ERROR_MESSAGE_NOT_STATIC,
+                "an error's message must be static text, and this text is not",
+            )
+            .at(file, *at, "this text may be freed while the error is still held")
+            .with_help(
+                "an `Error` outlives the call that made it, carried up by `or return` and kept \
+                 by callers, so its message is a literal or a `const &str`; to report other \
+                 text, build the error with it, `error(code, \"{}\", text)`, which copies it \
+                 (spec §9.2)",
+            ),
+        );
+    }
     for k in &a.aliased_kills {
         let killed = show(&k.killed);
         let (through, other) = (&k.through, &k.other);

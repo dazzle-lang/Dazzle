@@ -653,11 +653,10 @@ pub fn call_effects(scope: &Scope<'_>, bindings: &Bindings) -> Result<CallEffect
             [Some(place)] => ReturnTie::Elided((*place).clone()),
             _ => ReturnTie::Unknown,
         }
-    } else if contains_views(&scope.sig.ret, scope.table) {
-        // A view only through a type parameter: `T` may be one, and where it points is
-        // wherever the value came from, which no signature says.
-        ReturnTie::Unknown
     } else {
+        // A view only through a plain type parameter is none: a plain `T` is never a view,
+        // only a `view T` is, and that one is counted above (D-0093). So `pop() -> T?`,
+        // read in a generic body, holds no view.
         ReturnTie::None
     };
     Ok(effects)

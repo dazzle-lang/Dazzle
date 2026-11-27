@@ -242,9 +242,9 @@ fn explicit_and_elided_return_ties_preserve_what_can_end_them() {
     // A tuple holding a view is in its one input, as a reference is.
     let paired = fixture.effects("paired", &bindings);
     assert_eq!(paired.result, ReturnTie::Elided(world.clone()));
-    // A view only through `T` is wherever the value came from, which no signature says.
+    // A plain `T` is never a view, only a `view T` is (D-0093), so a `T?` holds none.
     let generic = fixture.effects("generic", &args(vec![Some(world), None]));
-    assert_eq!(generic.result, ReturnTie::Unknown);
+    assert_eq!(generic.result, ReturnTie::None);
 }
 
 #[test]

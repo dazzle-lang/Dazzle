@@ -2,6 +2,56 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## What the ownership analysis gave up on, modeled (T-0275, r159; 2026-11-27)
+
+T-0275 found that the ties analysis records where it cannot follow a view and nothing
+reports it, so a program there was accepted unchecked. The user's call: model the cases, so
+correct code keeps compiling, and refuse only what is unsafe. A survey reported every
+give-up as a warning over the corpus and the examples: 155 places in safe code at the start.
+
+- **`Error` and `SourceLocation`** had no field list in the analysis (34 places). Their
+  fields hold numbers and static text, so a read of one is now known to hold nothing that
+  dies. On the way the survey found a real use after free. `k.message = s.as_str()`, then
+  `return k`, printed the bytes of the next allocation, since an error is carried up
+  past the `String` it viewed. A message is static text now (r159, §9.2): a literal, a
+  `const`, a `const &str` or another error's message, and DZ0435 refuses anything else.
+  `error(code, "{}", text)` copies the text, as it always did.
+- **Arrays, struct literals and union payloads** held none of their parts' views (47
+  places). A read of `parts[0]` from `[s.as_str(), "x"]`, or of a view struct's field,
+  after `s` grew, was accepted. They now hold the union of their parts' views
+  (`Analysis::aggregate`).
+- **A plain `T` counted as a possible view** in three places: a call's result
+  (`ReturnTie::Unknown` for `pop() -> T?`), a binding, and `or` on an optional. D-0093 says a
+  plain `T` never is one, only a `view T` is, so they ask `holds_view(…, false)` now
+  (`Analysis::holds_views`). One `ties.rs` test pinned the old answer and was updated.
+- **"Holds nothing" is told apart from "lost"** by `Value::exact`. It is set for literals,
+  `const`s, `none`, `typeinfo_of`, aggregates of such parts, and calls whose every view input
+  is such, `"a b".split_whitespace()` (`Analysis::static_inputs`). An empty value without it,
+  of a type that can hold a view, is still a give-up.
+- **Loops.** A by-value `view T` parameter now stands for the caller's memory, so its
+  elements are followed (`iterated_view`). A tuple binding is followed as a single one
+  is, and a view struct or `view T` element gets the element's views. A loop whose element
+  was lost is reported whatever its shape, which showed 18 single-binding loops lost in
+  silence.
+
+- **A loop over a temporary container** handed its elements out tied to nothing. `for &s in
+  make() { return s.as_str() }` returned text from a list the generated C++ destroys on
+  that `return`, a second real use after free. When a `for` walks a container no place holds
+  and that owns memory, a view binding now stands for the element itself. A view of it kept
+  past the pass, returned say, is one of a local that dies (DZ0413).
+
+What the stricter checking showed in the corpus: `examples/ecs`'s `query2` said its
+`Query2` was `in (first@items, second@items)`, but the query holds both pools whole and hands
+out their values, which are `@values`. With the struct literal now carrying its views, the
+`return` was checked for the first time and refused (DZ0414). The signature is `in (first,
+second)` now, as `query`'s elided one already was, and every caller is unchanged.
+
+About ten places in safe code are left, listed in T-0275, along with what is not a hole by
+§1.1: C calls, vouched by their recipe, and code inside `unsafe`. Tests:
+`tests/flow/error_message_static.dz`, `tests/flow/aggregate_views.dz` and
+`tests/flow/loop_over_temporary.dz`. Each has a program that read freed memory, now refused,
+beside the correct forms, still accepted.
+
 ## `lends` keeps a caller's arguments apart (T-0268, r158; 2026-11-27)
 
 The user's reading of `lends a` was that `a` then could not be given to another parameter as

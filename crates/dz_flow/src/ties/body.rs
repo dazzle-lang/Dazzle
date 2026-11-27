@@ -217,6 +217,9 @@ pub struct BodyAnalysis {
     /// `parallel for` loops that write a container in an `Rc`'s value and read an `Rc`
     /// that may hold it (spec §22.4).
     pub pass_handle_reads: Vec<PassReadsHandle>,
+    /// `e.message = …` given text that is not static, with the assigned value's span: an
+    /// `Error` may travel anywhere, so every message is static (spec §9.2).
+    pub dynamic_messages: Vec<Span>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -306,6 +309,10 @@ struct Value {
     /// tie analysis proper never sees one; a region is a tie no type declares, which is
     /// why it is followed for a `List<i32>` as much as for a view.
     owned: Vec<usize>,
+    /// The value holds no view beyond those it lists, though its type may hold some: a
+    /// literal, `none`, a `const`, or an aggregate built of such parts. An empty value
+    /// without it, of a type that holds views, is one the walk lost track of (T-0275).
+    exact: bool,
 }
 
 impl Value {
@@ -961,6 +968,12 @@ impl Analysis<'_> {
             _ => None,
         };
         let Some((sym, args, field)) = field else {
+            // `Error` and `SourceLocation` hold numbers and static text: a location is
+            // static storage, and every message is, since `e.message = …` takes nothing
+            // else (spec §9.2). Nothing a body does ends a view of one.
+            if matches!(self.body.ty(base).peeled_refs(), Ty::Builtin(_)) {
+                return Value { owned: value.owned, ..Value::default() };
+            }
             self.unchecked(self.body.expr(base).span, "field storage is not known");
             self.lost(&value.owned, "a field the check cannot follow", self.body.expr(base).span);
             return Value::default();
@@ -998,7 +1011,22 @@ impl Analysis<'_> {
         let places = places.into_iter().map(|o| self.canonical(o)).collect();
         let views = views.into_iter().map(|o| self.canonical(o)).collect();
         // A field of a value in a region is in it too: moving one out takes region memory.
-        Value { places, views, unknown, parts: Vec::new(), vouched: false, owned: value.owned }
+        // A field of a value that holds no view holds none either: a reference or slice
+        // field of a type's description, say. Not a raw pointer field, which stays untied
+        // (spec §6.7, T-0114) wherever it was read from.
+        if value.exact && unknown && !matches!(field_ty, Ty::Ptr { .. } | Ty::OwnPtr { .. }) {
+            unknown = false;
+        }
+        let exact = value.exact && !unknown;
+        Value {
+            places,
+            views,
+            unknown,
+            parts: Vec::new(),
+            vouched: false,
+            owned: value.owned,
+            exact,
+        }
     }
 
     /// The local tuple `t.0.1` is a part of, and the indices down to it.
@@ -1206,6 +1234,13 @@ impl Analysis<'_> {
         for origin in value.places.iter().chain(&value.views) {
             let held = match self.what_it_views(origin) {
                 Some(held) => held,
+                // A view parameter stands for what it views, the caller's (D-0093): its
+                // elements are named under it, as a reference parameter's are.
+                None if origin.target.steps.is_empty()
+                    && self.body.params.contains(&origin.target.local) =>
+                {
+                    vec![origin.clone()]
+                }
                 // A local view struct whose views are not known: nothing to follow.
                 None if origin.target.steps.is_empty()
                     && self.table.placed_as_view(
@@ -2105,6 +2140,12 @@ impl Analysis<'_> {
                                 }
                             }
                         }
+                        // An elided result whose view inputs hold nothing that dies, static
+                        // text say, holds nothing either: `"a b".split_whitespace()` is in
+                        // the literal, which no place names (spec §6.7).
+                        ReturnTie::Unknown if self.static_inputs(signature, recv, args) => {
+                            value.exact = true;
+                        }
                         ReturnTie::Unknown => {
                             value.unknown = true;
                             if !receiver.is_empty() || params.iter().any(|p| !p.is_empty()) {
@@ -2404,7 +2445,9 @@ impl Analysis<'_> {
     /// has unknown provenance.
     fn unwrapped(&mut self, operand: ExprId, value: Value, span: Span) -> Value {
         if let Ty::Optional(inner) = self.body.ty(operand).peeled_refs() {
-            if super::contains_views(inner, self.table)
+            // A plain `T?` holds no view (D-0093), and an exact one, `none`, holds none.
+            if self.holds_views(inner)
+                && !value.exact
                 && value.views.is_empty()
                 && value.parts.is_empty()
             {
@@ -3240,6 +3283,48 @@ impl Analysis<'_> {
         self.refuse(&found, Refusal::Outlives(block), span);
     }
 
+    /// Whether `target` is `e.message` for some `Error` `e`, through a reference or not.
+    fn sets_error_message(&self, target: ExprId) -> bool {
+        let hir::ExprKind::Field { base, index } = self.body.expr(target).kind else {
+            return false;
+        };
+        let error = ty::BuiltinTy::Error;
+        matches!(self.body.ty(base).peeled_refs(), Ty::Builtin(b) if *b == error)
+            && error.fields().get(index).is_some_and(|(name, _)| *name == "message")
+    }
+
+    /// Whether a call's result, with no `in`, can only be in inputs that hold no view of
+    /// anything that dies: each view input it may be in is exact, a literal or a `const`.
+    fn static_inputs(&self, signature: &Signature, recv: Option<&Value>, args: &[Value]) -> bool {
+        // Every view input, not only those an `in` names: stricter, and the same answer
+        // for the calls this is for.
+        let quiet = |v: &Value| v.exact && !v.unknown && v.held_views().is_empty();
+        let mut any = false;
+        if signature.sig.takes_self.is_some() {
+            match recv {
+                Some(v) if quiet(v) => any = true,
+                _ => return false,
+            }
+        }
+        for (i, param) in signature.sig.params.iter().enumerate() {
+            if dz_check::ties::view_input(self.table, &param.ty) {
+                match args.get(i) {
+                    Some(v) if quiet(v) => any = true,
+                    _ => return false,
+                }
+            }
+        }
+        any
+    }
+
+    /// Whether `value`, the value of `id`, is text that lives for the whole run: `const &str`
+    /// by type, or a view of nothing but statics, as a literal is.
+    fn static_text(&self, id: ExprId, value: &Value) -> bool {
+        matches!(self.body.ty(id), Ty::ConstStr)
+            || !value.unknown
+                && value.held_views().iter().all(|o| super::static_of(o.target.local).is_some())
+    }
+
     fn unchecked(&mut self, span: Span, reason: &'static str) {
         let item = Incomplete { span, reason };
         if !self.result.unchecked.contains(&item) {
@@ -3470,13 +3555,17 @@ impl Analysis<'_> {
             self.state.insert(local, value.held());
         } else if !value.unknown
             && !value.views.is_empty()
-            && super::contains_views(&self.body.local(local).ty, self.table)
+            && self.holds_views(&self.body.local(local).ty)
         {
             // A struct holding a view a call returned (`xs.iter()`'s `SliceIter`) is in
             // that call's tie, so reading the local after a kill of it is a use (§6.7).
             self.state.insert(local, value.held());
+        } else if value.exact && !value.unknown {
+            // A literal, `none` or an aggregate of them: it holds exactly the views it lists,
+            // none, and reading it later is as exact.
+            self.state.insert(local, value.held());
         } else {
-            if super::contains_views(&self.body.local(local).ty, self.table) {
+            if self.holds_views(&self.body.local(local).ty) {
                 self.unchecked(
                     self.body.local(local).span,
                     "aggregate view bindings are not modeled yet",
@@ -3484,6 +3573,56 @@ impl Analysis<'_> {
             }
             self.state.remove(&local);
         }
+    }
+
+    /// Whether a value of `ty` may hold a view, as the body is checked: a plain type
+    /// parameter is never one, only a `view` one (D-0093), so `let acc = start` with `start:
+    /// T` holds none.
+    fn holds_views(&self, ty: &Ty) -> bool {
+        dz_check::ties::holds_view(self.table, ty, false)
+    }
+
+    /// Whether `value`, the value of `id`, holds every view it may: none is lost. It lists
+    /// some, or is known to hold none, or its type cannot hold one, or it is a local whose
+    /// binding was followed (a binding that was not is reported where it is made).
+    fn followed(&self, id: ExprId, value: &Value) -> bool {
+        !value.unknown
+            && (value.exact
+                || !value.held_views().is_empty()
+                || !self.holds_views(self.body.ty(id))
+                || matches!(self.body.expr(id).kind, hir::ExprKind::Local(l)
+                    if self.state.contains_key(&l) || self.body.params.contains(&l)))
+    }
+
+    /// A struct, union payload or array built of `parts`, each with its value: it holds
+    /// every view they hold, and is exact when each part was followed.
+    fn aggregate(&mut self, ty: &Ty, parts: Vec<(ExprId, Value)>, span: Span) -> Value {
+        let mut owned = Vec::new();
+        let mut views = Vec::new();
+        let mut lost = false;
+        for (e, value) in parts {
+            let value = self.passed(e, value);
+            lost |= !self.followed(e, &value);
+            for site in value.all_owned() {
+                if !owned.contains(&site) {
+                    owned.push(site);
+                }
+            }
+            for o in value.held_views() {
+                if !views.contains(&o) {
+                    views.push(o);
+                }
+            }
+        }
+        if !self.holds_views(ty) {
+            // Nothing in it is a view: `[m_floor, m_cube]` of plain structs.
+            return Value { owned, exact: true, ..Value::default() };
+        }
+        if lost {
+            self.unchecked(span, "aggregate view provenance is not modeled yet");
+        }
+        let exact = !lost && views.is_empty();
+        Value { owned, views, unknown: lost, exact, ..Value::default() }
     }
 
     fn block(&mut self, block: BlockId) -> Value {
@@ -3623,6 +3762,9 @@ impl Analysis<'_> {
                 // The emitter evaluates the RHS before the destination.
                 let value = self.expr(value_expr);
                 let value = self.passed(value_expr, value);
+                if self.sets_error_message(target) && !self.static_text(value_expr, &value) {
+                    self.result.dynamic_messages.push(self.body.expr(value_expr).span);
+                }
                 // A constructor binding a reference field: nothing was there to kill, and the
                 // struct being built is in what the constructor's elided result names
                 // (§6.7).
@@ -3692,17 +3834,25 @@ impl Analysis<'_> {
             hir::StmtKind::While { cond, body, label, .. } => {
                 self.loop_body(Some(cond), body, label.map(|l| l.id), &[], None);
             }
-            hir::StmtKind::For { bindings, subject, body, label, shape, parallel } => {
+            hir::StmtKind::For { bindings, subject, body, label, parallel, .. } => {
                 let span = self.body.stmt(id).span;
                 // A container is walked through the `iter()` its loop calls, whose result
                 // is a struct holding a view. Its elements are the container's `[*]`
                 // (§6.7), so they and the iterator are followed from the container itself.
                 let walked = self.iterated_container(subject);
                 let mut followed = walked.is_some();
+                let mut static_subject = false;
+                // A container no place holds, `for &s in make()`, which owns its elements and
+                // is dropped when the loop ends (spec §6.5).
+                let mut temporary = false;
                 let (element, iterator) = match walked {
                     Some(container) => {
                         let value = self.expr(container);
                         let element = self.iterated_origins(container, &value, span);
+                        temporary = element.is_empty()
+                            && value.places.is_empty()
+                            && !value.exact
+                            && self.table.needs_drop(self.body.ty(container).peeled_refs());
                         let iterator = Value { views: element.clone(), ..Value::default() };
                         (element, iterator)
                     }
@@ -3729,6 +3879,11 @@ impl Analysis<'_> {
                                 (element, iterator)
                             }
                             None => {
+                                // An array of literals, a `const` table, or an iterator over
+                                // static text holds nothing that dies: its elements are
+                                // followed, holding no view.
+                                static_subject = value.exact && !value.unknown;
+                                followed |= static_subject;
                                 let element = self.index_origins(subject, &value, span);
                                 let iterator = Value {
                                     views: self.targets(subject, &value),
@@ -3745,8 +3900,23 @@ impl Analysis<'_> {
                     .copied()
                     .flatten()
                     .map(|local| {
-                        let value = if super::points(&self.body.local(local).ty) {
-                            Value { views: element.clone(), ..Value::default() }
+                        // A view struct or a `view T` element is in the same memory as a
+                        // reference to one would be (D-0093).
+                        let ty = &self.body.local(local).ty;
+                        let value = if temporary && (super::points(ty) || self.holds_views(ty)) {
+                            // Into the temporary, which nothing else names: the binding stands
+                            // for it, so a view of it kept past the pass, returned say, is one
+                            // of a local that dies (spec §6.5).
+                            Value {
+                                views: vec![Origin::at(Place::local(local))],
+                                ..Value::default()
+                            }
+                        } else if super::points(ty) || self.holds_views(ty) {
+                            // An element of a static table, a literal array or static
+                            // text's words: nothing that dies. Not a temporary container's,
+                            // which dies with the loop.
+                            let exact = static_subject && element.is_empty();
+                            Value { views: element.clone(), exact, ..Value::default() }
                         } else {
                             Value::default()
                         };
@@ -3780,9 +3950,16 @@ impl Analysis<'_> {
                         }
                     }
                 }
-                // The parts of a container's element all point into it; an iterator's
-                // tuple of views could point anywhere.
-                if matches!(shape, hir::ForShape::Tuple) && !followed {
+                // The parts of a container's element all point into it, and an iterator's
+                // into what the iterator views, since `get`'s result is in `self` (§6.7): a
+                // tuple's parts are where a single binding would be. Only an element not
+                // followed at all is lost, and only where a binding can hold a view: an
+                // owned iterator's `i32`s point nowhere.
+                let viewing = bindings.iter().flatten().any(|l| {
+                    let ty = &self.body.local(*l).ty;
+                    super::points(ty) || self.holds_views(ty)
+                });
+                if viewing && !followed && element.is_empty() {
                     self.unchecked(node.span, "tuple iterator bindings are not modeled yet");
                 }
                 let first_local = bindings.iter().flatten().map(|l| l.index()).min();
@@ -4333,17 +4510,14 @@ impl Analysis<'_> {
             }
             hir::ExprKind::StructLit { fields, .. }
             | hir::ExprKind::UnionVariant { payload: fields, .. } => {
-                // The struct holds what is moved into it, region and all.
-                let mut owned = Vec::new();
+                // The struct holds what is moved into it, region and all, and the views in
+                // it: `Pair{ a: &b, b: &c }` is in `b` and `c`.
+                let mut parts = Vec::new();
                 for e in fields.into_iter().flatten() {
                     let value = self.expr(e);
-                    for site in self.passed(e, value).all_owned() {
-                        if !owned.contains(&site) {
-                            owned.push(site);
-                        }
-                    }
+                    parts.push((e, value));
                 }
-                Value { owned, ..Value::default() }
+                self.aggregate(&node.ty, parts, node.span)
             }
             hir::ExprKind::Tuple(parts) => {
                 // Each part is held while the next is evaluated, as a call's arguments
@@ -4361,20 +4535,25 @@ impl Analysis<'_> {
                 Value { parts, ..Value::default() }
             }
             hir::ExprKind::ArrayLit(parts) => {
-                let mut owned = Vec::new();
+                // An array is in every view its elements hold, taken as one: a kill of what
+                // any element views ends the whole array.
+                let mut values = Vec::new();
                 for e in parts {
                     let value = self.expr(e);
-                    for site in self.passed(e, value).all_owned() {
-                        if !owned.contains(&site) {
-                            owned.push(site);
-                        }
-                    }
+                    values.push((e, value));
                 }
-                if super::contains_views(&node.ty, self.table) {
-                    self.unchecked(node.span, "aggregate view provenance is not modeled yet");
-                }
-                Value { owned, ..Value::default() }
+                self.aggregate(&node.ty, values, node.span)
             }
+            hir::ExprKind::Int(_)
+            | hir::ExprKind::Float(_)
+            | hir::ExprKind::Bool(_)
+            | hir::ExprKind::Char(_)
+            | hir::ExprKind::Str(_)
+            | hir::ExprKind::Null
+            | hir::ExprKind::NoneOpt
+            | hir::ExprKind::Const(_)
+            // `typeinfo_of<T>()`: the compiler's static table (spec §13.1).
+            | hir::ExprKind::Reflect { .. } => Value { exact: true, ..Value::default() },
             hir::ExprKind::Builtin { name, args } | hir::ExprKind::Intrinsic { name, args } => {
                 // In the homes walk, `construct(dst, value)` stores `value`'s memory under
                 // `dst`, as an assignment does, and `move_out(src)`'s value is in what `src`
@@ -4425,6 +4604,11 @@ impl Analysis<'_> {
                         ..Value::default()
                     };
                 }
+                // A type's description is static storage the compiler writes, for the whole
+                // run (spec §13.1): nothing a body does ends it.
+                if matches!(name.as_str(), "typeinfo_of" | "typeinfo") {
+                    return Value { exact: true, ..Value::default() };
+                }
                 Value { unknown: super::points(&node.ty), ..Value::default() }
             }
             // A static is one place for the whole program, which a clause may name, so a
@@ -4458,7 +4642,8 @@ impl Analysis<'_> {
         if tuple
             && value.parts.is_empty()
             && value.views.is_empty()
-            && super::contains_views(&node.ty, self.table)
+            && !value.exact
+            && self.holds_views(&node.ty)
         {
             value.unknown = true;
         }

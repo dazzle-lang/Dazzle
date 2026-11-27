@@ -1,0 +1,45 @@
+// Spec §6.7, T-0275: an array or a struct built of views holds every view its parts hold, so a
+// kill of what any part views ends the whole value. Refused: an element of an array of views,
+// and a field of a view struct, read after the `String` they view grew. Still legal: the same
+// reads with no kill between, literals, which view nothing that dies, and an array of plain
+// values.
+// expect: DZ0413, DZ0413
+
+view struct Glance {
+    pub text: &str
+}
+
+fn array_after_growth() {
+    let mut s = String::from("abc")
+    let parts: [2]&str = [s.as_str(), "literal"]
+    s.push('d')
+    println!("{}", parts[0])
+}
+
+fn struct_after_growth() {
+    let mut s = String::from("abc")
+    let g = Glance{ text: s.as_str() }
+    s.push('d')
+    println!("{}", g.text)
+}
+
+fn fine() {
+    let s = String::from("abc")
+    let parts: [2]&str = [s.as_str(), "literal"]
+    let g = Glance{ text: s.as_str() }
+    let literals: [2]&str = ["a", "b"]
+    let numbers: [3]i32 = [1, 2, 3]
+    for w in ["x", "y"] {
+        println!("{}", w)
+    }
+    for w in "one two".split_whitespace() {
+        println!("{}", w)
+    }
+    println!("{} {} {} {}", parts[1], g.text, literals[0], numbers[2])
+}
+
+fn main() {
+    array_after_growth()
+    struct_after_growth()
+    fine()
+}

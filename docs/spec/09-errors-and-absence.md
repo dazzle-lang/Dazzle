@@ -71,7 +71,11 @@ formats and the location it records go into one of four static slots, and the fi
 built takes the oldest one's slot. So an `Error` held while four newer ones are built no longer
 has its own message or location: reading either panics, in every build but a shipping one,
 which reads whatever the slot now holds. A message the program assigned (`e.message =
-"…"`) is its own and is never checked; `code` is always the error's. Code that collects
+"…"`) is its own and is never checked; `code` is always the error's. **What is assigned is
+static text** — a literal, a `const`, a `const &str`, or another error's message — since an
+error outlives the call that made it and may be held anywhere: text in a `String`, or a `&str`
+a caller passed, is refused (DZ0435). Other text goes in through `error(code, "{}", text)`,
+which copies it into the slot. Code that collects
 errors to report later copies what it needs out of each, `String::from(e.message)` say, as
 it goes.
 

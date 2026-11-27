@@ -1184,3 +1184,31 @@ fn main() {
     both(&mut x, &y, &mut out)
 }
 ```
+
+## DZ0435
+
+An `Error` outlives the call that made it: `or return` carries it up to callers, which may keep
+it as long as they like. So its message must outlive everything too, and `e.message = …` takes
+only static text: a literal, a `const`, a `const &str`, or another error's message (spec §9.2).
+Text in a `String`, or a `&str` the caller passed, may be freed while the error is still held.
+To report such text, build the error with it: `error(code, "{}", text)` copies it.
+
+```dz
+fn named(e: Error, name: &str) -> Error {
+    let mut k = e
+    k.message = name
+    return k
+}
+
+fn main() {}
+```
+
+```dz
+fn named(name: &str) !-> i32 {
+    return error(1, "{}", name)
+}
+
+fn main() {
+    let _ = named("x") or 0
+}
+```
