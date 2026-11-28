@@ -25,6 +25,12 @@ pub struct Rc<T> {
         let size = RcBlock<T>::size
         let align = RcBlock<T>::align
         let block = unsafe { Allocators::Global.alloc(size, align, loc) as ^mut RcBlock<T> }
+        // A debug build names a leaked `Rc` on a cycle as one (spec §14.5, D-0122).
+        #if TRACK_MEMORY {
+            unsafe {
+                track_rc_block(block as ^mut u8)
+            }
+        }
         let header = RcHeader{
             strong: 1,
             weak: 1,

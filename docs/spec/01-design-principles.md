@@ -46,6 +46,10 @@ The principles, in priority order. When two conflict, the earlier one wins.
   - a C or C++ function that can be handed a pointer is vouched for in its library's
     recipe, and one that keeps the pointer is `unsafe` to call (§15.1, §15.2).
 
+  A leak is not part of the promise, as it is not of Rust's: a cycle of `Rc`s is never
+  dropped, which wastes memory and reads none that was freed. A debug build names one
+  (§14.5, D-0122).
+
   The promise ends where these rules do, and that is where to look for a bug:
   - **`unsafe`**, a block or an `unsafe fn`'s body, which vouches for what it does;
   - **`std`'s trusted bodies**: its containers' `kills` clauses are written by hand over

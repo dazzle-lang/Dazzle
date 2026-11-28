@@ -13878,6 +13878,7 @@ body ctor Rc#0 -> void
               local _3 size: usize
               local _4 align: usize
               local _2 loc: SourceLocation
+    error
     let _6 header: RcHeader
       struct-lit RcHeader: RcHeader
         #0

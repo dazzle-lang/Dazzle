@@ -2,6 +2,20 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## A leaked Rc cycle is named as one (D-0122, r161; 2026-11-28)
+
+The user chose Rust's answer to `Rc` cycles: they leak, which is safe. What a debug build
+adds is the report. `Rc(…)` marks its block in the tracker (`track_rc_block`, and
+`Allocation::rc`). At exit, `Tracker::report_cycles` takes every leaked `Rc` block that
+reaches itself through `reach`, the conservative word scan `check_trusted` already used. It
+groups the blocks that reach each other, prints each by the line that made it, with the hint
+to make a link a `Weak`, and leaves those blocks out of the plain `leak:` lines that follow.
+The marking is inside `#if TRACK_MEMORY`, so an untracked build has none of it.
+
+Test: `a_leaked_rc_cycle_is_named_as_one` in `crates/dz/tests/run.rs` builds a two-node
+list with an `Rc` back link, which is reported as a cycle with both lines, and the same list
+with a `Weak` one, which leaks nothing.
+
 ## Safe code the check cannot follow is refused (T-0275, r160; 2026-11-28)
 
 The backstop T-0275 asked for. Every `unchecked` and `incomplete` the ties walk records

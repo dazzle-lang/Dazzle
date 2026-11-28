@@ -15,5 +15,8 @@
         /// Which allocation this is, counting from one: a block freed and handed out again
         /// at the same address is a different one (spec §6.7, T-0116).
         pub seq: u64 = 0
+        /// The block behind an `Rc`, its counts first: one leaked on a cycle is reported as
+        /// one (spec §14.5, D-0122).
+        pub rc: bool = false
     }
 }

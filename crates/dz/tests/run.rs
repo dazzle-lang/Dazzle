@@ -3742,3 +3742,62 @@ fn std_clauses_hold_under_check_trusted() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// A debug build names a leak of `Rc` values that keep each other alive as a cycle, with
+/// each value's allocation and the way out, a `Weak` (spec §14.5, D-0122): Dazzle, as Rust,
+/// lets a cycle leak, which is safe, and tells the developer where. The same list with a
+/// `Weak` back link leaks nothing.
+#[test]
+fn a_leaked_rc_cycle_is_named_as_one() {
+    if !have_compiler() {
+        eprintln!("skipping: no C++ compiler available");
+        return;
+    }
+    let manifest =
+        "[module]\nname = \"cycle\"\nsources = [\"src/**/*.dz\"]\n\n[dependencies]\nstd = { open = true }\n";
+    let program = |back: &str, link: &str| {
+        format!(
+            r#"struct Node {{
+    pub value: i32 = 0
+    pub next: Rc<Node> = null
+    pub prev: {back} = null
+}}
+
+fn main() {{
+    let mut a = Rc<Node>(Node{{ value: 1 }})
+    let mut b = Rc<Node>(Node{{ value: 2 }})
+    if let &mut x = a {{
+        x.next = b.clone()
+    }}
+    if let &mut y = b {{
+        y.prev = {link}
+    }}
+    println!("linked")
+}}
+"#
+        )
+    };
+    let run = |name: &str, source: &str| {
+        let dir = scratch(name, manifest, source);
+        let out = Command::new(dz())
+            .args(["run", "--track-memory", dir.to_str().unwrap()])
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        out
+    };
+
+    let out = run("dz_rc_cycle", &program("Rc<Node>", "a.clone()"));
+    let stderr = normalise(&String::from_utf8_lossy(&out.stderr));
+    assert!(out.status.success(), "{stderr}");
+    assert!(stderr.contains("leak: an Rc cycle"), "{stderr}");
+    // Both values, by the line that made each, and the way out.
+    assert!(stderr.contains("main.dz:8") && stderr.contains("main.dz:9"), "{stderr}");
+    assert!(stderr.contains("make one of the links a `Weak`"), "{stderr}");
+    assert!(stderr.contains("2 allocations leaked"), "{stderr}");
+
+    let out = run("dz_rc_weak", &program("Weak<Node>", "Weak<Node>(&a)"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(!stderr.contains("leak"), "{stderr}");
+}

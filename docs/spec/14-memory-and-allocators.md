@@ -645,6 +645,15 @@ Not yet: a handle to a trait object. `[DECIDED — §18.62]`
 
 There is no `Arc<T>`: an `Rc` crosses into parallel code itself, with atomic counts (§22.4).
 
+**A cycle of `Rc`s leaks, and that is safe.** Two values whose `Rc`s point at each other keep
+each other's count above zero, so neither is dropped. That is a leak, not undefined
+behaviour: nothing is read after it was freed, and nothing is freed twice. A back link, such
+as a parent or a `prev`, is a `Weak`, which keeps nothing alive. A build with `track_memory`
+names a leaked cycle at exit: each value on it, by the line that made it, and which link to
+make a `Weak`. Release builds pay nothing. The language could refuse the writes that close a
+cycle, but only by also refusing correct code that links a shared node in place, so it does
+not, as Rust does not. `[DECIDED — D-0122]`
+
 ## 14.6 Placement by the compiler
 
 **Ordinary code never names an allocator.** No constructor takes one, no function passes

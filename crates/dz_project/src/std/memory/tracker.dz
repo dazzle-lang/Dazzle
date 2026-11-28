@@ -34,6 +34,82 @@
                 m_slots[i].line = loc.line
                 m_seq += 1
                 m_slots[i].seq = m_seq
+                m_slots[i].rc = false
+            }
+        }
+
+        /// The block at `p` is an `Rc`'s, so a leak of it on a cycle is named as one.
+        pub fn mark_rc(&mut self, p: ^mut u8) {
+            if let i = self.live_at(p as usize) {
+                unsafe {
+                    m_slots[i].rc = true
+                }
+            }
+        }
+
+        /// Whether the leaked block at `addr` reaches itself through the words of the blocks
+        /// it reaches: an `Rc` cycle, which keeps every value on it alive.
+        fn on_cycle(&self, addr: usize) -> bool {
+            let i = self.live_at(addr) or return false
+            let mut reached = HeldList{}
+            self.reach(addr, unsafe { m_slots[i].size }, &mut reached)
+            return reached.has(addr)
+        }
+
+        /// Whether the leaked block at `from` reaches the one at `to`.
+        fn reaches(&self, from: usize, to: usize) -> bool {
+            let i = self.live_at(from) or return false
+            let mut reached = HeldList{}
+            self.reach(from, unsafe { m_slots[i].size }, &mut reached)
+            return reached.has(to)
+        }
+
+        fn print_member(&self, addr: usize) {
+            let i = self.live_at(addr) or return
+            unsafe {
+                eprintln!(
+                    "  {} bytes allocated at {}:{}",
+                    m_slots[i].size,
+                    m_slots[i].file,
+                    m_slots[i].line,
+                )
+            }
+        }
+
+        /// Every leaked `Rc` value on a cycle, grouped by the cycle it is on: values that
+        /// keep each other alive, so none is ever dropped, which a `Weak` link would have
+        /// prevented (spec §14.5, D-0122). The words of each leaked block are read as
+        /// pointers, as `reach` does, so a `Weak` link in a leaked structure counts too.
+        fn report_cycles(&self, printed: &mut HeldList) {
+            let mut cyclic = HeldList{}
+            let mut i: usize = 0
+            while i < m_cap {
+                let live = unsafe { m_slots[i].live && m_slots[i].rc }
+                let addr = unsafe { m_slots[i].addr }
+                if live && self.on_cycle(addr) {
+                    cyclic.push(Held{ addr: addr, seq: 0 })
+                }
+                i += 1
+            }
+            let mut k: usize = 0
+            while k < cyclic.len {
+                let r = unsafe { cyclic.items[k].addr }
+                if !printed.has(r) {
+                    eprintln!("leak: an Rc cycle, values that keep each other alive, so none is dropped:")
+                    self.print_member(r)
+                    printed.push(Held{ addr: r, seq: 0 })
+                    let mut m: usize = 0
+                    while m < cyclic.len {
+                        let s = unsafe { cyclic.items[m].addr }
+                        if !printed.has(s) && self.reaches(r, s) && self.reaches(s, r) {
+                            self.print_member(s)
+                            printed.push(Held{ addr: s, seq: 0 })
+                        }
+                        m += 1
+                    }
+                    eprintln!("  help: make one of the links a `Weak`, which keeps nothing alive (spec §14.5)")
+                }
+                k += 1
             }
         }
 
@@ -176,6 +252,9 @@
 
         pub fn finish(&mut self) {
             m_closed = true
+            // Every block still live is a leak now: those on an `Rc` cycle first, by cycle.
+            let mut printed = HeldList{}
+            self.report_cycles(&mut printed)
             let mut leaks: usize = 0
             let mut bytes: usize = 0
             let mut i: usize = 0
@@ -184,6 +263,8 @@
                     if m_slots[i].live {
                         leaks += 1
                         bytes += m_slots[i].size
+                    }
+                    if m_slots[i].live && !printed.has(m_slots[i].addr) {
                         eprintln!(
                             "leak: {} bytes allocated at {}:{}",
                             m_slots[i].size,
@@ -212,6 +293,13 @@
         memory_tracker_lock()
         defer memory_tracker_unlock()
         unsafe { TRACKER.record(p, size, align, loc) }
+    }
+
+    /// The block an `Rc` was just made in.
+    fn track_rc_block(p: ^mut u8) {
+        memory_tracker_lock()
+        defer memory_tracker_unlock()
+        unsafe { TRACKER.mark_rc(p) }
     }
 
     fn track_deallocation(p: ^mut u8, size: usize, align: usize, loc: SourceLocation) {
