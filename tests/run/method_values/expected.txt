@@ -1,0 +1,4 @@
+counter 7
+zero 0
+pair 7 2
+shelf 1 1

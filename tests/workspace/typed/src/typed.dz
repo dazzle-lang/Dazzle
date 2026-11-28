@@ -3002,3 +3002,31 @@ fn uses_more_packs() -> usize {
     framed_pack(three_of, 2.5)
     return p.length() + lengths(p) + (a or 0) as usize
 }
+
+// §8.1, T-0261: a method named as a value takes its receiver first, by the reference the
+// method takes it as; a generic struct's is named with the instance, and a generic method's
+// type argument is written or comes from the function type.
+struct Counted<T> {
+    pub count: usize = 0
+
+    pub fn bump(&mut self) {
+        count += 1
+    }
+
+    pub fn seen(&self) -> usize {
+        return count
+    }
+
+    pub fn weigh<U>(&self, _x: U) -> usize {
+        return count
+    }
+}
+
+fn methods_as_values() -> usize {
+    let mut t = Counted<i32>{}
+    let bump: fn(t: &mut Counted<i32>) = Counted<i32>::bump
+    bump(&mut t)
+    let seen: fn(t: &Counted<i32>) -> usize = Counted<i32>::seen
+    let weighed: fn(t: &Counted<i32>, x: bool) -> usize = Counted<i32>::weigh
+    return seen(&t) + weighed(&t, true)
+}

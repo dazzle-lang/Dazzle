@@ -415,6 +415,7 @@ impl Frees<'_, '_> {
             | K::Static(_)
             | K::AssocConst { .. }
             | K::FnItem { .. }
+            | K::MethodItem { .. }
             | K::EnumVariant { .. }
             | K::TypeQuery { .. }
             | K::DefaultArg(_)

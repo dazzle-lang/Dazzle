@@ -26780,3 +26780,52 @@ body fn uses_more_packs -> usize
           or: i32
             local _2 a: i32?
             int 0: i32
+body field-default Counted.0 -> void
+  block
+    int 0: usize
+body method Counted::bump -> void
+  param _0 self: Counted<T>
+  block
+    assign +=
+      field #0: usize
+        local _0 self: Counted<T>
+      int 1: usize
+body method Counted::seen -> usize
+  param _0 self: Counted<T>
+  block
+    return: !
+      field #0: usize
+        local _0 self: Counted<T>
+body method Counted::weigh -> usize
+  param _0 self: Counted<T>
+  param _1 _x: U
+  block
+    return: !
+      field #0: usize
+        local _0 self: Counted<T>
+body fn methods_as_values -> usize
+  block
+    let _0 t: Counted<i32>
+      struct-lit Counted: Counted<i32>
+        #0 (default)
+    let _1 bump: fn(&mut Counted<i32>) -> void
+      method-item Counted<i32>::bump: fn(&mut Counted<i32>) -> void
+    call-value: void
+      local _1 bump: fn(&mut Counted<i32>) -> void
+      ref mut: &mut Counted<i32>
+        local _0 t: Counted<i32>
+    let _2 seen: fn(&Counted<i32>) -> usize
+      method-item Counted<i32>::seen: fn(&Counted<i32>) -> usize
+    let _3 weighed: fn(&Counted<i32>, bool) -> usize
+      method-item Counted<i32>::weigh<bool>: fn(&Counted<i32>, bool) -> usize
+    return: !
+      binary +: usize
+        call-value: usize
+          local _2 seen: fn(&Counted<i32>) -> usize
+          ref: &Counted<i32>
+            local _0 t: Counted<i32>
+        call-value: usize
+          local _3 weighed: fn(&Counted<i32>, bool) -> usize
+          ref: &Counted<i32>
+            local _0 t: Counted<i32>
+          bool true: bool

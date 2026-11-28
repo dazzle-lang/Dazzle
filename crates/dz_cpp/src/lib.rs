@@ -4330,6 +4330,66 @@ impl<'a> Emitter<'a> {
         Some(format!("+[]({}) -> {ret} {{ return {name}({}); }}", list.join(", "), args.join(", ")))
     }
 
+    /// A method named as a value, `e` (spec §8.1, T-0261): a function taking the receiver
+    /// first, as a captureless lambda a C++ function pointer converts from, `+[](Counter& a0,
+    /// int32_t a1) -> void { return ::dz::rt::obj(a0).add(a1); }`. A generic method's instance
+    /// is a free function taking the receiver first already (spec §8.4). A method that takes
+    /// a result placement is given the one the function type passes, or the heap, as
+    /// [`Self::result_adapter`] does for a function.
+    fn method_value(
+        &mut self,
+        e: ExprId,
+        owner: SymbolId,
+        owner_args: &[Ty],
+        name: &str,
+        method_args: &[Ty],
+    ) -> String {
+        let Ty::Fn { params, ret, .. } = self.cur().ty(e).peeled().clone() else {
+            return "nullptr".to_owned();
+        };
+        let takes_self = self
+            .table
+            .methods_sig(owner)
+            .and_then(|s| s.methods.get(name))
+            .is_some_and(|m| m.takes_self.is_some());
+        let ret_t = self.cpp_ty(&ret);
+        let mut list = Vec::new();
+        let mut args = Vec::new();
+        for (i, p) in params.iter().enumerate() {
+            let t = self.cpp_ty(p);
+            args.push(forward(&t, i));
+            list.push(format!("{t} a{i}"));
+        }
+        let passes = self.passes_result(&ret);
+        if passes {
+            list.push(format!("{} a_result", self.allocator_ty()));
+        }
+        let method = BodyOwner::Method { owner, name: name.to_owned() };
+        let takes = self.placements.is_some_and(|p| p.takes_result(&method));
+        let (recv, mut rest) = match (takes_self, args.split_first()) {
+            (true, Some((r, rest))) => (Some(format!("::dz::rt::obj({r})")), rest.to_vec()),
+            _ => (None, args),
+        };
+        if takes {
+            rest.push(if passes { "a_result".to_owned() } else { self.heap_placement() });
+        }
+        let call = if !method_args.is_empty() {
+            let f = self.qualify_method_instance(owner, owner_args, name, method_args);
+            let all: Vec<String> = recv.into_iter().chain(rest).collect();
+            format!("{f}({})", all.join(", "))
+        } else if let Some(r) = recv {
+            format!("{r}.{}({})", sanitize(name), rest.join(", "))
+        } else {
+            let ty = if owner_args.is_empty() {
+                self.qualify(owner)
+            } else {
+                self.qualify_instance(owner, owner_args)
+            };
+            format!("{ty}::{}({})", sanitize(name), rest.join(", "))
+        };
+        format!("+[]({}) -> {ret_t} {{ return {call}; }}", list.join(", "))
+    }
+
     /// `^mut Allocator` in C++: the trait object handle every placement is passed as.
     fn allocator_ty(&mut self) -> String {
         match self.res.lookup(self.res.prelude, "Allocator") {
@@ -6555,6 +6615,9 @@ impl<'a> Emitter<'a> {
                 };
                 self.result_adapter(e, *sym, &name).unwrap_or(name)
             }
+            hir::ExprKind::MethodItem { owner, owner_args, name, method_args } => {
+                self.method_value(e, *owner, owner_args, name, method_args)
+            }
             hir::ExprKind::Const(sym) => self.qualify(*sym),
             hir::ExprKind::Static(sym) if self.static_runs_code(*sym) || self.in_cell(*sym) => {
                 format!("{}.get()", self.qualify(*sym))
@@ -8130,6 +8193,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Static(_)
             | hir::ExprKind::AssocConst { .. }
             | hir::ExprKind::FnItem { .. }
+            | hir::ExprKind::MethodItem { .. }
             | hir::ExprKind::EnumVariant { .. }
             | hir::ExprKind::TypeQuery { .. }
             | hir::ExprKind::Reflect { .. }
@@ -8174,6 +8238,7 @@ impl<'a> Emitter<'a> {
             | hir::ExprKind::Const(_)
             | hir::ExprKind::AssocConst { .. }
             | hir::ExprKind::FnItem { .. }
+            | hir::ExprKind::MethodItem { .. }
             | hir::ExprKind::EnumVariant { .. }
             | hir::ExprKind::TypeQuery { .. }
             | hir::ExprKind::Reflect { .. }
@@ -9307,6 +9372,7 @@ fn expr_effects(body: &hir::Body, e: ExprId) -> bool {
         | K::Static(_)
         | K::AssocConst { .. }
         | K::FnItem { .. }
+        | K::MethodItem { .. }
         | K::EnumVariant { .. }
         | K::Break(_)
         | K::Continue(_)

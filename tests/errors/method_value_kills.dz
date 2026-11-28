@@ -1,0 +1,19 @@
+// expect: DZ0568
+//
+// A method as a value keeps its own clauses, held to the function type it is stored in, as a
+// function's are (spec §6.7, §8.1, T-0261): `Shelf::add` kills what its list owns, and a
+// type that says nothing of it would let a caller keep a view into it across the call.
+
+struct Shelf {
+    pub names: List<String> = List<String>()
+
+    pub fn add(&mut self, s: String) kills self.names@items sends s to self {
+        names.push(s)
+    }
+}
+
+fn main() {
+    let mut shelf = Shelf{}
+    let add: fn(s: &mut Shelf, x: String) sends x to s = Shelf::add
+    add(&mut shelf, String::from("a"))
+}

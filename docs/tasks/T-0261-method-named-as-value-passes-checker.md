@@ -2,7 +2,7 @@
 id: T-0261
 title: A method named as a value passes the checker and fails in C++ generation
 milestone: M19
-status: open
+status: done
 kind: bug
 area: checker
 where: `crates/dz_check/src/check.rs` (`assoc_item`, its last arm); `crates/dz_cpp/src/lib.rs` (the `hir::ExprKind::Error` arm that reports DZ0804)
@@ -42,3 +42,7 @@ the bug whatever is decided about the first.
 
 **Done when** the program above either runs or is refused by `dz check` with a diagnostic
 that is not DZ0804, with a `tests/errors` case or a `tests/run` program to match.
+
+**Done, 2026-11-28 (r162).** The user's call: a method is a value, its receiver first. The checker makes `hir::ExprKind::MethodItem` (`assoc_item`, `method_value`), typed as the function type with the receiver prepended and the method's clauses. `dz_mono` counts it as a call (`called_methods`, and `want_method` for a generic method). The emitter writes a captureless lambda that calls the method, as `result_adapter` does for a function (`Emitter::method_value`). On the way, a function type's parameters were found to compare one way only, so a `fn(&mut T)` passed as a `fn(&T)`. They match exactly now (`assignable` in `dz_hir::ty`).
+
+Tests: `tests/run/method_values`, `tests/errors/method_value_mutability.dz` (DZ0501), `tests/errors/method_value_kills.dz` (DZ0568), and a case in each of `typed` and `typeerrors`.

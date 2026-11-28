@@ -420,6 +420,15 @@ pub enum ExprKind {
         sym: SymbolId,
         type_args: Vec<Ty>,
     },
+    /// A method used as a value, its receiver its first parameter (spec §8.1, T-0261):
+    /// `Counter::add` is a `fn(&mut Counter, i32)`. `owner_args` instantiate a generic owner,
+    /// `Pair<i32>::bump`; `method_args` a generic method, `World::remove<Health>`.
+    MethodItem {
+        owner: SymbolId,
+        owner_args: Vec<Ty>,
+        name: String,
+        method_args: Vec<Ty>,
+    },
     /// Field access resolved to an index into the type's declaration order.
     Field {
         base: ExprId,
@@ -687,7 +696,8 @@ fn map_node_types(e: &mut Expr, s: &dyn Fn(&Ty) -> Ty) {
                 *t = s(t);
             }
         }
-        ExprKind::Call { callee: Callee::Assoc { type_args, method_args, .. }, .. } => {
+        ExprKind::Call { callee: Callee::Assoc { type_args, method_args, .. }, .. }
+        | ExprKind::MethodItem { owner_args: type_args, method_args, .. } => {
             for t in type_args.iter_mut().chain(method_args.iter_mut()) {
                 *t = s(t);
             }
@@ -813,6 +823,7 @@ pub fn remap_children(kind: &ExprKind, f: &mut dyn FnMut(ExprId) -> ExprId) -> O
         | K::Static(_)
         | K::AssocConst { .. }
         | K::FnItem { .. }
+        | K::MethodItem { .. }
         | K::EnumVariant { .. }
         | K::TypeQuery { .. }
         | K::Reflect { .. }

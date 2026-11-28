@@ -2060,3 +2060,18 @@ fn error_literal() -> u32 {
     let e = Error{ code: 3 }
     return e.code
 }
+
+// §8.1, T-0261: DZ0501 — a method as a value takes its receiver as the method does, so a
+// `&mut self` method is not a function of a `&` receiver.
+struct Tick {
+    pub n: i32 = 0
+
+    pub fn up(&mut self) {
+        n += 1
+    }
+}
+
+fn method_value_receiver() {
+    let f: fn(t: &Tick) = Tick::up
+    let _ = f
+}

@@ -250,6 +250,12 @@ impl<'a> Dumper<'a> {
                 let t = self.type_list(&type_args);
                 node!("fn-item {name}{t}")
             }
+            ExprKind::MethodItem { owner, owner_args, name, method_args } => {
+                let ty = self.names.name_of_symbol(owner);
+                let t = self.type_list(&owner_args);
+                let m = self.type_list(&method_args);
+                node!("method-item {ty}{t}::{name}{m}")
+            }
             ExprKind::Field { base, index } => {
                 node!("field #{index}");
                 self.nest(|d| d.expr(base));

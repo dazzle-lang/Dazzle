@@ -2567,3 +2567,9 @@ error[DZ0904]: `Error` is provided by the language, and is not built with a lite
      │             ^^^^^^^^^^^^^^^^ not a literal the language accepts
      │
      = help: build one with `error(code, "…")` (spec §9.2)
+
+error[DZ0501]: expected `fn(&Tick) -> void`, found `fn(&mut Tick) -> void`
+     ┌─ typeerrors/src/errors.dz:2075:27
+     │
+2075 │     let f: fn(t: &Tick) = Tick::up
+     │                           ^^^^^^^^ this is `fn(&mut Tick) -> void`

@@ -8815,8 +8815,105 @@ impl<'a, 'c> Body<'a, 'c> {
                     None => (Ty::Error, hir::ExprKind::Error),
                 }
             }
+            Some(ItemSig::Struct(_))
+                if self
+                    .cx
+                    .table
+                    .methods_sig(owner)
+                    .is_some_and(|s| s.overloads.contains_key(&seg.name.name)) =>
+            {
+                let at = path.segments.iter().position(|s| std::ptr::eq(s, seg)).unwrap_or(0);
+                let owner_seg = at.checked_sub(1).and_then(|i| path.segments.get(i));
+                self.method_value(owner, owner_seg, seg, expected)
+            }
             _ => (Ty::Error, hir::ExprKind::Error),
         }
+    }
+
+    /// `Counter::add` as a value: a function whose first parameter is the receiver, `&mut
+    /// Counter` for a `&mut self` method, followed by the method's own (spec §8.1, T-0261).
+    /// `Pair<i32>::bump` instantiates the owner; a generic method's arguments are written,
+    /// `World::remove<Health>`, or come from the function type it is given to.
+    fn method_value(
+        &mut self,
+        owner: SymbolId,
+        owner_seg: Option<&PathSegment>,
+        seg: &PathSegment,
+        expected: Option<&Ty>,
+    ) -> (Ty, hir::ExprKind) {
+        let name = seg.name.name.clone();
+        let generic = !self.cx.table.type_params(owner).is_empty();
+        let owner_args = match owner_seg {
+            Some(s) if generic => self.cx.type_args(owner, s),
+            _ => Vec::new(),
+        };
+        let Some((sig, _)) = self.method_by_args(owner, &owner_args, &name, &[], seg.span) else {
+            return (Ty::Error, hir::ExprKind::Error);
+        };
+        self.check_member_visible(owner, &name, sig.vis, sig.span, seg.name.span, "method");
+        if let Some(lent) = sig.lends.first() {
+            self.cx.error_help(
+                codes::LENDING_FN_AS_VALUE,
+                seg.span,
+                format!(
+                    "`{name}` lends `{}`, so it cannot be a function value",
+                    lent.root_spelling()
+                ),
+                "used as a value",
+                "a function type has no `lends`, so a caller through the value could not know \
+                 to place what it gives on the heap; call the method by name (spec §22.12)",
+            );
+        }
+        // The receiver is the first parameter, by the reference the method takes it as.
+        let mut value_sig = sig.clone();
+        if let Some(mutable) = sig.takes_self {
+            let receiver = Ty::Ref {
+                mutable,
+                inner: Rc::new(Ty::Named { sym: owner, args: owner_args.clone() }),
+            };
+            value_sig.params.insert(
+                0,
+                crate::ParamSig {
+                    name: "self".to_owned(),
+                    ty: receiver,
+                    has_default: false,
+                    caller_default: None,
+                    c_cast: None,
+                    tie: None,
+                },
+            );
+            value_sig.takes_self = None;
+        }
+        let method_args = self.fn_value_type_args(&value_sig, seg, expected, seg.span);
+        let map: HashMap<u32, Ty> = value_sig
+            .generics
+            .iter()
+            .map(|g| g.param.id)
+            .zip(method_args.iter().cloned())
+            .collect();
+        let params = match self.cx.table.subst(&Ty::Tuple(value_params(&value_sig)), &map) {
+            Ty::Tuple(params) => params,
+            _ => Vec::new(),
+        };
+        let ty = Ty::Fn {
+            params,
+            ret: Rc::new(self.cx.table.subst(&value_sig.ret, &map)),
+            // Its own clauses, held to the type it is stored in, as a function's are (§6.7).
+            kills: if sig.kills_unknown {
+                FnKills::Unknown
+            } else {
+                FnKills::Known {
+                    names: value_sig.params.iter().map(|p| p.name.clone()).collect(),
+                    results: sig.ret_ties.iter().cloned().collect(),
+                    paths: sig.kills.iter().cloned().collect(),
+                    statics: sig.statics.clone().into(),
+                    sends: sig.sends.iter().cloned().collect(),
+                    homes: sig.ret_home.iter().cloned().collect(),
+                }
+            },
+            main_thread: MainThread(sig.main_thread),
+        };
+        (ty, hir::ExprKind::MethodItem { owner, owner_args, name, method_args })
     }
 
     /// Check a struct literal and build its node. Values come back in *declaration*

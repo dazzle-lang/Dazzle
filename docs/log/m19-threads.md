@@ -2,6 +2,24 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## A method is a value (T-0261, r162; 2026-11-28)
+
+`Counter::add` passed the checker as an error node with no diagnostic, since `assoc_item`
+knew variants and constants only, and codegen then stopped with DZ0804. The user chose to
+make it work, as in Rust. The checker's `method_value` builds a `MethodItem`, typed as the
+function type with the receiver first (`&mut Owner` or `&Owner`, as `takes_self` says). It
+carries the method's `kills`, `sends` and results, so storing one is checked as storing a
+function is (DZ0568, DZ0584). `dz_mono` counts it as a call: `called_methods` for a generic
+type's member, which an instance emits only if it is named, and `want_method` for a generic
+method's instance. `Emitter::method_value` writes `+[](Counter& a0, int32_t a1) -> void {
+return ::dz::rt::obj(a0).add(a1); }`, which a C++ function pointer converts from. A method
+that takes a result placement is given the function type's, or the heap.
+
+A gap found on the way: `assignable` compared a function type's parameters one way only,
+so a function taking `&mut Counter` was accepted as a `fn(&Counter)`. A call through the
+value would write through a shared reference, and the C++ build failed on it as a compiler
+bug. Parameters now match both ways.
+
 ## A leaked Rc cycle is named as one (D-0122, r161; 2026-11-28)
 
 The user chose Rust's answer to `Rc` cycles: they leak, which is safe. What a debug build

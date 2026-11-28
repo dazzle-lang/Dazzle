@@ -1,0 +1,18 @@
+// expect: DZ0501
+//
+// A method named as a value takes its receiver first, the way the method takes it:
+// `Counter::add` takes `&mut self`, so it is a `fn(&mut Counter, i32)`. A function type that
+// passes a `&Counter` would let it write through a shared reference (spec §8.1, T-0261).
+
+struct Counter {
+    pub n: i32 = 0
+
+    pub fn add(&mut self, by: i32) {
+        n += by
+    }
+}
+
+fn main() {
+    let f: fn(c: &Counter, by: i32) = Counter::add
+    let _ = f
+}

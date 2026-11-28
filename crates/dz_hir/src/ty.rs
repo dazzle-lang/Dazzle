@@ -1073,8 +1073,13 @@ pub fn assignable(expected: &Ty, actual: &Ty) -> bool {
             Ty::Fn { params: p1, ret: r1, kills: k1, main_thread: m1 },
             Ty::Fn { params: p2, ret: r2, kills: k2, main_thread: m2 },
         ) => {
+            // Each parameter is the same type both ways. A caller through the value passes
+            // what the type's parameter says, so a function wanting more, `&mut Counter` where
+            // the type says `&Counter`, would write through a shared reference; and a C++
+            // function pointer's parameters match exactly, so neither direction converts
+            // (T-0261).
             p1.len() == p2.len()
-                && p1.iter().zip(p2).all(|(x, y)| assignable(x, y))
+                && p1.iter().zip(p2).all(|(x, y)| assignable(x, y) && assignable(y, x))
                 && assignable(r1, r2)
                 && k2.within(k1, p1)
                 && (m1.0 || !m2.0)

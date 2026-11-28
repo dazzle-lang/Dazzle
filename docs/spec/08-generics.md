@@ -79,6 +79,16 @@ trait's other methods are called through it as before (§7.6). `[DECIDED — D-0
 writes its arguments, and `let f: fn(&i32, &i32) -> bool = greater` reads them off the
 function type wanted. Its bounds are checked as at a call.
 
+**So may a method**, as a function whose first parameter is the receiver, taken the way the
+method takes it: `Counter::add`, a `&mut self` method, is a `fn(&mut Counter, i32)`, and a
+method with no receiver is a function of its parameters. A generic type's method is named
+with the instance, `Pair<i32>::set_a`, and a generic method's own arguments are written,
+`Shelf::count_of<bool>`, or read off the function type wanted, as a generic function's are.
+The method's clauses are held to the function type, as a function's are (§6.7). A function
+type's parameters match the function's exactly: one that takes `&mut Counter` is not a
+`fn(&Counter)`, since a caller through the value passes only what the type says
+(`DZ0501`). `[DECIDED — T-0261, r162]`
+
 ## 8.2 Unbounded parameters
 
 `Buffer<T>` has no bound, so `T` supports only what every type supports: being moved,

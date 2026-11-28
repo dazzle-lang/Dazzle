@@ -1,0 +1,9 @@
+[module]
+name    = "method_values"
+sources = ["src/**/*.dz"]
+
+[dependencies]
+std = { open = true }
+
+[build]
+output = "executable"

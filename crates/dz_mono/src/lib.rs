@@ -406,11 +406,16 @@ pub fn called_methods(res: &Resolution, table: &TypeTable, hir: &Hir) -> Called 
     }
     while let Some(b) = queue.pop() {
         for e in &b.exprs {
-            let ExprKind::Call { callee, .. } = &e.kind else { continue };
-            let (owner, name) = match callee {
-                Callee::Method { owner, name, .. }
-                | Callee::BaseMethod { owner, name, .. }
-                | Callee::Assoc { owner, name, .. } => (*owner, base_name(name)),
+            let (owner, name) = match &e.kind {
+                ExprKind::Call {
+                    callee:
+                        Callee::Method { owner, name, .. }
+                        | Callee::BaseMethod { owner, name, .. }
+                        | Callee::Assoc { owner, name, .. },
+                    ..
+                } => (*owner, base_name(name)),
+                // Taken as a value, it may be called through it (spec §8.1, T-0261).
+                ExprKind::MethodItem { owner, name, .. } => (*owner, base_name(name)),
                 _ => continue,
             };
             let named = (owner, name.to_owned());
@@ -782,6 +787,20 @@ impl Worklist<'_> {
                     }
                     if !method_args.is_empty() {
                         self.want_method(*owner, type_args.clone(), name, method_args, here);
+                    }
+                }
+                // A method taken as a value needs what a call of it would (T-0261).
+                ExprKind::MethodItem { owner, owner_args, name, method_args } => {
+                    if !owner_args.is_empty() {
+                        self.visit_ty(&Ty::Named { sym: *owner, args: owner_args.clone() }, here);
+                    }
+                    if !method_args.is_empty() {
+                        for t in method_args {
+                            self.visit_ty(t, here);
+                        }
+                        if method_args.iter().all(|t| !t.has_params()) {
+                            self.want_method(*owner, owner_args.clone(), name, method_args, here);
+                        }
                     }
                 }
                 // A trait's method on a concrete receiver reaches one implementation, which
