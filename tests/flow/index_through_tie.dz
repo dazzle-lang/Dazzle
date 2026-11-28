@@ -1,0 +1,45 @@
+// Spec §6.7, T-0275: an element indexed through a field a struct names by a tie of its own,
+// `tie @items = m_books@items`, is in that field's list like any other element. Refused:
+// keeping a title across a `push` that may move every element. Still legal: the same read
+// with no growth between, and returning a title under the clause that names the elements.
+// expect: DZ0413
+
+pub struct Shelf {
+    m_books: List<String> = List<String>()
+    tie @items = m_books@items
+    tie [*] = m_books[*]
+
+    pub fn add(&mut self, title: String) kills self@items sends title to self {
+        m_books.push(title)
+    }
+
+    pub fn title(&self, i: usize) -> &str in self[*]@text {
+        return m_books[i].as_str()
+    }
+
+    pub fn grows_under(&mut self) kills self@items {
+        let first = m_books[0].as_str()
+        m_books.push(String::from("a title long enough to own a heap block"))
+        println!("{}", first)
+    }
+
+    pub fn reads(&self) -> usize {
+        let first = m_books[0].as_str()
+        return first.len()
+    }
+}
+
+impl Index<usize> for Shelf {
+    type Output = String
+
+    fn index(&self, i: usize) -> &String in self@items {
+        return &m_books[i]
+    }
+}
+
+fn main() {
+    let mut s = Shelf{}
+    s.add(String::from("a title long enough to own a heap block"))
+    s.grows_under()
+    println!("{} {}", s.title(0), s.reads())
+}

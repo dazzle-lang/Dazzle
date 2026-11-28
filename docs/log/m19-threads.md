@@ -2,6 +2,29 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## No give-up left in safe code (T-0275; 2026-11-28)
+
+The last ten places the survey found in safe code are modeled. That leaves only C calls
+and `unsafe` code, which §1.1 already puts outside the promise.
+
+- **`m_books[i]` in a struct that renames the list's tie** lost every view. `index`'s result
+  is spelt by the canonical tie, `self@items`, and the call compared it with the receiver
+  as written, `self.m_books`, so none matched and all were dropped. That was a third real
+  hole: a title kept across `m_books.push(…)` was accepted. Both sides are compared
+  canonically now, and a result nothing covers keeps its views rather than losing them.
+- **"Holds nothing that dies" now means owning nothing too.** A call whose signature's
+  result holds no view is exact, but only when its type needs no drop. Every expression's
+  value is checked for this once, at the end of `expr`. Without it, `format!(…)`'s
+  `String` read as static, and so did a loop over its words.
+- **Loops over temporaries** cover iterators of a temporary too: `over_temporary` walks
+  the receivers, through the `&` and `*` a method call takes, down to a call, an intrinsic
+  or a `format!` whose value owns memory. So do temporary iterators that own their items.
+- **A reference to a temporary that holds nothing** holds nothing either. Plain-`T` tuple
+  parts of an exact tuple are exact.
+
+Tests: `tests/flow/index_through_tie.dz` (new), and `loop_over_temporary.dz` with the
+`format!` case.
+
 ## What the ownership analysis gave up on, modeled (T-0275, r159; 2026-11-27)
 
 T-0275 found that the ties analysis records where it cannot follow a view and nothing

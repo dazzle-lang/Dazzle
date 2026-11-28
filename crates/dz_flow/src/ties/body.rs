@@ -1062,12 +1062,16 @@ impl Analysis<'_> {
             _ => self.expr(base),
         };
         let ty = self.body.ty(id).clone();
-        let carries = super::points(&ty) || super::contains_views(&ty, self.table);
+        // A plain `T` part is never a view (D-0093); nor is static text.
+        let carries = super::points(&ty) || self.holds_views(&ty);
         let mut part = if by_value && (!value.parts.is_empty() || !carries) {
             value.part(index)
         } else if by_value && !value.unknown && !value.views.is_empty() {
             // A tuple a call returned is in the call's tie as a whole (§6.7).
             Value { views: value.views.clone(), ..Value::default() }
+        } else if by_value && value.exact && !value.unknown {
+            // A tuple that holds no view has parts that hold none.
+            Value { exact: true, ..Value::default() }
         } else {
             if carries {
                 self.unchecked(
@@ -1441,8 +1445,14 @@ impl Analysis<'_> {
                             .map_or(Step::Elements, Step::Element);
                         let mut elements = Vec::new();
                         for parent in parents {
+                            // The result is spelt canonically, as the tie that names it:
+                            // `self.m_books@items` is `self@items` where a struct declares
+                            // `tie @items = m_books@items` (T-0207).
+                            let canonical = self.canonical(parent.clone()).target;
                             for origin in &result.views {
-                                if parent.target.covers(&origin.target) {
+                                if parent.target.covers(&origin.target)
+                                    || canonical.covers(&origin.target)
+                                {
                                     let mut origin = origin.clone();
                                     origin.target =
                                         parent.target.followed_by(std::slice::from_ref(&element));
@@ -1450,7 +1460,11 @@ impl Analysis<'_> {
                                 }
                             }
                         }
-                        result.views = elements;
+                        // Never fewer views than the call said: a result no parent covers
+                        // keeps the ones it has, where `index` put it (T-0275).
+                        if !elements.is_empty() || result.views.is_empty() {
+                            result.views = elements;
+                        }
                     }
                 }
             }
@@ -2155,7 +2169,12 @@ impl Analysis<'_> {
                                 );
                             }
                         }
-                        ReturnTie::None => {}
+                        // The signature's result holds no view: a plain `T` given static text at
+                        // most, since a view there is refused (DZ0517, D-0093). Not when it owns
+                        // memory: a `String` holds no view, but a view into it dies with it.
+                        ReturnTie::None => {
+                            value.exact = !self.table.needs_drop(&signature.sig.ret);
+                        }
                     }
                 }
                 Err(_) => self.incomplete(span, "a callee's tie path does not resolve"),
@@ -3293,6 +3312,33 @@ impl Analysis<'_> {
             && error.fields().get(index).is_some_and(|(name, _)| *name == "message")
     }
 
+    /// Whether `subject` is a method call made, through any chain of methods, on a value no
+    /// place holds that owns memory: `format!(…).split_whitespace()`. What it hands out is in
+    /// that temporary, which lives until the statement ends (spec §6.5).
+    fn over_temporary(&self, subject: ExprId) -> bool {
+        // Down the receivers, through the `&` and `*` a method call takes, to the first value
+        // that is not a method call's result.
+        let mut e = subject;
+        let mut called = false;
+        for _ in 0..16 {
+            let node = self.body.expr(e);
+            match &node.kind {
+                hir::ExprKind::Call { callee: Callee::Method { recv, .. }, .. } => {
+                    called = true;
+                    e = *recv;
+                }
+                hir::ExprKind::Ref { place: inner, .. } | hir::ExprKind::Deref(inner) => e = *inner,
+                hir::ExprKind::Call { .. }
+                | hir::ExprKind::Intrinsic { .. }
+                | hir::ExprKind::Formatted { .. } => {
+                    return called && self.table.needs_drop(node.ty.peeled_refs());
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
     /// Whether a call's result, with no `in`, can only be in inputs that hold no view of
     /// anything that dies: each view input it may be in is exact, a literal or a `const`.
     fn static_inputs(&self, signature: &Signature, recv: Option<&Value>, args: &[Value]) -> bool {
@@ -3849,9 +3895,10 @@ impl Analysis<'_> {
                     Some(container) => {
                         let value = self.expr(container);
                         let element = self.iterated_origins(container, &value, span);
+                        // Whether or not it holds a view: a `List<String>` holds none, and
+                        // still frees its elements when dropped.
                         temporary = element.is_empty()
                             && value.places.is_empty()
-                            && !value.exact
                             && self.table.needs_drop(self.body.ty(container).peeled_refs());
                         let iterator = Value { views: element.clone(), ..Value::default() };
                         (element, iterator)
@@ -3882,9 +3929,25 @@ impl Analysis<'_> {
                                 // An array of literals, a `const` table, or an iterator over
                                 // static text holds nothing that dies: its elements are
                                 // followed, holding no view.
-                                static_subject = value.exact && !value.unknown;
+                                // Static only if it owns nothing: an iterator that owns its
+                                // items, though it holds no view, frees them when dropped.
+                                let owns =
+                                    self.table.needs_drop(self.body.ty(subject).peeled_refs());
+                                static_subject = value.exact && !value.unknown && !owns;
                                 followed |= static_subject;
                                 let element = self.index_origins(subject, &value, span);
+                                // An iterator over a temporary that owns its memory,
+                                // `format!(…).split_whitespace()`, or a temporary iterator that
+                                // owns its items: as a temporary container's elements, they die
+                                // with the loop.
+                                let owning_temporary = owns && value.places.is_empty();
+                                if element.is_empty()
+                                    && !static_subject
+                                    && (owning_temporary || self.over_temporary(subject))
+                                {
+                                    temporary = true;
+                                    followed = true;
+                                }
                                 let iterator = Value {
                                     views: self.targets(subject, &value),
                                     unknown: value.unknown,
@@ -4089,7 +4152,11 @@ impl Analysis<'_> {
                     } else {
                         value.places
                     };
-                Value { views, unknown: value.unknown, ..Value::default() }
+                // A reference to a temporary that holds no view, `&Cat{ name: "tom" }`, is
+                // passed on and never kept, which DZ0407 refuses (spec §6.5): nothing it
+                // points at dies before the statement ends.
+                let exact = views.is_empty() && value.exact && !value.unknown;
+                Value { views, unknown: value.unknown, exact, ..Value::default() }
             }
             hir::ExprKind::Deref(inner) => {
                 let value = self.expr(inner);
@@ -4646,6 +4713,11 @@ impl Analysis<'_> {
             && self.holds_views(&node.ty)
         {
             value.unknown = true;
+        }
+        // Exact means nothing a view of the value reaches can die: so never a value that owns
+        // memory, a `String` say, which holds no view and frees its text when dropped.
+        if value.exact && self.table.needs_drop(node.ty.peeled_refs()) && !super::points(&node.ty) {
+            value.exact = false;
         }
         value
     }

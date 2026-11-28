@@ -1,8 +1,9 @@
 // Spec §6.5, §6.7, T-0275: a `for` over a container no place holds, `for &s in make()`, walks
-// a temporary that is dropped when the loop ends. Refused: returning a view of an element,
-// which then points into the freed list. Still legal: reading the element, and returning a
-// copy of it or an owned value made from it.
-// expect: DZ0413
+// a temporary that is dropped when the loop ends, and so does one over an iterator of a
+// temporary, `format!(…).split_whitespace()`. Refused: returning a view of an element or a
+// word, which then points into freed memory. Still legal: reading them, and returning a copy
+// or an owned value made from them.
+// expect: DZ0413, DZ0413
 
 fn make() -> List<String> {
     let mut xs = List<String>()
@@ -15,6 +16,21 @@ fn escapes(keep: &String) -> &str {
         return s.as_str()
     }
     return keep.as_str()
+}
+
+fn word_escapes(keep: &String) -> &str {
+    for w in format!("{} and more", keep).split_whitespace() {
+        return w
+    }
+    return keep.as_str()
+}
+
+fn words() -> usize {
+    let mut n: usize = 0
+    for w in format!("one two  three").split_whitespace() {
+        n += w.len()
+    }
+    return n
 }
 
 fn fine() -> String {
@@ -32,5 +48,5 @@ fn fine() -> String {
 
 fn main() {
     let k = String::from("k")
-    println!("{} {}", escapes(&k), fine())
+    println!("{} {} {} {}", escapes(&k), word_escapes(&k), words(), fine())
 }

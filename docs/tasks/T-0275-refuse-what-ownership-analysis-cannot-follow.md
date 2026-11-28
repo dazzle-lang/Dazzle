@@ -54,12 +54,30 @@ give-up reported as a warning (a temporary loop in `report.rs` over `a.unchecked
   `return s.as_str()` returned text from the freed list. A view binding there now stands
   for the element itself, which dies with the pass (DZ0413).
 
-Left in safe code (about 10 places): `^str` results with `or` (`f.tag_value("json") or
-"-"`), a loop over a temporary `String`'s `split_whitespace()`, a tuple a generic call
-returns (`s.0`), variadic arguments built into an array (`tell("mixed", c, n, …)`), and a
-result through `or unreachable`. Not holes, by §1.1: C and C++ calls (27, vouched by their
-recipe) and code inside `unsafe` (22). Once those are modeled, the last step is to make a
-give-up outside `unsafe` an error.
+**The rest of the safe-code cases, 2026-11-28.** No give-up is left in safe code in the
+corpus or the examples:
+
+- **An element indexed through a renamed tie.** `m_books[i]` in a struct that declares `tie
+  @items = m_books@items` lost every view, because `index`'s result is spelt by the
+  canonical tie and was compared with the uncanonical field. This was a third real hole:
+  `let t = m_books[0].as_str()` kept across `m_books.push(…)` was accepted. The two are
+  compared canonically now, and an index result no parent covers keeps the views it has.
+- **A reference to a temporary that holds no view** (`&Cat{ name: "tom" }` given to a
+  variadic `..&Describe`) holds none either. It can only be passed on, since DZ0407 refuses
+  keeping one.
+- **A call whose signature's result holds no view** (`ReturnTie::None`) returns an exact
+  value. That covers a plain-`T` tuple, `swap<i32, const &str>(…)`, since DZ0517 already
+  refuses a view for a plain `T`. A tuple part of an exact tuple is exact.
+- **A loop over an iterator of a temporary**, `format!(…).split_whitespace()`, or over a
+  temporary iterator that owns its items. These are followed as a temporary container's
+  elements are, so returning a word is refused (DZ0413).
+- **An exact value never owns memory.** A `String` holds no view, but a view into it dies
+  with it. Without this rule a `format!` temporary read as static.
+
+Not holes, by §1.1: C and C++ calls (27 places, vouched by their recipe) and code inside
+`unsafe` (22). What is left of this task is the last step: make a give-up outside `unsafe`
+and outside a C call an error, so that a case nobody has modeled yet is refused, not
+accepted.
 
 ## Where the code is
 
@@ -69,4 +87,5 @@ give-up outside `unsafe` an error.
 | What reads them | `crates/dz_flow/src/ties/report.rs` (`incomplete` only); `crates/dz_flow/tests/ties.rs` |
 | Values known to hold no view | `Value::exact`; `Analysis::followed`, `aggregate`, `static_inputs`, `holds_views` in `body.rs` |
 | `Error`'s message | `Analysis::sets_error_message`, `static_text`; `BodyAnalysis::dynamic_messages`; DZ0435 in `report.rs` |
-| Tests | `tests/flow/error_message_static.dz`, `tests/flow/aggregate_views.dz`, `tests/flow/loop_over_temporary.dz` |
+| Temporaries in a loop head | `Analysis::over_temporary`; `temporary`, `static_subject` in the `For` arm of `stmt` |
+| Tests | `tests/flow/error_message_static.dz`, `aggregate_views.dz`, `loop_over_temporary.dz`, `index_through_tie.dz` |
