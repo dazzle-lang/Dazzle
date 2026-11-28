@@ -213,7 +213,7 @@ pub trait Text {
 
     /// The pieces between each `separator`: `"a,,b".split(",")` gives `"a"`, `""`, `"b"`.
     /// An empty separator gives the whole text as one piece.
-    fn split(&self, separator: &str) -> Split in self {
+    fn split(&self, separator: &str) -> Split in (self, separator) {
         return Split(self.text(), separator)
     }
 

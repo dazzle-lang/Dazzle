@@ -2559,3 +2559,11 @@ error[DZ0902]: `countof` takes a pack, and `i32` is not one
      │                    ^^^ not a pack
      │
      = help: `countof(A)` is how many types the pack `A`, declared `<..A>`, holds; a tuple's length is known where its type is written out (spec §8.7)
+
+error[DZ0904]: `Error` is provided by the language, and is not built with a literal
+     ┌─ typeerrors/src/errors.dz:2060:13
+     │
+2060 │     let e = Error{ code: 3 }
+     │             ^^^^^^^^^^^^^^^^ not a literal the language accepts
+     │
+     = help: build one with `error(code, "…")` (spec §9.2)

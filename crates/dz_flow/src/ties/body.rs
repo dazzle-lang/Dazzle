@@ -220,6 +220,9 @@ pub struct BodyAnalysis {
     /// `e.message = …` given text that is not static, with the assigned value's span: an
     /// `Error` may travel anywhere, so every message is static (spec §9.2).
     pub dynamic_messages: Vec<Span>,
+    /// What the walk could not follow in safe code, outside `unsafe` and C calls: refused,
+    /// since nothing else checks it (spec §6.7, T-0275).
+    pub unfollowed: Vec<Incomplete>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -565,6 +568,9 @@ struct Analysis<'a> {
     /// The `parallel for` loops being walked, innermost last: what each one's body reads of
     /// the `Rc`s from outside it (see [`PassFrame`]).
     passes: Vec<PassFrame>,
+    /// Inside a call to a C or C++ function, whose header says nothing of what it keeps or
+    /// kills: what the walk cannot follow there is the recipe's to vouch for (spec §1.1, §15.1).
+    foreign: bool,
 }
 
 /// One `parallel for` being walked: its first binding, before which every local is from
@@ -809,6 +815,7 @@ fn analyse(
         parallel: None,
         moved_from: HashMap::new(),
         passes: Vec::new(),
+        foreign: false,
     };
     let signature = body_signature(body, table, res);
     if signature.as_ref().is_some_and(|s| s.sig.is_unsafe) {
@@ -1004,6 +1011,27 @@ impl Analysis<'_> {
                         }
                     })
                     .collect();
+            } else if self.table.placed_as_view(self.body.ty(base).peeled_refs())
+                && !matches!(field_ty, Ty::Ptr { .. } | Ty::OwnPtr { .. })
+            {
+                // A view field of a view struct points where the struct's views do (D-0093).
+                // A local's are in its state; a parameter's or `self`'s are the field itself,
+                // which the struct's tie names: `m_slice` is `self@items` where it declares
+                // `tie @items = m_slice`, so `&m_slice[i]` is in `self@items`.
+                let targets = self.targets(base, &value);
+                for (o, field_place) in targets.iter().zip(&places) {
+                    let local = !self.body.params.contains(&o.target.local);
+                    let held = local
+                        .then(|| self.what_it_views(o))
+                        .flatten()
+                        .unwrap_or_else(|| vec![field_place.clone()]);
+                    for h in held {
+                        if !views.contains(&h) {
+                            views.push(h);
+                        }
+                    }
+                }
+                unknown = views.is_empty();
             } else {
                 unknown = true;
             }
@@ -1979,6 +2007,8 @@ impl Analysis<'_> {
         handles: &Handles,
         span: Span,
     ) -> Value {
+        let outer_foreign = self.foreign;
+        self.foreign |= signature.sig.kills_unknown;
         let scope = signature.scope(self.table, self.res);
         let origins = |value: &Value, reference: bool| {
             if reference {
@@ -2025,7 +2055,20 @@ impl Analysis<'_> {
         for bindings in variants {
             match signature.effects(&scope, &bindings) {
                 Ok(effects) => {
-                    if effects.incomplete {
+                    // A kill through a temporary, `make().push(x)`: nothing this body can
+                    // still use is in it, since a view of a temporary cannot be kept (DZ0407).
+                    let temporary = |v: Option<&Value>| {
+                        v.is_some_and(|v| v.places.is_empty() && v.views.is_empty() && !v.unknown)
+                    };
+                    let unbound_are_temporaries = (bindings.receiver.is_some()
+                        || signature.sig.takes_self.is_none()
+                        || temporary(recv))
+                        && signature.sig.params.iter().enumerate().all(|(i, p)| {
+                            !super::mutable_input(&p.ty)
+                                || bindings.params.get(i).is_some_and(Option::is_some)
+                                || temporary(args.get(i))
+                        });
+                    if effects.incomplete && !unbound_are_temporaries {
                         self.incomplete(span, "a call effect has unknown provenance");
                     }
                     for kill in effects.kills {
@@ -2160,13 +2203,85 @@ impl Analysis<'_> {
                         ReturnTie::Unknown if self.static_inputs(signature, recv, args) => {
                             value.exact = true;
                         }
+                        // A view struct's constructor keeps what it is given, `Split(text,
+                        // separator)`: its value is in every view input, as `in (a, b)` says
+                        // (D-0093).
+                        ReturnTie::Unknown
+                            if signature.sig.takes_self.is_none()
+                                && signature.sig.ret_ties.is_empty()
+                                && self.table.placed_as_view(&signature.sig.ret) =>
+                        {
+                            for (i, p) in signature.sig.params.iter().enumerate() {
+                                if !dz_check::ties::view_input(self.table, &p.ty) {
+                                    continue;
+                                }
+                                let arg = args.get(i);
+                                if arg.map_or(true, |a| a.unknown) {
+                                    value.unknown = true;
+                                }
+                                for origin in &params[i] {
+                                    let held = self
+                                        .what_it_views(origin)
+                                        .unwrap_or_else(|| vec![origin.clone()]);
+                                    for o in held {
+                                        if !value.views.contains(&o) {
+                                            value.views.push(o);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // `in (self, separator)` given a literal separator: a root that holds
+                        // nothing that dies adds nothing, and the result is in the others.
+                        ReturnTie::Unknown
+                            if !signature.sig.ret_ties.is_empty()
+                                && self
+                                    .static_roots_only_unbound(signature, &scope, recv, args) =>
+                        {
+                            for root in result_roots(signature, &scope) {
+                                let input = match root {
+                                    dz_check::ties::Root::SelfValue => &receiver,
+                                    dz_check::ties::Root::Param(i) => &params[i],
+                                    dz_check::ties::Root::Static(_) => continue,
+                                };
+                                for origin in input {
+                                    let held = self
+                                        .what_it_views(origin)
+                                        .unwrap_or_else(|| vec![origin.clone()]);
+                                    for o in held {
+                                        if !value.views.contains(&o) {
+                                            value.views.push(o);
+                                        }
+                                    }
+                                    if origin.target.steps.is_empty() {
+                                        if let Some(v) = self.state.get(&origin.target.local) {
+                                            for o in v.views.clone() {
+                                                if !value.views.contains(&o) {
+                                                    value.views.push(o);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         ReturnTie::Unknown => {
                             value.unknown = true;
                             if !receiver.is_empty() || params.iter().any(|p| !p.is_empty()) {
+                                // A raw pointer from an allocator, say: untied, so safe code
+                                // can neither read through it nor make a reference of it
+                                // (spec §5.2, T-0114), and losing where it points hides
+                                // nothing.
+                                let raw = matches!(
+                                    signature.sig.ret,
+                                    Ty::Ptr { .. } | Ty::OwnPtr { .. } | Ty::RawCStr
+                                );
+                                self.unsafe_depth += u32::from(raw);
                                 self.unchecked(
                                     span,
                                     "a returned view has no unambiguous input tie",
                                 );
+                                self.unsafe_depth -= u32::from(raw);
                             }
                         }
                         // The signature's result holds no view: a plain `T` given static text at
@@ -2315,6 +2430,7 @@ impl Analysis<'_> {
         value.vouched |= declares
             && !signature.sig.is_unsafe
             && (signature.sig.has_body || signature.sig.takes_self.is_some());
+        self.foreign = outer_foreign;
         value
     }
 
@@ -3339,6 +3455,37 @@ impl Analysis<'_> {
         false
     }
 
+    /// Whether every root of a call's `in` that did not bind is an input holding nothing that
+    /// dies, a literal say, and at least one root did bind: the result is then in those.
+    fn static_roots_only_unbound(
+        &self,
+        signature: &Signature,
+        scope: &super::Scope,
+        recv: Option<&Value>,
+        args: &[Value],
+    ) -> bool {
+        let quiet = |v: Option<&Value>| {
+            v.is_some_and(|v| v.exact && !v.unknown && v.held_views().is_empty())
+        };
+        let bound = |v: Option<&Value>| {
+            v.is_some_and(|v| !v.unknown && !(v.places.is_empty() && v.views.is_empty()))
+        };
+        let mut any_bound = false;
+        for root in result_roots(signature, scope) {
+            let input = match root {
+                dz_check::ties::Root::SelfValue => recv,
+                dz_check::ties::Root::Param(i) => args.get(i),
+                dz_check::ties::Root::Static(_) => continue,
+            };
+            if bound(input) {
+                any_bound = true;
+            } else if !quiet(input) {
+                return false;
+            }
+        }
+        any_bound
+    }
+
     /// Whether a call's result, with no `in`, can only be in inputs that hold no view of
     /// anything that dies: each view input it may be in is exact, a literal or a `const`.
     fn static_inputs(&self, signature: &Signature, recv: Option<&Value>, args: &[Value]) -> bool {
@@ -3371,7 +3518,20 @@ impl Analysis<'_> {
                 && value.held_views().iter().all(|o| super::static_of(o.target.local).is_some())
     }
 
+    /// A give-up in safe code: outside `unsafe`, and not at a call to C or C++, which §1.1
+    /// leaves to the code that vouches for it. Safe code the walk cannot follow is refused,
+    /// since it may read freed memory (spec §6.7, T-0275).
+    fn refusable(&mut self, span: Span, reason: &'static str) {
+        if self.unsafe_depth == 0 && !self.foreign {
+            let item = Incomplete { span, reason };
+            if !self.result.unfollowed.contains(&item) {
+                self.result.unfollowed.push(item);
+            }
+        }
+    }
+
     fn unchecked(&mut self, span: Span, reason: &'static str) {
+        self.refusable(span, reason);
         let item = Incomplete { span, reason };
         if !self.result.unchecked.contains(&item) {
             self.result.unchecked.push(item);
@@ -3379,6 +3539,7 @@ impl Analysis<'_> {
     }
 
     fn incomplete(&mut self, span: Span, reason: &'static str) {
+        self.refusable(span, reason);
         let item = Incomplete { span, reason };
         if !self.result.incomplete.contains(&item) {
             self.result.incomplete.push(item);
@@ -4434,17 +4595,22 @@ impl Analysis<'_> {
                                     // A pointer whose tie is unknown, returned under one,
                                     // would make it look tied to the caller: an untied one
                                     // laundered into a safe `or` (T-0114).
-                                    if super::or_pointer(&returned_ty)
+                                    let untied = super::or_pointer(&returned_ty)
                                         && self.unsafe_depth == 0
-                                        && !self.vouched(returned_id)
-                                    {
+                                        && !self.vouched(returned_id);
+                                    if untied {
                                         let at = self.body.expr(returned_id).span;
                                         self.result.untied_returns.push((node.span, at));
                                     }
+                                    // `return unsafe { … }` vouches for what it returns, and an
+                                    // untied one is refused already (DZ0419): one error a place.
+                                    let vouched = self.vouched(returned_id) || untied;
+                                    self.unsafe_depth += u32::from(vouched);
                                     self.unchecked(
                                         node.span,
                                         "the returned view's provenance is unknown",
                                     );
+                                    self.unsafe_depth -= u32::from(vouched);
                                 }
                             }
                             ReturnTie::Unknown if !returned.is_empty() => self.unchecked(
@@ -4716,7 +4882,12 @@ impl Analysis<'_> {
         }
         // Exact means nothing a view of the value reaches can die: so never a value that owns
         // memory, a `String` say, which holds no view and frees its text when dropped.
-        if value.exact && self.table.needs_drop(node.ty.peeled_refs()) && !super::points(&node.ty) {
+        // A view struct with a `drop` needs one and owns nothing it views.
+        if value.exact
+            && self.table.needs_drop(node.ty.peeled_refs())
+            && !super::points(&node.ty)
+            && !self.table.placed_as_view(node.ty.peeled_refs())
+        {
             value.exact = false;
         }
         value

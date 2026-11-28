@@ -1,0 +1,33 @@
+// Spec §6.7, T-0275: `split` hands back a `Split`, which holds a view of the separator as
+// well as of the text, so it is `in (self, separator)`. Refused: growing the separator's
+// `String` while the split is still walked, which read freed memory and split wrongly. Still
+// legal: a literal separator, and a separator that outlives the walk.
+// expect: DZ0413, DZ0413
+
+fn grows_separator() {
+    let t = String::from("a, b, c")
+    let mut sep = String::from(", ")
+    let it = t.split(sep.as_str())
+    sep.push_str("and now long enough to move its text to another heap block")
+    for piece in it {
+        println!("[{}]", piece)
+    }
+}
+
+fn fine() -> usize {
+    let t = String::from("a, b, c")
+    let sep = String::from(", ")
+    let mut n: usize = 0
+    for piece in t.split(sep.as_str()) {
+        n += piece.len()
+    }
+    for piece in t.split(",") {
+        n += piece.len()
+    }
+    return n
+}
+
+fn main() {
+    grows_separator()
+    println!("{}", fine())
+}

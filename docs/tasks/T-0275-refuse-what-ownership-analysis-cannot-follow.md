@@ -2,7 +2,7 @@
 id: T-0275
 title: Refuse what the ownership analysis cannot follow, instead of accepting it
 milestone: M19
-status: open
+status: done
 kind: design
 area: ownership
 ---
@@ -75,9 +75,29 @@ corpus or the examples:
   with it. Without this rule a `format!` temporary read as static.
 
 Not holes, by §1.1: C and C++ calls (27 places, vouched by their recipe) and code inside
-`unsafe` (22). What is left of this task is the last step: make a give-up outside `unsafe`
-and outside a C call an error, so that a case nobody has modeled yet is refused, not
-accepted.
+`unsafe` (22).
+
+**Done, 2026-11-28 (r160).** A give-up in safe code is now an error, DZ0436
+(`BodyAnalysis::unfollowed`, filled by `Analysis::refusable`). It is not raised inside
+`unsafe`, at a call to C or C++ (`kills_unknown`, `Analysis::foreign`), in `std`'s bodies,
+or where another error already refuses the same place. Making it an error first showed more
+cases in `tests/flow` and in `std`, which the corpus survey had not covered. These were
+modeled, not refused:
+
+- A view field of a view struct (`&p.items[p.at]`) is in the field the struct's tie names.
+- A view struct's constructor (`Split(text, separator)`) is in every view input.
+- A literal root of an `in` (`split(",")`) adds nothing.
+- A kill through a temporary (`make().push(x)`) reaches nothing kept.
+- A raw pointer from an allocator, which only `unsafe` can use, is not refused.
+
+**A fourth real hole was found in `std` itself**: `split` said `in self`, but its `Split`
+holds the separator too. A split kept while the separator's `String` grew read freed memory
+and split wrongly. It is `in (self, separator)` now. `std` keeps one trusted give-up,
+`SliceIterMut::part`, which builds its result from an `unsafe` slice.
+
+Tests: `tests/flow/temporary_receiver.dz` (accepted), `split_keeps_separator.dz`. DZ0436
+has no example program in `dz explain`, since none in the corpus reaches it: it is the
+backstop for a shape nobody has modeled yet.
 
 ## Where the code is
 
@@ -88,4 +108,5 @@ accepted.
 | Values known to hold no view | `Value::exact`; `Analysis::followed`, `aggregate`, `static_inputs`, `holds_views` in `body.rs` |
 | `Error`'s message | `Analysis::sets_error_message`, `static_text`; `BodyAnalysis::dynamic_messages`; DZ0435 in `report.rs` |
 | Temporaries in a loop head | `Analysis::over_temporary`; `temporary`, `static_subject` in the `For` arm of `stmt` |
-| Tests | `tests/flow/error_message_static.dz`, `aggregate_views.dz`, `loop_over_temporary.dz`, `index_through_tie.dz` |
+| The refusal | `Analysis::refusable`, `foreign`; `BodyAnalysis::unfollowed`; DZ0436 in `report.rs` (the `std` and already-refused filters) |
+| Tests | `tests/flow/error_message_static.dz`, `aggregate_views.dz`, `loop_over_temporary.dz`, `index_through_tie.dz`, `temporary_receiver.dz`, `split_keeps_separator.dz` |

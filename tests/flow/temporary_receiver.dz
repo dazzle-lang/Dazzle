@@ -1,0 +1,18 @@
+// Spec §6.7, T-0275: a call that kills through a temporary, `make().push(x)`, cannot place its
+// kill, since no place holds the temporary. It reaches nothing the body can still use, as a
+// view of a temporary cannot be kept (DZ0407), so it is not refused as code the check cannot
+// follow (DZ0436). Correct code, which must produce nothing at all.
+// expect: (none)
+
+fn make() -> List<String> {
+    let mut xs = List<String>()
+    xs.push(String::from("a"))
+    return xs
+}
+
+fn main() {
+    make().push(String::from("x"))
+    make().clear()
+    let n = make().len()
+    println!("{}", n)
+}

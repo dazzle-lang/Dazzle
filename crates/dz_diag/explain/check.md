@@ -2222,3 +2222,31 @@ fn main() {
     }
 }
 ```
+
+## DZ0904
+
+`Error` and `SourceLocation` are provided by the language, and it builds them itself: an
+error's message and location go into the static slots `error(…)` fills, and a location is
+what `#location` records where it is written (spec §9.2, §12.7). A literal would build one
+with no slot behind it, so neither is written with braces.
+
+```dz
+fn failed() -> u32 {
+    let e = Error{ code: 3 }
+    return e.code
+}
+
+fn main() {
+    let _ = failed()
+}
+```
+
+```dz
+fn failed() !-> u32 {
+    return error(3, "it failed")
+}
+
+fn main() {
+    let _ = failed() or 0
+}
+```

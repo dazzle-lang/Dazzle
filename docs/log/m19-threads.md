@@ -2,6 +2,26 @@
 
 The 0.3 milestone for threads (spec §19, §22). Newest first.
 
+## Safe code the check cannot follow is refused (T-0275, r160; 2026-11-28)
+
+The backstop T-0275 asked for. Every `unchecked` and `incomplete` the ties walk records
+also goes through `Analysis::refusable`, which keeps it in `BodyAnalysis::unfollowed`
+unless it is inside `unsafe` or at a call to C or C++. `report.rs` reports those as DZ0436,
+except in `std`'s bodies (§1.1 trusts them) and where another error already covers the same
+place. That keeps one diagnostic per position: an untied return is DZ0419, a view of a
+temporary DZ0407.
+
+Turning it on showed shapes the corpus survey had not reached, in `tests/flow` and `std`.
+All were modeled instead of refused: a view struct's view field, a view struct's
+constructor given two views, an `in` with a literal root, a kill through a temporary, and
+an allocator's raw pointer. One was a real hole in `std`: `split`'s `Split` keeps the
+separator, and the signature said `in self`, so a separator that grew under a live split
+was read after it was freed. It is `in (self, separator)` now.
+
+`Error{}` and `SourceLocation{}`, which the checker turned into an error node with no
+message and codegen then reported as "the compiler lost track of this expression"
+(DZ0804), are now a checker error, DZ0904, with the way to build each.
+
 ## No give-up left in safe code (T-0275; 2026-11-28)
 
 The last ten places the survey found in safe code are modeled. That leaves only C calls

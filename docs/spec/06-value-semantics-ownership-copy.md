@@ -777,3 +777,9 @@ which `dz fix` writes; a returned view that does not say where it points (`DZ057
 `DZ0571`); and a function stored where its function type's clauses promise less than its
 own (`DZ0568` for `kills`, `DZ0572` for `in`, `DZ0584` for `sends`). A debug build also
 checks `std`'s trusted clauses at run time (T-0116, r102).
+
+**Safe code the check cannot follow is refused** (`DZ0436`, T-0275), rather than accepted
+unchecked. That is a view whose provenance it lost, or a call whose kill it cannot place.
+Outside `unsafe`, a shape the check does not model could hide a use of freed memory. What it
+cannot follow inside `unsafe { … }`, or at a call into C or C++, is left to what vouches for
+it, as §1.1 says.

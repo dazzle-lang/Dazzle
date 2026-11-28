@@ -1212,3 +1212,15 @@ fn main() {
     let _ = named("x") or 0
 }
 ```
+
+## DZ0436
+
+Safe code is checked so that no view outlives what it points into (spec §6.7). Where the check
+meets a shape it does not model, a view whose provenance it lost or a call whose kill it
+cannot place, it refuses the code rather than accept it unchecked, since that is where a use
+of freed memory would pass unseen. Write it another way: bind a temporary to a `let`, or split
+a long expression. Or put it in `unsafe { … }` if you vouch for it. Calls into C and C++ are
+the recipe's to vouch for, and are not refused.
+
+No example: every shape the corpus and the examples use is modeled, so this is the check's
+backstop; T-0275 lists what it guards.

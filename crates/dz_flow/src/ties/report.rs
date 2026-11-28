@@ -42,6 +42,34 @@ pub fn report(
         })
     };
     let start = diags.iter().count();
+    // `std`'s bodies are trusted, as §1.1 lists them. The one place the check cannot follow
+    // there is `SliceIterMut::part`, which builds its result from an `unsafe` slice (T-0275).
+    let in_std = map.try_get(file).is_some_and(|f| f.path().starts_with("<std>"));
+    // A shape already refused for what it is, `return String::from(x).as_str()` by DZ0407,
+    // is not refused again for being one the check cannot follow: one error a place.
+    let refused: Vec<Span> = diags
+        .iter()
+        .filter(|d| matches!(d.severity, dz_diag::Severity::Error))
+        .filter_map(|d| d.primary_span())
+        .filter(|(f, _)| *f == file)
+        .map(|(_, s)| s)
+        .collect();
+    let overlaps = |s: Span| refused.iter().any(|r| r.start < s.end && s.start < r.end);
+    for i in a.unfollowed.iter().filter(|i| !in_std && !overlaps(i.span)) {
+        diags.push(
+            Diagnostic::error(
+                codes::UNFOLLOWED,
+                format!("the ownership check cannot follow this: {}", i.reason),
+            )
+            .at(file, i.span, "not followed")
+            .with_help(
+                "safe code is checked so that no view outlives what it points into, and this \
+                 is a shape the check does not model yet, so it could hide a use of freed \
+                 memory; write it another way (bind a temporary to a `let`, say), or put it \
+                 in `unsafe { … }` if you vouch for it (spec §6.7)",
+            ),
+        );
+    }
     for at in &a.dynamic_messages {
         diags.push(
             Diagnostic::error(

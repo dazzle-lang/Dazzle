@@ -2053,3 +2053,10 @@ fn pattern_of_no_pack(_x: (..i32?)) {}
 fn count_of_a_type() -> usize {
     return countof(i32)
 }
+
+// §9.2, §12.7: DZ0904 — `Error` and `SourceLocation` are the language's own, built by
+// `error(…)` and `#location`, never with a literal.
+fn error_literal() -> u32 {
+    let e = Error{ code: 3 }
+    return e.code
+}

@@ -259,6 +259,10 @@ pub const LENT_ARGUMENT_REACHED: &str = "DZ0434";
 /// An `Error`'s `message` set to text that is not static: an error outlives the call that
 /// made it, carried up by `or return`, so its message must outlive everything (spec §9.2).
 pub const ERROR_MESSAGE_NOT_STATIC: &str = "DZ0435";
+/// Safe code the ownership check cannot follow: where a view points, or what a call kills,
+/// is unknown, so a use of freed memory could pass unseen (spec §6.7, T-0275). `unsafe` and
+/// a C or C++ call are left to what vouches for them.
+pub const UNFOLLOWED: &str = "DZ0436";
 
 // --- DZ05xx: type checking -----------------------------------------------------
 
@@ -646,5 +650,8 @@ pub const BAD_PACK_USE: &str = "DZ0902";
 /// into fixed parameters; or a pattern `..e` that cannot be copied per element (spec §7.2,
 /// §8.7).
 pub const BAD_SPREAD: &str = "DZ0903";
+/// A literal of `Error` or `SourceLocation`, which the language builds itself: an error with
+/// `error(…)`, a location with `#location` (spec §9.2, §12.7).
+pub const BUILTIN_LITERAL: &str = "DZ0904";
 // DZ0904, a tuple longer than sixteen elements, was retired unreleased (T-0269): the
 // runtime's `Tuple` nests past sixteen, so a tuple of any length reaches C++.

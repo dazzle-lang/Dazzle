@@ -8849,6 +8849,25 @@ impl<'a, 'c> Body<'a, 'c> {
     }
 
     fn struct_literal(&mut self, ty: &Ty, fields: &[FieldInit], span: Span) -> hir::ExprKind {
+        // The two structs the language provides are built by it: an error's message and
+        // location are in static slots `error(…)` fills, and a location is `#location`'s.
+        if let Ty::Builtin(b) = ty {
+            let (name, how) = match b {
+                ty::BuiltinTy::Error => {
+                    ("Error", "build one with `error(code, \"…\")` (spec §9.2)")
+                }
+                ty::BuiltinTy::SourceLocation => {
+                    ("SourceLocation", "take one with `#location` (spec §12.7)")
+                }
+            };
+            self.cx.error_help(
+                codes::BUILTIN_LITERAL,
+                span,
+                format!("`{name}` is provided by the language, and is not built with a literal"),
+                "not a literal the language accepts",
+                how.to_owned(),
+            );
+        }
         let Some(sym) = ty.named() else {
             for f in fields {
                 self.expr(&f.value, None);
